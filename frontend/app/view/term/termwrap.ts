@@ -100,6 +100,8 @@ export class TermWrap {
     lastComposedText: string = "";
     firstDataAfterCompositionSent: boolean = false;
 
+    isAtBottomDuringResize: boolean | null = null;
+
     // Paste deduplication
     // xterm.js paste() method triggers onData event, which can cause duplicate sends
     lastPasteData: string = "";
@@ -465,13 +467,22 @@ export class TermWrap {
         }
     }
 
+    isAtBottom(): boolean {
+        return this.terminal.buffer.active.viewportY >= this.terminal.buffer.active.baseY;
+    }
+
     handleResize() {
         const oldRows = this.terminal.rows;
         const oldCols = this.terminal.cols;
+        const wasAtBottom = this.isAtBottomDuringResize ?? this.isAtBottom();
+        this.isAtBottomDuringResize = null;
         this.fitAddon.fit();
         if (oldRows !== this.terminal.rows || oldCols !== this.terminal.cols) {
             const termSize: TermSize = { rows: this.terminal.rows, cols: this.terminal.cols };
             RpcApi.ControllerInputCommand(TabRpcClient, { blockid: this.blockId, termsize: termSize });
+        }
+        if (wasAtBottom) {
+            setTimeout(() => this.terminal.scrollToBottom(), 20);
         }
         dlog("resize", `${this.terminal.rows}x${this.terminal.cols}`, `${oldRows}x${oldCols}`, this.hasResized);
         if (!this.hasResized) {

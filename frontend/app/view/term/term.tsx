@@ -311,6 +311,9 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         model.termRef.current = termWrap;
         setTermWrapInst(termWrap);
         const rszObs = new ResizeObserver(() => {
+            if (termWrap.isAtBottomDuringResize == null) {
+                termWrap.isAtBottomDuringResize = termWrap.isAtBottom();
+            }
             termWrap.handleResize_debounced();
         });
         rszObs.observe(connectElemRef.current);
