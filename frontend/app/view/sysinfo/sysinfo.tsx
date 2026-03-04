@@ -52,13 +52,13 @@ const PlotTypes: object = {
     CPU: function (dataItem: DataItem): Array<string> {
         return ["cpu"];
     },
-    Mem: function (dataItem: DataItem): Array<string> {
+    "内存": function (dataItem: DataItem): Array<string> {
         return ["mem:used"];
     },
-    "CPU + Mem": function (dataItem: DataItem): Array<string> {
+    "CPU + 内存": function (dataItem: DataItem): Array<string> {
         return ["cpu", "mem:used"];
     },
-    "All CPU": function (dataItem: DataItem): Array<string> {
+    "所有 CPU 核心": function (dataItem: DataItem): Array<string> {
         return Object.keys(dataItem)
             .filter((item) => item.startsWith("cpu") && item != "cpu")
             .sort((a, b) => {
@@ -70,14 +70,14 @@ const PlotTypes: object = {
 };
 
 const DefaultPlotMeta = {
-    cpu: defaultCpuMeta("CPU %"),
-    "mem:total": defaultMemMeta("Memory Total", "mem:total"),
-    "mem:used": defaultMemMeta("Memory Used", "mem:total"),
-    "mem:free": defaultMemMeta("Memory Free", "mem:total"),
-    "mem:available": defaultMemMeta("Memory Available", "mem:total"),
+    cpu: defaultCpuMeta("CPU 使用率"),
+    "mem:total": defaultMemMeta("总内存", "mem:total"),
+    "mem:used": defaultMemMeta("已用内存", "mem:total"),
+    "mem:free": defaultMemMeta("空闲内存", "mem:total"),
+    "mem:available": defaultMemMeta("可用内存", "mem:total"),
 };
 for (let i = 0; i < 32; i++) {
-    DefaultPlotMeta[`cpu:${i}`] = defaultCpuMeta(`Core ${i}`);
+    DefaultPlotMeta[`cpu:${i}`] = defaultCpuMeta(`核心 ${i}`);
 }
 
 function convertWaveEventToDataItem(event: Extract<WaveEvent, { event: "sysinfo" }>): DataItem {
@@ -307,7 +307,7 @@ class SysinfoViewModel implements ViewModel {
         }
 
         fullMenu.push({
-            label: "Plot Type",
+            label: "图表类型",
             submenu: submenu,
         });
         fullMenu.push({ type: "separator" });

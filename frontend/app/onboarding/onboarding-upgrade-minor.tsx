@@ -79,13 +79,13 @@ const UpgradeMinorWelcomePage = ({ onStarClick, onAlreadyStarred, onMaybeLater }
             <footer className="unselectable flex-shrink-0 mt-4">
                 <div className="flex flex-row items-center justify-center gap-2.5 [&>button]:!px-5 [&>button]:!py-2 [&>button]:text-sm [&>button]:!h-[37px]">
                     <Button className="outlined grey font-[600]" onClick={onAlreadyStarred}>
-                        🙏 Already Starred
+                        🙏 已标星
                     </Button>
                     <Button className="outlined green font-[600]" onClick={onStarClick}>
-                        ⭐ Star Now
+                        ⭐ 立即标星
                     </Button>
                     <Button className="outlined grey font-[600]" onClick={onMaybeLater}>
-                        Maybe Later
+                        稍后再说
                     </Button>
                 </div>
             </footer>

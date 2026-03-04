@@ -169,18 +169,18 @@ const PublishAppModal = memo(({ appName }: { appName: string }) => {
             onOk={handlePublish}
             onCancel={handleClose}
             onClose={handleClose}
-            okLabel="Publish"
-            cancelLabel="Cancel"
+            okLabel="发布"
+            cancelLabel="取消"
         >
             <div className="flex flex-col gap-4 mb-4">
-                <h2 className="text-xl font-semibold">Publish App</h2>
+                <h2 className="text-xl font-semibold">发布应用</h2>
                 <div className="flex flex-col gap-3">
                     <p className="text-primary">
-                        This will publish your app to <span className="font-mono">local/{appName}</span>
+                        这将发布你的应用到 <span className="font-mono">local/{appName}</span>
                     </p>
                     <p className="text-warning">
                         <i className="fa fa-triangle-exclamation mr-2" />
-                        This will overwrite any existing app with the same name. Are you sure?
+                        这将覆盖任何同名的现有应用。确定吗？
                     </p>
                 </div>
             </div>
@@ -261,14 +261,14 @@ const BuilderAppPanel = memo(() => {
         (e: React.MouseEvent) => {
             const menu: ContextMenuItem[] = [
                 {
-                    label: "Publish App",
+                    label: "发布应用",
                     click: handlePublishClick,
                 },
                 {
                     type: "separator",
                 },
                 {
-                    label: "Switch App",
+                    label: "切换应用",
                     click: handleSwitchAppClick,
                 },
             ];
@@ -297,7 +297,7 @@ const BuilderAppPanel = memo(() => {
                 <div className="flex items-center justify-between">
                     <div className="flex">
                         <TabButton
-                            label="Preview"
+                            label="预览"
                             tabType="preview"
                             isActive={activeTab === "preview"}
                             isAppFocused={isAppFocused}
@@ -305,21 +305,21 @@ const BuilderAppPanel = memo(() => {
                             showStatusDot={true}
                         />
                         <TabButton
-                            label="Code"
+                            label="代码"
                             tabType="code"
                             isActive={activeTab === "code"}
                             isAppFocused={isAppFocused}
                             onClick={() => handleTabClick("code")}
                         />
                         <TabButton
-                            label="Config/Data"
+                            label="配置/数据"
                             tabType="configdata"
                             isActive={activeTab === "configdata"}
                             isAppFocused={isAppFocused}
                             onClick={() => handleTabClick("configdata")}
                         />
                         <TabButton
-                            label="Files"
+                            label="文件"
                             tabType="files"
                             isActive={activeTab === "files"}
                             isAppFocused={isAppFocused}
@@ -327,7 +327,7 @@ const BuilderAppPanel = memo(() => {
                         />
                         {hasSecrets && (
                             <TabButton
-                                label="Secrets"
+                                label="密钥"
                                 tabType="secrets"
                                 isActive={activeTab === "secrets"}
                                 isAppFocused={isAppFocused}
@@ -340,12 +340,12 @@ const BuilderAppPanel = memo(() => {
                             className="px-3 py-1 text-sm font-medium rounded bg-accent/80 text-primary hover:bg-accent transition-colors cursor-pointer"
                             onClick={handlePublishClick}
                         >
-                            Publish App
+                            发布应用
                         </button>
                         <button
                             className="px-2 py-1 text-sm font-medium rounded hover:bg-secondary/10 transition-colors cursor-pointer"
                             onClick={handleKebabClick}
-                            aria-label="More options"
+                            aria-label="更多选项"
                         >
                             <i className="fa fa-ellipsis-vertical" />
                         </button>

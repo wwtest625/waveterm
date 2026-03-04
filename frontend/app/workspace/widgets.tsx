@@ -6,7 +6,8 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { shouldIncludeWidgetForWorkspace } from "@/app/workspace/widgetfilter";
-import { atoms, createBlock, isDev } from "@/store/global";
+import { getLayoutModelForStaticTab } from "@/layout/lib/layoutModelHooks";
+import { atoms, createBlock, globalStore, isDev, WOS } from "@/store/global";
 import { fireAndForget, isBlank, makeIconClass } from "@/util/util";
 import {
     FloatingPortal,
@@ -20,6 +21,7 @@ import {
 import clsx from "clsx";
 import { useAtomValue } from "jotai";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { buildWidgetBlockDef } from "./widgetblockdef";
 
 function sortByDisplayOrder(wmap: { [key: string]: WidgetConfigType }): WidgetConfigType[] {
     if (wmap == null) {
@@ -33,8 +35,29 @@ function sortByDisplayOrder(wmap: { [key: string]: WidgetConfigType }): WidgetCo
 }
 
 async function handleWidgetSelect(widget: WidgetConfigType) {
-    const blockDef = widget.blockdef;
+    const focusedBlock = getFocusedBlockContext();
+    const blockDef = buildWidgetBlockDef(widget, focusedBlock);
     createBlock(blockDef, widget.magnified);
+}
+
+function getFocusedBlockContext(): { view?: string; connection?: string; cwd?: string } | undefined {
+    const layoutModel = getLayoutModelForStaticTab();
+    const focusedNode = globalStore.get(layoutModel.focusedNode);
+    const blockId = focusedNode?.data?.blockId;
+    if (blockId == null) {
+        return undefined;
+    }
+    const blockAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId));
+    const blockData = globalStore.get(blockAtom);
+    const blockMeta = blockData?.meta;
+    if (blockMeta == null) {
+        return undefined;
+    }
+    return {
+        view: blockMeta.view,
+        connection: blockMeta.connection as string,
+        cwd: blockMeta["cmd:cwd"] as string,
+    };
 }
 
 const Widget = memo(({ widget, mode }: { widget: WidgetConfigType; mode: "normal" | "compact" | "supercompact" }) => {
@@ -155,7 +178,7 @@ const AppsFloatingWindow = memo(
                             <i className="fa fa-solid fa-spinner fa-spin text-2xl text-muted"></i>
                         </div>
                     ) : apps.length === 0 ? (
-                        <div className="text-muted text-sm p-4 text-center">No local apps found</div>
+                        <div className="text-muted text-sm p-4 text-center">没有本地应用</div>
                     ) : (
                         <div
                             className="grid gap-3"

@@ -775,7 +775,7 @@ export class TermViewModel implements ViewModel {
 
         if (hasSelection) {
             menu.push({
-                label: "Copy",
+                label: "复制",
                 click: () => {
                     if (selection) {
                         navigator.clipboard.writeText(selection);
@@ -784,7 +784,7 @@ export class TermViewModel implements ViewModel {
             });
             menu.push({ type: "separator" });
             menu.push({
-                label: "Send to Wave AI",
+                label: "发送到 Wave AI",
                 click: () => {
                     if (selection) {
                         const aiModel = WaveAIModel.getInstance();
@@ -811,7 +811,7 @@ export class TermViewModel implements ViewModel {
             }
             if (hoveredURL) {
                 menu.push({
-                    label: hoveredURL.hostname ? "Open URL (" + hoveredURL.hostname + ")" : "Open URL",
+                    label: hoveredURL.hostname ? "打开链接 (" + hoveredURL.hostname + ")" : "打开链接",
                     click: () => {
                         createBlock({
                             meta: {
@@ -822,7 +822,7 @@ export class TermViewModel implements ViewModel {
                     },
                 });
                 menu.push({
-                    label: "Open URL in External Browser",
+                    label: "在外部浏览器打开",
                     click: () => {
                         getApi().openExternal(hoveredURL.toString());
                     },
@@ -832,7 +832,7 @@ export class TermViewModel implements ViewModel {
         }
 
         menu.push({
-            label: "Paste",
+            label: "粘贴",
             click: () => {
                 getApi().nativePaste();
             },
@@ -842,7 +842,7 @@ export class TermViewModel implements ViewModel {
 
         const magnified = globalStore.get(this.nodeModel.isMagnified);
         menu.push({
-            label: magnified ? "Un-Magnify Block" : "Magnify Block",
+            label: magnified ? "取消放大" : "放大块",
             click: () => {
                 this.nodeModel.toggleMagnify();
             },
@@ -879,7 +879,7 @@ export class TermViewModel implements ViewModel {
 
         const fullMenu: ContextMenuItem[] = [];
         fullMenu.push({
-            label: "Split Horizontally",
+            label: "水平分割",
             click: () => {
                 const blockData = globalStore.get(this.blockAtom);
                 const blockDef: BlockDef = {
@@ -889,7 +889,7 @@ export class TermViewModel implements ViewModel {
             },
         });
         fullMenu.push({
-            label: "Split Vertically",
+            label: "垂直分割",
             click: () => {
                 const blockData = globalStore.get(this.blockAtom);
                 const blockDef: BlockDef = {
@@ -906,7 +906,7 @@ export class TermViewModel implements ViewModel {
 
         if (canShowFileBrowser) {
             fullMenu.push({
-                label: "File Browser",
+                label: "文件浏览器",
                 click: () => {
                     const blockData = globalStore.get(this.blockAtom);
                     const connection = blockData?.meta?.connection;
@@ -926,7 +926,7 @@ export class TermViewModel implements ViewModel {
         }
 
         fullMenu.push({
-            label: "Save Session As...",
+            label: "保存会话为...",
             click: () => {
                 if (this.termRef.current) {
                     const content = this.termRef.current.getScrollbackContent();
@@ -939,15 +939,15 @@ export class TermViewModel implements ViewModel {
                                 }
                             } catch (error) {
                                 console.error("Failed to save scrollback:", error);
-                                const errorMessage = error?.message || "An unknown error occurred";
+                                const errorMessage = error?.message || "发生未知错误";
                                 modalsModel.pushModal("MessageModal", {
-                                    children: `Failed to save session scrollback: ${errorMessage}`,
+                                    children: `保存会话滚动历史失败：${errorMessage}`,
                                 });
                             }
                         });
                     } else {
                         modalsModel.pushModal("MessageModal", {
-                            children: "No scrollback content to save.",
+                            children: "没有可保存的滚动历史内容。",
                         });
                     }
                 }
@@ -964,14 +964,14 @@ export class TermViewModel implements ViewModel {
             };
         });
         submenu.unshift({
-            label: "Default",
+            label: "默认",
             type: "checkbox",
             checked: curThemeName == null,
             click: () => this.setTerminalTheme(null),
         });
         const transparencySubMenu: ContextMenuItem[] = [];
         transparencySubMenu.push({
-            label: "Default",
+            label: "默认",
             type: "checkbox",
             checked: transparencyMeta == null,
             click: () => {
@@ -982,7 +982,7 @@ export class TermViewModel implements ViewModel {
             },
         });
         transparencySubMenu.push({
-            label: "Transparent Background",
+            label: "透明背景",
             type: "checkbox",
             checked: transparencyMeta == 0.5,
             click: () => {
@@ -993,7 +993,7 @@ export class TermViewModel implements ViewModel {
             },
         });
         transparencySubMenu.push({
-            label: "No Transparency",
+            label: "不透明",
             type: "checkbox",
             checked: transparencyMeta == 0,
             click: () => {
@@ -1020,7 +1020,7 @@ export class TermViewModel implements ViewModel {
             }
         );
         fontSizeSubMenu.unshift({
-            label: "Default (" + defaultFontSize + "px)",
+            label: "默认 (" + defaultFontSize + "px)",
             type: "checkbox",
             checked: overrideFontSize == null,
             click: () => {
@@ -1038,7 +1038,7 @@ export class TermViewModel implements ViewModel {
         const effectiveCursorBlink = overrideCursorBlink === true;
         const cursorSubMenu: ContextMenuItem[] = [
             {
-                label: "Default",
+                label: "默认",
                 type: "checkbox",
                 checked: isCursorDefault,
                 click: () => {
@@ -1049,7 +1049,7 @@ export class TermViewModel implements ViewModel {
                 },
             },
             {
-                label: "Block",
+                label: "块状",
                 type: "checkbox",
                 checked: !isCursorDefault && effectiveCursor === "block" && !effectiveCursorBlink,
                 click: () => {
@@ -1060,7 +1060,7 @@ export class TermViewModel implements ViewModel {
                 },
             },
             {
-                label: "Block (Blinking)",
+                label: "块状 (闪烁)",
                 type: "checkbox",
                 checked: !isCursorDefault && effectiveCursor === "block" && effectiveCursorBlink,
                 click: () => {
@@ -1071,7 +1071,7 @@ export class TermViewModel implements ViewModel {
                 },
             },
             {
-                label: "Bar",
+                label: "竖线",
                 type: "checkbox",
                 checked: !isCursorDefault && effectiveCursor === "bar" && !effectiveCursorBlink,
                 click: () => {
@@ -1082,7 +1082,7 @@ export class TermViewModel implements ViewModel {
                 },
             },
             {
-                label: "Bar (Blinking)",
+                label: "竖线 (闪烁)",
                 type: "checkbox",
                 checked: !isCursorDefault && effectiveCursor === "bar" && effectiveCursorBlink,
                 click: () => {
@@ -1093,7 +1093,7 @@ export class TermViewModel implements ViewModel {
                 },
             },
             {
-                label: "Underline",
+                label: "下划线",
                 type: "checkbox",
                 checked: !isCursorDefault && effectiveCursor === "underline" && !effectiveCursorBlink,
                 click: () => {
@@ -1104,7 +1104,7 @@ export class TermViewModel implements ViewModel {
                 },
             },
             {
-                label: "Underline (Blinking)",
+                label: "下划线 (闪烁)",
                 type: "checkbox",
                 checked: !isCursorDefault && effectiveCursor === "underline" && effectiveCursorBlink,
                 click: () => {
@@ -1116,29 +1116,29 @@ export class TermViewModel implements ViewModel {
             },
         ];
         fullMenu.push({
-            label: "Themes",
+            label: "主题",
             submenu: submenu,
         });
         fullMenu.push({
-            label: "Font Size",
+            label: "字体大小",
             submenu: fontSizeSubMenu,
         });
         fullMenu.push({
-            label: "Cursor",
+            label: "光标",
             submenu: cursorSubMenu,
         });
         fullMenu.push({
-            label: "Transparency",
+            label: "透明度",
             submenu: transparencySubMenu,
         });
         fullMenu.push({ type: "separator" });
         const advancedSubmenu: ContextMenuItem[] = [];
         const allowBracketedPaste = blockData?.meta?.["term:allowbracketedpaste"];
         advancedSubmenu.push({
-            label: "Allow Bracketed Paste Mode",
+            label: "允许括号粘贴模式",
             submenu: [
                 {
-                    label: "Default (" + (defaultAllowBracketedPaste ? "On" : "Off") + ")",
+                    label: "默认 (" + (defaultAllowBracketedPaste ? "开启" : "关闭") + ")",
                     type: "checkbox",
                     checked: allowBracketedPaste == null,
                     click: () => {
@@ -1149,7 +1149,7 @@ export class TermViewModel implements ViewModel {
                     },
                 },
                 {
-                    label: "On",
+                    label: "开启",
                     type: "checkbox",
                     checked: allowBracketedPaste === true,
                     click: () => {
@@ -1160,7 +1160,7 @@ export class TermViewModel implements ViewModel {
                     },
                 },
                 {
-                    label: "Off",
+                    label: "关闭",
                     type: "checkbox",
                     checked: allowBracketedPaste === false,
                     click: () => {
@@ -1173,15 +1173,15 @@ export class TermViewModel implements ViewModel {
             ],
         });
         advancedSubmenu.push({
-            label: "Force Restart Controller",
+            label: "强制重启控制器",
             click: () => fireAndForget(() => this.forceRestartController()),
         });
         const isClearOnStart = blockData?.meta?.["cmd:clearonstart"];
         advancedSubmenu.push({
-            label: "Clear Output On Restart",
+            label: "重启时清除输出",
             submenu: [
                 {
-                    label: "On",
+                    label: "开启",
                     type: "checkbox",
                     checked: isClearOnStart,
                     click: () => {
@@ -1192,7 +1192,7 @@ export class TermViewModel implements ViewModel {
                     },
                 },
                 {
-                    label: "Off",
+                    label: "关闭",
                     type: "checkbox",
                     checked: !isClearOnStart,
                     click: () => {
@@ -1206,10 +1206,10 @@ export class TermViewModel implements ViewModel {
         });
         const runOnStart = blockData?.meta?.["cmd:runonstart"];
         advancedSubmenu.push({
-            label: "Run On Startup",
+            label: "启动时运行",
             submenu: [
                 {
-                    label: "On",
+                    label: "开启",
                     type: "checkbox",
                     checked: runOnStart,
                     click: () => {
@@ -1220,7 +1220,7 @@ export class TermViewModel implements ViewModel {
                     },
                 },
                 {
-                    label: "Off",
+                    label: "关闭",
                     type: "checkbox",
                     checked: !runOnStart,
                     click: () => {
@@ -1234,10 +1234,10 @@ export class TermViewModel implements ViewModel {
         });
         const debugConn = blockData?.meta?.["term:conndebug"];
         advancedSubmenu.push({
-            label: "Debug Connection",
+            label: "调试连接",
             submenu: [
                 {
-                    label: "Off",
+                    label: "关闭",
                     type: "checkbox",
                     checked: !debugConn,
                     click: () => {
@@ -1248,7 +1248,7 @@ export class TermViewModel implements ViewModel {
                     },
                 },
                 {
-                    label: "Info",
+                    label: "信息",
                     type: "checkbox",
                     checked: debugConn == "info",
                     click: () => {
@@ -1259,7 +1259,7 @@ export class TermViewModel implements ViewModel {
                     },
                 },
                 {
-                    label: "Verbose",
+                    label: "详细",
                     type: "checkbox",
                     checked: debugConn == "debug",
                     click: () => {
@@ -1275,20 +1275,20 @@ export class TermViewModel implements ViewModel {
         const isDurable = globalStore.get(getBlockTermDurableAtom(this.blockId));
         if (isDurable) {
             advancedSubmenu.push({
-                label: "Session Durability",
+                label: "会话持久性",
                 submenu: [
                     {
-                        label: "Restart Session in Standard Mode",
+                        label: "以标准模式重启会话",
                         click: () => fireAndForget(() => this.restartSessionWithDurability(false)),
                     },
                 ],
             });
         } else if (isDurable === false) {
             advancedSubmenu.push({
-                label: "Session Durability",
+                label: "会话持久性",
                 submenu: [
                     {
-                        label: "Restart Session in Durable Mode",
+                        label: "以持久模式重启会话",
                         click: () => fireAndForget(() => this.restartSessionWithDurability(true)),
                     },
                 ],
@@ -1296,13 +1296,13 @@ export class TermViewModel implements ViewModel {
         }
 
         fullMenu.push({
-            label: "Advanced",
+            label: "高级",
             submenu: advancedSubmenu,
         });
         if (blockData?.meta?.["term:vdomtoolbarblockid"]) {
             fullMenu.push({ type: "separator" });
             fullMenu.push({
-                label: "Close Toolbar",
+                label: "关闭工具栏",
                 click: () => {
                     RpcApi.DeleteSubBlockCommand(TabRpcClient, { blockid: blockData.meta["term:vdomtoolbarblockid"] });
                 },

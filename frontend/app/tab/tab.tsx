@@ -221,20 +221,20 @@ function buildTabContextMenu(
     if (currentIndicator) {
         menu.push(
             {
-                label: "Clear Tab Indicator",
+                label: "清除标签页指示器",
                 click: () => setTabIndicator(id, null),
             },
             {
-                label: "Clear All Indicators",
+                label: "清除所有指示器",
                 click: () => clearAllTabIndicators(),
             },
             { type: "separator" }
         );
     }
     menu.push(
-        { label: "Rename Tab", click: () => renameRef.current?.() },
+        { label: "重命名标签页", click: () => renameRef.current?.() },
         {
-            label: "Copy TabId",
+            label: "复制标签页 ID",
             click: () => fireAndForget(() => navigator.clipboard.writeText(id)),
         },
         { type: "separator" }
@@ -267,9 +267,9 @@ function buildTabContextMenu(
                     }),
             });
         }
-        menu.push({ label: "Backgrounds", type: "submenu", submenu }, { type: "separator" });
+        menu.push({ label: "背景", type: "submenu", submenu }, { type: "separator" });
     }
-    menu.push({ label: "Close Tab", click: () => onClose(null) });
+    menu.push({ label: "关闭标签页", click: () => onClose(null) });
     return menu;
 }
 

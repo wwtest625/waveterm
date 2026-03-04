@@ -56,6 +56,7 @@ export class WaveAIModel {
     isAIStreaming = jotai.atom(false);
 
     widgetAccessAtom!: jotai.Atom<boolean>;
+    autoExecuteAtom!: jotai.Atom<boolean>;
     droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
     chatId!: jotai.PrimitiveAtom<string>;
     currentAIMode!: jotai.PrimitiveAtom<string>;
@@ -93,6 +94,17 @@ export class WaveAIModel {
             }
             const widgetAccessMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:widgetcontext");
             const value = get(widgetAccessMetaAtom);
+            // 默认为 true，如果用户没有明确设置过
+            return value ?? true;
+        });
+
+        this.autoExecuteAtom = jotai.atom((get) => {
+            if (this.inBuilder) {
+                return true;
+            }
+            const autoExecuteMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:autoexecute");
+            const value = get(autoExecuteMetaAtom);
+            // 默认为 true，让 AI 可以直接执行命令
             return value ?? true;
         });
 
@@ -390,6 +402,13 @@ export class WaveAIModel {
         RpcApi.SetMetaCommand(TabRpcClient, {
             oref: this.orefContext,
             meta: { "waveai:widgetcontext": enabled },
+        });
+    }
+
+    setAutoExecute(enabled: boolean) {
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: this.orefContext,
+            meta: { "waveai:autoexecute": enabled },
         });
     }
 

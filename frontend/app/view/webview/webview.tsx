@@ -627,7 +627,7 @@ export class WebViewModel implements ViewModel {
         const curUserAgentType = globalStore.get(this.userAgentType) || "default";
         const userAgentSubMenu: ContextMenuItem[] = [
             {
-                label: "Default",
+                label: "默认",
                 type: "checkbox",
                 click: () => {
                     fireAndForget(() => {
@@ -640,7 +640,7 @@ export class WebViewModel implements ViewModel {
                 checked: curUserAgentType === "default" || curUserAgentType === "",
             },
             {
-                label: "Mobile: iPhone",
+                label: "移动设备：iPhone",
                 type: "checkbox",
                 click: () => {
                     fireAndForget(() => {
@@ -653,7 +653,7 @@ export class WebViewModel implements ViewModel {
                 checked: curUserAgentType === "mobile:iphone",
             },
             {
-                label: "Mobile: Android",
+                label: "移动设备：Android",
                 type: "checkbox",
                 click: () => {
                     fireAndForget(() => {
@@ -670,29 +670,29 @@ export class WebViewModel implements ViewModel {
         const isNavHidden = globalStore.get(this.hideNav);
         return [
             {
-                label: "Copy URL to Clipboard",
+                label: "复制 URL 到剪贴板",
                 click: () => this.copyUrlToClipboard(),
             },
             {
-                label: "Set Block Homepage",
+                label: "设置为块首页",
                 click: () => fireAndForget(() => this.setHomepageUrl(this.getUrl(), "block")),
             },
             {
-                label: "Set Default Homepage",
+                label: "设置为默认首页",
                 click: () => fireAndForget(() => this.setHomepageUrl(this.getUrl(), "global")),
             },
             {
                 type: "separator",
             },
             {
-                label: "User Agent Type",
+                label: "User Agent 类型",
                 submenu: userAgentSubMenu,
             },
             {
                 type: "separator",
             },
             {
-                label: isNavHidden ? "Un-Hide Navigation" : "Hide Navigation",
+                label: isNavHidden ? "显示导航栏" : "隐藏导航栏",
                 click: () =>
                     fireAndForget(() => {
                         return RpcApi.SetMetaCommand(TabRpcClient, {
@@ -702,11 +702,11 @@ export class WebViewModel implements ViewModel {
                     }),
             },
             {
-                label: "Set Zoom Factor",
+                label: "设置缩放级别",
                 submenu: zoomSubMenu,
             },
             {
-                label: this.webviewRef.current?.isDevToolsOpened() ? "Close DevTools" : "Open DevTools",
+                label: this.webviewRef.current?.isDevToolsOpened() ? "关闭开发者工具" : "打开开发者工具",
                 click: () => {
                     if (this.webviewRef.current) {
                         if (this.webviewRef.current.isDevToolsOpened()) {
@@ -721,11 +721,11 @@ export class WebViewModel implements ViewModel {
                 type: "separator",
             },
             {
-                label: "Clear History",
+                label: "清除历史记录",
                 click: () => this.clearHistory(),
             },
             {
-                label: "Clear Cookies and Storage (All Web Widgets)",
+                label: "清除 Cookie 和存储 (所有 Web 组件)",
                 click: () => fireAndForget(() => this.clearCookiesAndStorage()),
             },
         ];

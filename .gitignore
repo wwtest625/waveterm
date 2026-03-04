@@ -38,3 +38,4 @@ test-results.xml
 docsite/
 
 .kilo-format-temp-*
+.ace-tool/

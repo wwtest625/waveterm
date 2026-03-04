@@ -35,14 +35,14 @@ function handleHeaderContextMenu(
     const magnified = globalStore.get(nodeModel.isMagnified);
     let menu: ContextMenuItem[] = [
         {
-            label: magnified ? "Un-Magnify Block" : "Magnify Block",
+            label: magnified ? "取消放大" : "放大块",
             click: () => {
                 nodeModel.toggleMagnify();
             },
         },
         { type: "separator" },
         {
-            label: "Copy BlockId",
+            label: "复制块 ID",
             click: () => {
                 navigator.clipboard.writeText(blockId);
             },
@@ -53,7 +53,7 @@ function handleHeaderContextMenu(
     menu.push(
         { type: "separator" },
         {
-            label: "Close Block",
+            label: "关闭块",
             click: () => uxCloseBlock(blockId),
         }
     );
@@ -122,7 +122,7 @@ const HeaderEndIcons = React.memo(({ viewModel, nodeModel, blockId }: HeaderEndI
     const settingsDecl: IconButtonDecl = {
         elemtype: "iconbutton",
         icon: "cog",
-        title: "Settings",
+        title: "设置",
         click: (e) => handleHeaderContextMenu(e, blockId, viewModel, nodeModel),
     };
     endIconsElem.push(<IconButton key="settings" decl={settingsDecl} className="block-frame-settings" />);
@@ -130,7 +130,7 @@ const HeaderEndIcons = React.memo(({ viewModel, nodeModel, blockId }: HeaderEndI
         const addToLayoutDecl: IconButtonDecl = {
             elemtype: "iconbutton",
             icon: "circle-plus",
-            title: "Add to Layout",
+            title: "添加到布局",
             click: () => {
                 nodeModel.addEphemeralNodeToLayout();
             },
@@ -153,7 +153,7 @@ const HeaderEndIcons = React.memo(({ viewModel, nodeModel, blockId }: HeaderEndI
     const closeDecl: IconButtonDecl = {
         elemtype: "iconbutton",
         icon: "xmark-large",
-        title: "Close",
+        title: "关闭",
         click: () => uxCloseBlock(nodeModel.blockId),
     };
     endIconsElem.push(<IconButton key="close" decl={closeDecl} className="block-frame-default-close" />);

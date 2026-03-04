@@ -27,7 +27,7 @@ export async function handleWaveAIContextMenu(e: React.MouseEvent, showCopy: boo
     }
 
     menu.push({
-        label: "New Chat",
+        label: "新聊天",
         click: () => {
             model.clearChat();
         },
@@ -72,7 +72,7 @@ export async function handleWaveAIContextMenu(e: React.MouseEvent, showCopy: boo
     } else {
         if (isDev()) {
             maxTokensSubmenu.push({
-                label: "1k (Dev Testing)",
+                label: "1k (开发测试)",
                 type: "checkbox",
                 checked: currentMaxTokens === 1024,
                 click: () => {
@@ -121,14 +121,14 @@ export async function handleWaveAIContextMenu(e: React.MouseEvent, showCopy: boo
     }
 
     menu.push({
-        label: "Max Output Tokens",
+        label: "最大输出 Token 数",
         submenu: maxTokensSubmenu,
     });
 
     menu.push({ type: "separator" });
 
     menu.push({
-        label: "Configure Modes",
+        label: "配置模式",
         click: () => {
             RpcApi.RecordTEventCommand(
                 TabRpcClient,
@@ -148,7 +148,7 @@ export async function handleWaveAIContextMenu(e: React.MouseEvent, showCopy: boo
         menu.push({ type: "separator" });
 
         menu.push({
-            label: "Hide Wave AI",
+            label: "隐藏 Wave AI",
             click: () => {
                 model.closeWaveAIPanel();
             },

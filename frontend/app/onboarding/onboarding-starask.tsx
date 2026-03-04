@@ -106,13 +106,13 @@ export function StarAskPage({ onClose, page = "upgrade" }: StarAskPageProps) {
             <footer className="unselectable flex-shrink-0 mt-6">
                 <div className="flex flex-row items-center justify-center gap-2.5 [&>button]:!px-5 [&>button]:!py-2 [&>button]:text-sm [&>button]:!h-[37px]">
                     <Button className="outlined grey font-[600]" onClick={handleAlreadyStarred}>
-                        🙏 Already Starred
+                        🙏 已标星
                     </Button>
                     <Button className="outlined green font-[600]" onClick={handleStarClick}>
-                        ⭐ Star Now
+                        ⭐ 立即标星
                     </Button>
                     <Button className="outlined grey font-[600]" onClick={handleMaybeLater}>
-                        Maybe Later
+                        稍后再说
                     </Button>
                 </div>
             </footer>

@@ -236,10 +236,10 @@ const NoTelemetryStarPage = ({ isCompact }: { isCompact: boolean }) => {
             >
                 <div className="flex flex-col items-center gap-6 w-full mb-2 unselectable">
                     <div className="text-center text-secondary leading-relaxed max-w-md">
-                        <p className="mb-4">No problem, we respect your privacy.</p>
+                        <p className="mb-4">没问题，我们尊重您的隐私。</p>
                         <p className="mb-4">
-                            But, without usage data, we're flying blind. A GitHub star helps us know Wave is useful and
-                            worth maintaining.
+                            但是，如果没有使用数据，我们就像在盲目飞行。在 GitHub 上给个 Star 可以让我们知道 Wave 是有用的，
+                            值得继续维护。
                         </p>
                     </div>
                 </div>
@@ -247,10 +247,10 @@ const NoTelemetryStarPage = ({ isCompact }: { isCompact: boolean }) => {
             <footer className={`unselectable flex-shrink-0 mt-2`}>
                 <div className="flex flex-row items-center justify-center gap-2.5 [&>button]:!px-5 [&>button]:!py-2 [&>button]:text-sm [&>button]:!h-[37px]">
                     <Button className="outlined green font-[600]" onClick={handleStarClick}>
-                        ⭐ Star on GitHub
+                        ⭐ 在 GitHub 上标星
                     </Button>
                     <Button className="outlined grey font-[600]" onClick={handleMaybeLater}>
-                        Maybe Later
+                        稍后再说
                     </Button>
                 </div>
             </footer>

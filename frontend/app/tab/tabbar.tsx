@@ -6,7 +6,7 @@ import { Tooltip } from "@/app/element/tooltip";
 import { modalsModel } from "@/app/store/modalmodel";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { deleteLayoutModelForTab } from "@/layout/index";
-import { atoms, createTab, getApi, getSettingsKeyAtom, globalStore, setActiveTab } from "@/store/global";
+import { atoms, createBlock, createTab, getApi, getSettingsKeyAtom, globalStore, setActiveTab } from "@/store/global";
 import { isMacOS, isWindows } from "@/util/platformutil";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -72,6 +72,37 @@ const WaveAIButton = memo(({ divRef }: { divRef?: React.RefObject<HTMLDivElement
     );
 });
 WaveAIButton.displayName = "WaveAIButton";
+
+const ConnectionsManagerButton = memo(({ divRef }: { divRef?: React.RefObject<HTMLDivElement> }) => {
+    const onClick = () => {
+        fireAndForget(async () => {
+            await createBlock(
+                {
+                    meta: {
+                        view: "connectionsmanager",
+                    },
+                },
+                false,
+                true
+            );
+        });
+    };
+
+    return (
+        <Tooltip
+            content="Open Connections Manager"
+            placement="bottom"
+            hideOnClick
+            divClassName="flex h-[26px] px-2 justify-end items-center rounded-md mr-1 box-border cursor-pointer bg-hover hover:bg-hoverbg transition-colors text-secondary text-[12px]"
+            divStyle={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+            divOnClick={onClick}
+            divRef={divRef}
+        >
+            <i className="fa fa-server" />
+        </Tooltip>
+    );
+});
+ConnectionsManagerButton.displayName = "ConnectionsManagerButton";
 
 const ConfigErrorMessage = () => {
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
@@ -196,6 +227,7 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
     const draggerRightRef = useRef<HTMLDivElement>(null);
     const workspaceSwitcherRef = useRef<HTMLDivElement>(null);
     const waveAIButtonRef = useRef<HTMLDivElement>(null);
+    const connectionsManagerButtonRef = useRef<HTMLDivElement>(null);
     const appMenuButtonRef = useRef<HTMLDivElement>(null);
     const tabWidthRef = useRef<number>(TabDefaultWidth);
     const scrollableRef = useRef<boolean>(false);
@@ -258,6 +290,7 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
         const appMenuButtonWidth = appMenuButtonRef.current?.getBoundingClientRect().width ?? 0;
         const workspaceSwitcherWidth = workspaceSwitcherRef.current?.getBoundingClientRect().width ?? 0;
         const waveAIButtonWidth = waveAIButtonRef.current?.getBoundingClientRect().width ?? 0;
+        const connectionsManagerButtonWidth = connectionsManagerButtonRef.current?.getBoundingClientRect().width ?? 0;
 
         const nonTabElementsWidth =
             windowDragLeftWidth +
@@ -267,7 +300,8 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
             configErrorWidth +
             appMenuButtonWidth +
             workspaceSwitcherWidth +
-            waveAIButtonWidth;
+            waveAIButtonWidth +
+            connectionsManagerButtonWidth;
         const spaceForTabs = tabbarWrapperWidth - nonTabElementsWidth;
 
         const numberOfTabs = tabIds.length;
@@ -678,6 +712,7 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
                 </div>
             )}
             <WaveAIButton divRef={waveAIButtonRef} />
+            <ConnectionsManagerButton divRef={connectionsManagerButtonRef} />
             <Tooltip
                 content="Workspace Switcher"
                 placement="bottom"
