@@ -34,6 +34,8 @@ test("connectionMatchesQuery checks host and key fields", () => {
 test("makeConnectionFormFromConfig maps existing config to form state", () => {
     const form = makeConnectionFormFromConfig("root@192.168.1.10", {
         "display:name": "Prod",
+        "display:group": "Production",
+        "display:description": "Main API host",
         "ssh:user": "root",
         "ssh:hostname": "192.168.1.10",
         "ssh:port": "22",
@@ -43,6 +45,8 @@ test("makeConnectionFormFromConfig maps existing config to form state", () => {
 
     assert.equal(form.host, "root@192.168.1.10");
     assert.equal(form.displayName, "Prod");
+    assert.equal(form.group, "Production");
+    assert.equal(form.remark, "Main API host");
     assert.equal(form.user, "root");
     assert.equal(form.hostname, "192.168.1.10");
     assert.equal(form.port, "22");
@@ -54,6 +58,8 @@ test("buildConnMetaFromForm trims strings and omits empty string fields", () => 
     const meta = buildConnMetaFromForm({
         host: "root@prod",
         displayName: "  Prod  ",
+        group: "  Production  ",
+        remark: "  Main host  ",
         user: " root ",
         hostname: " 192.168.1.10 ",
         port: " 22 ",
@@ -63,6 +69,8 @@ test("buildConnMetaFromForm trims strings and omits empty string fields", () => 
     });
 
     assert.equal(meta["display:name"], "Prod");
+    assert.equal(meta["display:group"], "Production");
+    assert.equal(meta["display:description"], "Main host");
     assert.equal(meta["ssh:user"], "root");
     assert.equal(meta["ssh:hostname"], "192.168.1.10");
     assert.equal(meta["ssh:port"], "22");

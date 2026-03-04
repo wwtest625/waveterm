@@ -3,6 +3,7 @@
 
 import { useAtomValue } from "jotai";
 import { memo, useEffect, useRef, useState } from "react";
+import { getFirstExecutableCommandFromMessage } from "./autoexecute-util";
 import { AIMessage } from "./aimessage";
 import { AIModeDropdown } from "./aimode";
 import { type WaveUIMessage } from "./aitypes";
@@ -17,9 +18,13 @@ interface AIPanelMessagesProps {
 export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPanelMessagesProps) => {
     const model = WaveAIModel.getInstance();
     const isPanelOpen = useAtomValue(model.getPanelVisibleAtom());
+    const autoExecute = useAtomValue(model.autoExecuteAtom);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const prevStatusRef = useRef<string>(status);
+    const seenAssistantMessageIdsRef = useRef<Set<string>>(new Set());
+    const pendingAutoExecuteMessageIdRef = useRef<string | null>(null);
+    const autoExecuteReadyRef = useRef(false);
     const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
     const checkIfAtBottom = () => {
@@ -81,6 +86,54 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
 
         prevStatusRef.current = status;
     }, [status]);
+
+    useEffect(() => {
+        const assistantMessages = messages.filter((m) => m.role === "assistant");
+
+        if (!autoExecuteReadyRef.current) {
+            for (const message of assistantMessages) {
+                seenAssistantMessageIdsRef.current.add(message.id);
+            }
+            autoExecuteReadyRef.current = true;
+            return;
+        }
+
+        for (const message of assistantMessages) {
+            if (!seenAssistantMessageIdsRef.current.has(message.id)) {
+                seenAssistantMessageIdsRef.current.add(message.id);
+                pendingAutoExecuteMessageIdRef.current = message.id;
+            }
+        }
+    }, [messages]);
+
+    useEffect(() => {
+        if (status === "streaming") {
+            return;
+        }
+
+        if (!autoExecute) {
+            pendingAutoExecuteMessageIdRef.current = null;
+            return;
+        }
+
+        const pendingMessageId = pendingAutoExecuteMessageIdRef.current;
+        if (!pendingMessageId) {
+            return;
+        }
+
+        const pendingMessage = messages.find((m) => m.id === pendingMessageId);
+        pendingAutoExecuteMessageIdRef.current = null;
+        if (!pendingMessage || pendingMessage.role !== "assistant") {
+            return;
+        }
+
+        const command = getFirstExecutableCommandFromMessage(pendingMessage);
+        if (!command) {
+            return;
+        }
+
+        model.executeCommandInTerminal(command, { source: "auto" });
+    }, [messages, status, autoExecute, model]);
 
     return (
         <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-2 space-y-4" onContextMenu={onContextMenu}>

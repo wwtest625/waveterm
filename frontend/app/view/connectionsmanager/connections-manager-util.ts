@@ -4,6 +4,8 @@
 export type ConnectionFormState = {
     host: string;
     displayName: string;
+    group: string;
+    remark: string;
     user: string;
     hostname: string;
     port: string;
@@ -33,9 +35,12 @@ export function connectionMatchesQuery(host: string, meta: ConnKeywords | undefi
 }
 
 export function makeConnectionFormFromConfig(host: string, meta: ConnKeywords | undefined): ConnectionFormState {
+    const metaAny = (meta ?? {}) as Record<string, any>;
     return {
         host: host ?? "",
         displayName: meta?.["display:name"] ?? "",
+        group: (metaAny["display:group"] as string) ?? "",
+        remark: (metaAny["display:description"] as string) ?? "",
         user: meta?.["ssh:user"] ?? "",
         hostname: meta?.["ssh:hostname"] ?? "",
         port: meta?.["ssh:port"] ?? "",
@@ -49,11 +54,15 @@ export function buildConnMetaFromForm(form: ConnectionFormState): {[key: string]
     const trim = (v: string) => v.trim();
     const meta: {[key: string]: any} = {};
     const displayName = trim(form.displayName);
+    const group = trim(form.group);
+    const remark = trim(form.remark);
     const user = trim(form.user);
     const hostname = trim(form.hostname);
     const port = trim(form.port);
 
     if (displayName !== "") meta["display:name"] = displayName;
+    if (group !== "") meta["display:group"] = group;
+    if (remark !== "") meta["display:description"] = remark;
     if (user !== "") meta["ssh:user"] = user;
     if (hostname !== "") meta["ssh:hostname"] = hostname;
     if (port !== "") meta["ssh:port"] = port;

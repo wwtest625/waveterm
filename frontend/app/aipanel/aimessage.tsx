@@ -3,7 +3,7 @@
 
 import { WaveStreamdown } from "@/app/element/streamdown";
 import { cn } from "@/util/util";
-import { memo, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import { getFileIcon } from "./ai-utils";
 import { AIFeedbackButtons } from "./aifeedbackbuttons";
 import { AIToolUseGroup } from "./aitooluse";
@@ -112,6 +112,12 @@ interface AIMessagePartProps {
 
 const AIMessagePart = memo(({ part, role, isStreaming }: AIMessagePartProps) => {
     const model = WaveAIModel.getInstance();
+    const handleExecuteCommand = useCallback(
+        (cmd: string) => {
+            model.executeCommandInTerminal(cmd, { source: "manual" });
+        },
+        [model]
+    );
 
     if (part.type === "text") {
         const content = part.text ?? "";
@@ -125,6 +131,7 @@ const AIMessagePart = memo(({ part, role, isStreaming }: AIMessagePartProps) => 
                     parseIncompleteMarkdown={isStreaming}
                     className="text-gray-100"
                     codeBlockMaxWidthAtom={model.codeBlockMaxWidth}
+                    onClickExecute={handleExecuteCommand}
                 />
             );
         }

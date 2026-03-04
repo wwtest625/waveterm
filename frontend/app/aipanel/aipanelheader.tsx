@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { handleWaveAIContextMenu } from "@/app/aipanel/aipanel-contextmenu";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { useAtomValue } from "jotai";
 import { memo } from "react";
 import { WaveAIModel } from "./waveai-model";
@@ -10,6 +11,8 @@ export const AIPanelHeader = memo(() => {
     const model = WaveAIModel.getInstance();
     const widgetAccess = useAtomValue(model.widgetAccessAtom);
     const autoExecute = useAtomValue(model.autoExecuteAtom);
+    const isLocalAgent = useAtomValue(model.isLocalAgentAtom);
+    const localAgentProvider = useAtomValue(model.localAgentProviderAtom);
     const inBuilder = model.inBuilder;
 
     const handleKebabClick = (e: React.MouseEvent) => {
@@ -20,6 +23,58 @@ export const AIPanelHeader = memo(() => {
         handleWaveAIContextMenu(e, false);
     };
 
+    const handleControlMenuClick = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const localLabel = localAgentProvider === "claude-code" ? "Local Agent (Claude Code)" : "Local Agent (Codex)";
+        const menu: ContextMenuItem[] = [
+            {
+                label: "Provider",
+                submenu: [
+                    {
+                        label: "Wave AI",
+                        type: "checkbox",
+                        checked: !isLocalAgent,
+                        click: () => model.setLocalAgentEnabled(false),
+                    },
+                    {
+                        label: "Local Agent (Codex)",
+                        type: "checkbox",
+                        checked: isLocalAgent && localAgentProvider === "codex",
+                        click: () => model.setLocalAgentProvider("codex"),
+                    },
+                    {
+                        label: "Local Agent (Claude Code)",
+                        type: "checkbox",
+                        checked: isLocalAgent && localAgentProvider === "claude-code",
+                        click: () => model.setLocalAgentProvider("claude-code"),
+                    },
+                ],
+            },
+            { type: "separator" },
+            {
+                label: "Widget Context",
+                type: "checkbox",
+                checked: widgetAccess,
+                click: () => model.setWidgetAccess(!widgetAccess),
+            },
+            {
+                label: "Auto Execute",
+                type: "checkbox",
+                checked: autoExecute,
+                click: () => model.setAutoExecute(!autoExecute),
+            },
+            { type: "separator" },
+            {
+                label: isLocalAgent ? localLabel : "Wave AI",
+                enabled: false,
+            },
+        ];
+
+        ContextMenuModel.getInstance().showContextMenu(menu, e);
+    };
+
     return (
         <div
             className="py-2 pl-3 pr-1 @xs:p-2 @xs:pl-4 border-b border-gray-600 flex items-center justify-between min-w-0"
@@ -27,72 +82,19 @@ export const AIPanelHeader = memo(() => {
         >
             <h2 className="text-white text-sm @xs:text-lg font-semibold flex items-center gap-2 flex-shrink-0 whitespace-nowrap">
                 <i className="fa fa-sparkles text-accent"></i>
-                Wave AI
+                {isLocalAgent ? "Local Agent" : "Wave AI"}
             </h2>
 
             <div className="flex items-center flex-shrink-0 whitespace-nowrap">
                 {!inBuilder && (
-                    <>
-                        <div className="flex items-center text-sm whitespace-nowrap">
-                            <span className="text-gray-300 @xs:hidden mr-1 text-[12px]">Context</span>
-                            <span className="text-gray-300 hidden @xs:inline mr-2 text-[12px]">Widget Context</span>
-                            <button
-                                onClick={() => {
-                                    model.setWidgetAccess(!widgetAccess);
-                                    setTimeout(() => {
-                                        model.focusInput();
-                                    }, 0);
-                                }}
-                                className={`relative inline-flex h-6 w-14 items-center rounded-full transition-colors cursor-pointer ${
-                                    widgetAccess ? "bg-accent-600" : "bg-zinc-600"
-                                }`}
-                                title={`Widget Access ${widgetAccess ? "ON" : "OFF"}`}
-                            >
-                                <span
-                                    className={`absolute inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                        widgetAccess ? "translate-x-8" : "translate-x-1"
-                                    }`}
-                                />
-                                <span
-                                    className={`relative z-10 text-xs text-white transition-all ${
-                                        widgetAccess ? "ml-2.5 mr-6 text-left" : "ml-6 mr-1 text-right"
-                                    }`}
-                                >
-                                    {widgetAccess ? "ON" : "OFF"}
-                                </span>
-                            </button>
-                        </div>
-
-                        <div className="flex items-center text-sm whitespace-nowrap ml-3">
-                            <span className="text-gray-300 @xs:hidden mr-1 text-[12px]">Auto</span>
-                            <span className="text-gray-300 hidden @xs:inline mr-2 text-[12px]">Auto Execute</span>
-                            <button
-                                onClick={() => {
-                                    model.setAutoExecute(!autoExecute);
-                                    setTimeout(() => {
-                                        model.focusInput();
-                                    }, 0);
-                                }}
-                                className={`relative inline-flex h-6 w-14 items-center rounded-full transition-colors cursor-pointer ${
-                                    autoExecute ? "bg-green-600" : "bg-zinc-600"
-                                }`}
-                                title={`Auto Execute ${autoExecute ? "ON" : "OFF"}`}
-                            >
-                                <span
-                                    className={`absolute inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                        autoExecute ? "translate-x-8" : "translate-x-1"
-                                    }`}
-                                />
-                                <span
-                                    className={`relative z-10 text-xs text-white transition-all ${
-                                        autoExecute ? "ml-2.5 mr-6 text-left" : "ml-6 mr-1 text-right"
-                                    }`}
-                                >
-                                    {autoExecute ? "ON" : "OFF"}
-                                </span>
-                            </button>
-                        </div>
-                    </>
+                    <button
+                        onClick={handleControlMenuClick}
+                        className="text-[12px] px-2 py-1 rounded border border-zinc-600 text-gray-200 hover:text-white hover:border-zinc-400 transition-colors cursor-pointer"
+                        title="AI Control"
+                    >
+                        {isLocalAgent ? (localAgentProvider === "claude-code" ? "Claude Code" : "Codex") : "Wave AI"}
+                        <i className="fa fa-chevron-down ml-2 text-[10px]"></i>
+                    </button>
                 )}
 
                 <button

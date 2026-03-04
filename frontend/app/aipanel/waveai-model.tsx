@@ -8,7 +8,16 @@ import {
     WaveUIMessagePart,
 } from "@/app/aipanel/aitypes";
 import { FocusManager } from "@/app/store/focusManager";
-import { atoms, createBlock, getOrefMetaKeyAtom, getSettingsKeyAtom } from "@/app/store/global";
+import {
+    atoms,
+    createBlock,
+    getAllBlockComponentModels,
+    getBlockComponentModel,
+    getFocusedBlockId,
+    getOrefMetaKeyAtom,
+    getSettingsKeyAtom,
+    recordTEvent,
+} from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { isBuilderWindow } from "@/app/store/windowtype";
 import * as WOS from "@/app/store/wos";
@@ -57,6 +66,8 @@ export class WaveAIModel {
 
     widgetAccessAtom!: jotai.Atom<boolean>;
     autoExecuteAtom!: jotai.Atom<boolean>;
+    isLocalAgentAtom!: jotai.Atom<boolean>;
+    localAgentProviderAtom!: jotai.Atom<string>;
     droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
     chatId!: jotai.PrimitiveAtom<string>;
     currentAIMode!: jotai.PrimitiveAtom<string>;
@@ -106,6 +117,27 @@ export class WaveAIModel {
             const value = get(autoExecuteMetaAtom);
             // 默认为 true，让 AI 可以直接执行命令
             return value ?? true;
+        });
+
+        this.isLocalAgentAtom = jotai.atom((get) => {
+            if (this.inBuilder) {
+                return false;
+            }
+            const isLocalMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:islocal");
+            const value = get(isLocalMetaAtom);
+            return value ?? false;
+        });
+
+        this.localAgentProviderAtom = jotai.atom((get) => {
+            if (this.inBuilder) {
+                return "codex";
+            }
+            const providerMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:provider");
+            const value = get(providerMetaAtom);
+            if (value === "claude-code" || value === "codex") {
+                return value;
+            }
+            return "codex";
         });
 
         this.codeBlockMaxWidth = jotai.atom((get) => {
@@ -410,6 +442,67 @@ export class WaveAIModel {
             oref: this.orefContext,
             meta: { "waveai:autoexecute": enabled },
         });
+    }
+
+    setLocalAgentEnabled(enabled: boolean) {
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: this.orefContext,
+            meta: { "waveai:islocal": enabled },
+        });
+    }
+
+    setLocalAgentProvider(provider: "codex" | "claude-code") {
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: this.orefContext,
+            meta: { "waveai:provider": provider, "waveai:islocal": true },
+        });
+    }
+
+    private getTargetTerminalModel():
+        | {
+              blockId: string;
+              sendDataToController: (data: string) => void;
+          }
+        | null {
+        const focusedBlockId = getFocusedBlockId();
+        if (focusedBlockId) {
+            const bcm = getBlockComponentModel(focusedBlockId);
+            const viewModel = bcm?.viewModel as any;
+            if (viewModel?.viewType === "term" && typeof viewModel.sendDataToController === "function") {
+                return { blockId: focusedBlockId, sendDataToController: viewModel.sendDataToController.bind(viewModel) };
+            }
+        }
+
+        for (const bcm of getAllBlockComponentModels()) {
+            const viewModel = bcm?.viewModel as any;
+            if (viewModel?.viewType === "term" && typeof viewModel.sendDataToController === "function") {
+                return { blockId: viewModel.blockId, sendDataToController: viewModel.sendDataToController.bind(viewModel) };
+            }
+        }
+
+        return null;
+    }
+
+    executeCommandInTerminal(command: string, opts?: { source?: "manual" | "auto" }): boolean {
+        const normalized = (command ?? "").replace(/\r/g, "").trim();
+        if (normalized === "") {
+            return false;
+        }
+
+        const target = this.getTargetTerminalModel();
+        if (target == null) {
+            this.setError("No active terminal available. Focus a terminal and try again.");
+            return false;
+        }
+
+        const payload = normalized.endsWith("\n") ? normalized : `${normalized}\n`;
+        target.sendDataToController(payload);
+        this.clearError();
+        recordTEvent("action:waveai:executecommand", {
+            "action:source": opts?.source ?? "manual",
+            "action:blockid": target.blockId,
+        });
+        return true;
     }
 
     isValidMode(mode: string): boolean {

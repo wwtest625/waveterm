@@ -23,6 +23,8 @@ function makeBlankForm(): ConnectionFormState {
     return {
         host: "",
         displayName: "",
+        group: "",
+        remark: "",
         user: "",
         hostname: "",
         port: "22",
@@ -73,19 +75,36 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
     const [query, setQuery] = useState("");
     const [selectedHost, setSelectedHost] = useState<string>("");
+    const [activeGroup, setActiveGroup] = useState<string>("All");
     const [form, setForm] = useState<ConnectionFormState>(makeBlankForm());
     const [saving, setSaving] = useState(false);
     const [testing, setTesting] = useState(false);
     const [connectionsState, setConnectionsState] = useState<{[key: string]: ConnKeywords}>({});
+    const [latencyMap, setLatencyMap] = useState<Record<string, number | null>>({});
 
     useEffect(() => {
         setConnectionsState(fullConfig?.connections ?? {});
     }, [fullConfig?.connections]);
 
+    const groups = useMemo(() => {
+        const set = new Set<string>();
+        for (const host of Object.keys(connectionsState)) {
+            const g = ((connectionsState[host] as any)?.["display:group"] as string) ?? "";
+            if (g.trim() !== "") {
+                set.add(g.trim());
+            }
+        }
+        return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+    }, [connectionsState]);
+
     const filteredHosts = useMemo(() => {
         const sorted = sortConnectionHosts(connectionsState);
-        return sorted.filter((host) => connectionMatchesQuery(host, connectionsState[host], query));
-    }, [connectionsState, query]);
+        return sorted.filter((host) => {
+            const group = (((connectionsState[host] as any)?.["display:group"] as string) ?? "").trim();
+            const groupMatch = activeGroup === "All" || group === activeGroup;
+            return groupMatch && connectionMatchesQuery(host, connectionsState[host], query);
+        });
+    }, [connectionsState, query, activeGroup]);
 
     useEffect(() => {
         if (selectedHost === "__new__") {
@@ -165,9 +184,24 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         }
     }
 
+    async function probeLatency(host: string) {
+        const start = performance.now();
+        try {
+            await RpcApi.ConnEnsureCommand(
+                TabRpcClient,
+                { connname: host, logblockid: model.blockId },
+                { timeout: 20000 }
+            );
+            const latency = Math.max(1, Math.round(performance.now() - start));
+            setLatencyMap((prev) => ({ ...prev, [host]: latency }));
+        } catch {
+            setLatencyMap((prev) => ({ ...prev, [host]: null }));
+        }
+    }
+
     return (
         <div className="h-full w-full flex overflow-hidden">
-            <div className="w-[320px] border-r border-border flex flex-col shrink-0">
+            <div className="w-[420px] border-r border-border flex flex-col shrink-0">
                 <div className="p-3 border-b border-border flex items-center gap-2">
                     <input
                         className="flex-1 rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
@@ -175,6 +209,17 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                     />
+                    <select
+                        className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
+                        value={activeGroup}
+                        onChange={(e) => setActiveGroup(e.target.value)}
+                    >
+                        {groups.map((g) => (
+                            <option key={g} value={g}>
+                                {g}
+                            </option>
+                        ))}
+                    </select>
                     <Button
                         className="!h-[30px] !px-2"
                         onClick={() => {
@@ -190,29 +235,58 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                     {filteredHosts.length === 0 ? (
                         <div className="text-secondary text-sm px-2 py-3">No connections</div>
                     ) : (
-                        filteredHosts.map((host) => {
-                            const meta = connectionsState[host];
-                            const isSelected = selectedHost === host;
-                            return (
-                                <div
-                                    key={host}
-                                    className={`rounded px-2 py-2 mb-1 cursor-pointer border ${
-                                        isSelected
-                                            ? "bg-green-900/30 border-green-700"
-                                            : "bg-panel border-transparent hover:border-border"
-                                    }`}
-                                    onClick={() => setSelectedHost(host)}
-                                >
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="truncate text-sm">{meta?.["display:name"] || host}</div>
-                                        <ConnectionStatusBadge host={host} />
+                        <div className="space-y-1">
+                            <div className="grid grid-cols-[1.4fr_1.8fr_84px_88px_70px] text-[11px] text-secondary px-2 py-1">
+                                <div>Name / Group</div>
+                                <div>Address</div>
+                                <div>Latency</div>
+                                <div>Status</div>
+                                <div>Probe</div>
+                            </div>
+                            {filteredHosts.map((host) => {
+                                const meta = connectionsState[host];
+                                const isSelected = selectedHost === host;
+                                const group = (((meta as any)?.["display:group"] as string) ?? "").trim();
+                                const latency = latencyMap[host];
+                                const latencyText = latency == null ? "-" : `${latency} ms`;
+                                return (
+                                    <div
+                                        key={host}
+                                        className={`grid grid-cols-[1.4fr_1.8fr_84px_88px_70px] items-center rounded px-2 py-2 cursor-pointer border ${
+                                            isSelected
+                                                ? "bg-green-900/30 border-green-700"
+                                                : "bg-panel border-transparent hover:border-border"
+                                        }`}
+                                        onClick={() => setSelectedHost(host)}
+                                    >
+                                        <div className="min-w-0">
+                                            <div className="truncate text-sm">{meta?.["display:name"] || host}</div>
+                                            <div className="truncate text-[11px] text-secondary">
+                                                {group === "" ? "Ungrouped" : group}
+                                            </div>
+                                        </div>
+                                        <div className="truncate text-xs text-secondary">
+                                            {(meta?.["ssh:user"] || "") + "@" + (meta?.["ssh:hostname"] || host)}
+                                        </div>
+                                        <div className="text-xs text-secondary">{latencyText}</div>
+                                        <div>
+                                            <ConnectionStatusBadge host={host} />
+                                        </div>
+                                        <div>
+                                            <Button
+                                                className="!h-[24px] !px-2 !text-xs"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void probeLatency(host);
+                                                }}
+                                            >
+                                                Ping
+                                            </Button>
+                                        </div>
                                     </div>
-                                    <div className="text-xs text-secondary truncate mt-0.5">
-                                        {(meta?.["ssh:user"] || "") + "@" + (meta?.["ssh:hostname"] || host)}
-                                    </div>
-                                </div>
-                            );
-                        })
+                                );
+                            })}
+                        </div>
                     )}
                 </div>
             </div>
@@ -235,6 +309,22 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                             value={form.displayName}
                             onChange={(e) => setForm((prev) => ({ ...prev, displayName: e.target.value }))}
                             placeholder="Production Host"
+                        />
+
+                        <div className="text-secondary text-sm">Group</div>
+                        <input
+                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
+                            value={form.group}
+                            onChange={(e) => setForm((prev) => ({ ...prev, group: e.target.value }))}
+                            placeholder="Production / Staging / Lab"
+                        />
+
+                        <div className="text-secondary text-sm">Remark</div>
+                        <textarea
+                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none min-h-[70px]"
+                            value={form.remark}
+                            onChange={(e) => setForm((prev) => ({ ...prev, remark: e.target.value }))}
+                            placeholder="Host purpose, ownership, notes..."
                         />
 
                         <div className="text-secondary text-sm">SSH User</div>
