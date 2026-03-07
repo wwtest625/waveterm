@@ -3,7 +3,7 @@
 
 import { useAtomValue } from "jotai";
 import { memo, useEffect, useRef, useState } from "react";
-import { getFirstExecutableCommandFromMessage } from "./autoexecute-util";
+import { getFirstExecutableCommandFromMessage, isSafeToAutoExecute } from "./autoexecute-util";
 import { AIMessage } from "./aimessage";
 import { AIModeDropdown } from "./aimode";
 import { type WaveUIMessage } from "./aitypes";
@@ -129,6 +129,9 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
 
         const command = getFirstExecutableCommandFromMessage(pendingMessage);
         if (!command) {
+            return;
+        }
+        if (!isSafeToAutoExecute(command)) {
             return;
         }
 

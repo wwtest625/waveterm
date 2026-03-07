@@ -500,6 +500,7 @@ type WaveChatOpts struct {
 	ChatId               string
 	ClientId             string
 	Config               AIOptsType
+	AgentMode            string
 	Tools                []ToolDefinition
 	SystemPrompt         []string
 	TabStateGenerator    func() (string, []ToolDefinition, string, error)

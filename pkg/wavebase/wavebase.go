@@ -55,6 +55,8 @@ var AppPath_VarCache string             // caches WAVETERM_APP_PATH
 var AppResourcesPath_VarCache string    // caches WAVETERM_RESOURCES_PATH
 var AppElectronExecPath_VarCache string // caches WAVETERM_ELECTRONEXECPATH
 var Dev_VarCache string                 // caches WAVETERM_DEV
+var webEndpoint string
+var webEndpointLock sync.RWMutex
 
 const WaveLockFile = "wave.lock"
 const DomainSocketBaseName = "wave.sock"
@@ -137,6 +139,25 @@ func GetWaveAppBinPath() string {
 
 func GetWaveAppElectronExecPath() string {
 	return AppElectronExecPath_VarCache
+}
+
+func SetWebEndpoint(endpoint string) {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return
+	}
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		endpoint = "http://" + endpoint
+	}
+	webEndpointLock.Lock()
+	webEndpoint = endpoint
+	webEndpointLock.Unlock()
+}
+
+func GetWebEndpoint() string {
+	webEndpointLock.RLock()
+	defer webEndpointLock.RUnlock()
+	return webEndpoint
 }
 
 func GetHomeDir() string {

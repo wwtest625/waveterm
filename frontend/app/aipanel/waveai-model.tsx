@@ -26,6 +26,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { BuilderFocusManager } from "@/builder/store/builder-focusmanager";
 import { getWebServerEndpoint } from "@/util/endpoints";
+import { fetch } from "@/util/fetchutil";
 import { base64ToArrayBuffer } from "@/util/util";
 import { ChatStatus } from "ai";
 import * as jotai from "jotai";
@@ -50,6 +51,16 @@ export interface DroppedFile {
     previewUrl?: string;
 }
 
+export interface LocalAgentHealth {
+    ok: boolean;
+    provider: string;
+    available: boolean;
+    message: string;
+    command?: string;
+}
+
+export type AgentMode = "default" | "planning" | "auto-approve";
+
 export class WaveAIModel {
     private static instance: WaveAIModel | null = null;
     inputRef: React.RefObject<AIPanelInputRef> | null = null;
@@ -68,6 +79,9 @@ export class WaveAIModel {
     autoExecuteAtom!: jotai.Atom<boolean>;
     isLocalAgentAtom!: jotai.Atom<boolean>;
     localAgentProviderAtom!: jotai.Atom<string>;
+    agentModeAtom!: jotai.Atom<AgentMode>;
+    localAgentHealthAtom: jotai.PrimitiveAtom<LocalAgentHealth | null> =
+        jotai.atom<LocalAgentHealth | null>(null) as jotai.PrimitiveAtom<LocalAgentHealth | null>;
     droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
     chatId!: jotai.PrimitiveAtom<string>;
     currentAIMode!: jotai.PrimitiveAtom<string>;
@@ -138,6 +152,18 @@ export class WaveAIModel {
                 return value;
             }
             return "codex";
+        });
+
+        this.agentModeAtom = jotai.atom((get) => {
+            if (this.inBuilder) {
+                return "default";
+            }
+            const modeMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:agentmode");
+            const value = get(modeMetaAtom);
+            if (value === "planning" || value === "auto-approve" || value === "default") {
+                return value;
+            }
+            return "default";
         });
 
         this.codeBlockMaxWidth = jotai.atom((get) => {
@@ -449,6 +475,7 @@ export class WaveAIModel {
             oref: this.orefContext,
             meta: { "waveai:islocal": enabled },
         });
+        this.clearChat();
     }
 
     setLocalAgentProvider(provider: "codex" | "claude-code") {
@@ -456,6 +483,40 @@ export class WaveAIModel {
             oref: this.orefContext,
             meta: { "waveai:provider": provider, "waveai:islocal": true },
         });
+        this.clearChat();
+    }
+
+    setAgentMode(mode: AgentMode) {
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: this.orefContext,
+            meta: { "waveai:agentmode": mode },
+        });
+        this.clearChat();
+    }
+
+    async refreshLocalAgentHealth(): Promise<void> {
+        if (this.inBuilder) {
+            globalStore.set(this.localAgentHealthAtom, null);
+            return;
+        }
+        const provider = globalStore.get(this.localAgentProviderAtom) ?? "codex";
+        try {
+            const endpoint = `${getWebServerEndpoint()}/api/local-agent-health?provider=${encodeURIComponent(provider)}`;
+            const response = await fetch(endpoint);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const data = (await response.json()) as LocalAgentHealth;
+            globalStore.set(this.localAgentHealthAtom, data);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            globalStore.set(this.localAgentHealthAtom, {
+                ok: false,
+                provider,
+                available: false,
+                message: `Health check failed: ${errorMessage}`,
+            });
+        }
     }
 
     private getTargetTerminalModel():

@@ -46,7 +46,7 @@ var (
 	activeChats = ds.MakeSyncMap[bool]() // key is chatid
 )
 
-func getSystemPrompt(apiType string, model string, isBuilder bool, hasToolsCapability bool, widgetAccess bool) []string {
+func getSystemPrompt(apiType string, model string, isBuilder bool, hasToolsCapability bool, widgetAccess bool, isLocal bool, localProvider string, agentMode AgentMode) []string {
 	if isBuilder {
 		return []string{}
 	}
@@ -55,6 +55,7 @@ func getSystemPrompt(apiType string, model string, isBuilder bool, hasToolsCapab
 	if useNoToolsPrompt {
 		basePrompt = SystemPromptText_NoTools
 	}
+	basePrompt = strings.TrimSpace(basePrompt + " " + getModeAwareSystemPromptText(isLocal, localProvider, agentMode))
 	modelLower := strings.ToLower(model)
 	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek)\b`, modelLower)
 	if needsStrictToolAddOn && !useNoToolsPrompt {
@@ -254,6 +255,20 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 		_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, *toolCall.ToolUseData)
 		updateToolUseDataInChat(backend, chatOpts, toolCall.ID, *toolCall.ToolUseData)
 	}
+
+	agentMode := resolveAgentMode(chatOpts.AgentMode)
+	if err := validateToolForAgentMode(agentMode, toolCall.Name); err != nil {
+		toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
+		toolCall.ToolUseData.ErrorMessage = err.Error()
+		_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, *toolCall.ToolUseData)
+		updateToolUseDataInChat(backend, chatOpts, toolCall.ID, *toolCall.ToolUseData)
+		return uctypes.AIToolResult{
+			ToolName:  toolCall.Name,
+			ToolUseID: toolCall.ID,
+			ErrorText: err.Error(),
+		}
+	}
+	toolCall.ToolUseData.Approval = applyAgentModeApprovalPolicy(agentMode, toolCall.Name, toolCall.ToolUseData.Approval)
 
 	if toolCall.ToolUseData.Approval == uctypes.ApprovalNeedsApproval {
 		log.Printf("  waiting for approval...\n")
@@ -623,13 +638,16 @@ func sendAIMetricsTelemetry(ctx context.Context, metrics *uctypes.AIMetrics) {
 
 // PostMessageRequest represents the request body for posting a message
 type PostMessageRequest struct {
-	TabId        string            `json:"tabid,omitempty"`
-	BuilderId    string            `json:"builderid,omitempty"`
-	BuilderAppId string            `json:"builderappid,omitempty"`
-	ChatID       string            `json:"chatid"`
-	Msg          uctypes.AIMessage `json:"msg"`
-	WidgetAccess bool              `json:"widgetaccess,omitempty"`
-	AIMode       string            `json:"aimode"`
+	TabId         string            `json:"tabid,omitempty"`
+	BuilderId     string            `json:"builderid,omitempty"`
+	BuilderAppId  string            `json:"builderappid,omitempty"`
+	ChatID        string            `json:"chatid"`
+	Msg           uctypes.AIMessage `json:"msg"`
+	WidgetAccess  bool              `json:"widgetaccess,omitempty"`
+	AIMode        string            `json:"aimode"`
+	AgentMode     string            `json:"agentmode,omitempty"`
+	IsLocal       bool              `json:"islocal,omitempty"`
+	LocalProvider string            `json:"localprovider,omitempty"`
 }
 
 func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
@@ -656,6 +674,12 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate the message
+	if err := req.Msg.Validate(); err != nil {
+		http.Error(w, fmt.Sprintf("Message validation failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	// Get RTInfo from TabId or BuilderId
 	var rtInfo *waveobj.ObjRTInfo
 	if req.TabId != "" {
@@ -667,6 +691,43 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if rtInfo == nil {
 		rtInfo = &waveobj.ObjRTInfo{}
+	}
+
+	if req.IsLocal {
+		localProvider := normalizeLocalProvider(req.LocalProvider)
+		chatOpts := uctypes.WaveChatOpts{
+			ChatId:       req.ChatID,
+			ClientId:     wstore.GetClientId(),
+			WidgetAccess: req.WidgetAccess,
+			BuilderId:    req.BuilderId,
+			BuilderAppId: req.BuilderAppId,
+			AgentMode:    string(resolveAgentMode(req.AgentMode)),
+			Config: uctypes.AIOptsType{
+				Provider:     uctypes.AIProvider_Custom,
+				APIType:      uctypes.APIType_OpenAIChat,
+				Model:        "local-" + localProvider,
+				Endpoint:     "local-agent://" + localProvider,
+				AIMode:       req.AIMode,
+				TimeoutMs:    int(getLocalAgentTimeout().Milliseconds()),
+				Capabilities: []string{},
+			},
+		}
+
+		if req.TabId != "" {
+			tabState, _, err := GenerateTabStateAndTools(r.Context(), req.TabId, req.WidgetAccess, &chatOpts)
+			if err == nil {
+				chatOpts.TabId = req.TabId
+				chatOpts.TabState = tabState
+			}
+		}
+
+		sseHandler := sse.MakeSSEHandlerCh(w, r.Context())
+		defer sseHandler.Close()
+		if err := WaveAILocalAgentPostMessageWrap(r.Context(), sseHandler, &req, chatOpts); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to post local agent message: %v", err), http.StatusInternalServerError)
+			return
+		}
+		return
 	}
 
 	// Get WaveAI settings
@@ -687,12 +748,13 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		ChatId:               req.ChatID,
 		ClientId:             wstore.GetClientId(),
 		Config:               *aiOpts,
+		AgentMode:            string(resolveAgentMode(req.AgentMode)),
 		WidgetAccess:         req.WidgetAccess,
 		AllowNativeWebSearch: true,
 		BuilderId:            req.BuilderId,
 		BuilderAppId:         req.BuilderAppId,
 	}
-	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), chatOpts.WidgetAccess)
+	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), chatOpts.WidgetAccess, req.IsLocal, normalizeLocalProvider(req.LocalProvider), resolveAgentMode(req.AgentMode))
 
 	if req.TabId != "" {
 		chatOpts.TabStateGenerator = func() (string, []uctypes.ToolDefinition, string, error) {
@@ -713,12 +775,6 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 			GetBuilderEditAppFileToolDefinition(req.BuilderAppId, req.BuilderId),
 			GetBuilderListFilesToolDefinition(req.BuilderAppId),
 		)
-	}
-
-	// Validate the message
-	if err := req.Msg.Validate(); err != nil {
-		http.Error(w, fmt.Sprintf("Message validation failed: %v", err), http.StatusInternalServerError)
-		return
 	}
 
 	// Create SSE handler and set up streaming

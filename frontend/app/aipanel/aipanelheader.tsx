@@ -4,8 +4,8 @@
 import { handleWaveAIContextMenu } from "@/app/aipanel/aipanel-contextmenu";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { useAtomValue } from "jotai";
-import { memo } from "react";
-import { WaveAIModel } from "./waveai-model";
+import { memo, useEffect } from "react";
+import { AgentMode, WaveAIModel } from "./waveai-model";
 
 export const AIPanelHeader = memo(() => {
     const model = WaveAIModel.getInstance();
@@ -13,7 +13,30 @@ export const AIPanelHeader = memo(() => {
     const autoExecute = useAtomValue(model.autoExecuteAtom);
     const isLocalAgent = useAtomValue(model.isLocalAgentAtom);
     const localAgentProvider = useAtomValue(model.localAgentProviderAtom);
+    const agentMode = useAtomValue(model.agentModeAtom);
+    const localAgentHealth = useAtomValue(model.localAgentHealthAtom);
     const inBuilder = model.inBuilder;
+    const agentModeLabel = (() => {
+        switch (agentMode) {
+            case "planning":
+                return "Planning";
+            case "auto-approve":
+                return "Auto-Approve";
+            default:
+                return "Default";
+        }
+    })();
+
+    useEffect(() => {
+        if (!isLocalAgent || inBuilder) {
+            return;
+        }
+        model.refreshLocalAgentHealth();
+        const timer = setInterval(() => {
+            model.refreshLocalAgentHealth();
+        }, 15000);
+        return () => clearInterval(timer);
+    }, [isLocalAgent, localAgentProvider, inBuilder, model]);
 
     const handleKebabClick = (e: React.MouseEvent) => {
         handleWaveAIContextMenu(e, false);
@@ -28,6 +51,17 @@ export const AIPanelHeader = memo(() => {
         e.stopPropagation();
 
         const localLabel = localAgentProvider === "claude-code" ? "Local Agent (Claude Code)" : "Local Agent (Codex)";
+        const agentModeItems: ContextMenuItem[] = (["default", "planning", "auto-approve"] as AgentMode[]).map((mode) => ({
+            label:
+                mode === "planning"
+                    ? "Planning"
+                    : mode === "auto-approve"
+                      ? "Auto-Approve"
+                      : "Default",
+            type: "checkbox",
+            checked: agentMode === mode,
+            click: () => model.setAgentMode(mode),
+        }));
         const menu: ContextMenuItem[] = [
             {
                 label: "Provider",
@@ -52,6 +86,10 @@ export const AIPanelHeader = memo(() => {
                     },
                 ],
             },
+            {
+                label: "Agent Mode",
+                submenu: agentModeItems,
+            },
             { type: "separator" },
             {
                 label: "Widget Context",
@@ -67,7 +105,7 @@ export const AIPanelHeader = memo(() => {
             },
             { type: "separator" },
             {
-                label: isLocalAgent ? localLabel : "Wave AI",
+                label: isLocalAgent ? `${localLabel} · ${agentModeLabel}` : `Wave AI · ${agentModeLabel}`,
                 enabled: false,
             },
         ];
@@ -83,6 +121,14 @@ export const AIPanelHeader = memo(() => {
             <h2 className="text-white text-sm @xs:text-lg font-semibold flex items-center gap-2 flex-shrink-0 whitespace-nowrap">
                 <i className="fa fa-sparkles text-accent"></i>
                 {isLocalAgent ? "Local Agent" : "Wave AI"}
+                {isLocalAgent && (
+                    <span
+                        className={`inline-block h-2 w-2 rounded-full ${
+                            localAgentHealth?.available ? "bg-green-500" : "bg-yellow-500"
+                        }`}
+                        title={localAgentHealth?.message ?? "Checking local agent"}
+                    ></span>
+                )}
             </h2>
 
             <div className="flex items-center flex-shrink-0 whitespace-nowrap">
@@ -93,6 +139,7 @@ export const AIPanelHeader = memo(() => {
                         title="AI Control"
                     >
                         {isLocalAgent ? (localAgentProvider === "claude-code" ? "Claude Code" : "Codex") : "Wave AI"}
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-zinc-400">{agentModeLabel}</span>
                         <i className="fa fa-chevron-down ml-2 text-[10px]"></i>
                     </button>
                 )}

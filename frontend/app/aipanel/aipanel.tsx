@@ -23,6 +23,7 @@ import { AIPanelHeader } from "./aipanelheader";
 import { AIPanelInput } from "./aipanelinput";
 import { AIPanelMessages } from "./aipanelmessages";
 import { AIRateLimitStrip } from "./airatelimitstrip";
+import { AgentStatus, deriveAgentRuntimeStatus } from "./agentstatus";
 import { WaveUIMessage } from "./aitypes";
 import { BYOKAnnouncement } from "./byokannouncement";
 import { TelemetryRequiredMessage } from "./telemetryrequired";
@@ -257,6 +258,11 @@ const AIPanelComponentInner = memo(() => {
     const focusFollowsCursorMode = jotai.useAtomValue(getSettingsKeyAtom("app:focusfollowscursor")) ?? "off";
     const telemetryEnabled = jotai.useAtomValue(getSettingsKeyAtom("telemetry:enabled")) ?? false;
     const isPanelVisible = jotai.useAtomValue(model.getPanelVisibleAtom());
+    const errorMessage = jotai.useAtomValue(model.errorMessage);
+    const isLocalAgent = jotai.useAtomValue(model.isLocalAgentAtom);
+    const localAgentProvider = jotai.useAtomValue(model.localAgentProviderAtom);
+    const agentMode = jotai.useAtomValue(model.agentModeAtom);
+    const localAgentHealth = jotai.useAtomValue(model.localAgentHealthAtom);
     const tabModel = maybeUseTabModel();
     const defaultMode = jotai.useAtomValue(getSettingsKeyAtom("waveai:defaultmode")) ?? "waveai@balanced";
     const aiModeConfigs = jotai.useAtomValue(model.aiModeConfigs);
@@ -275,6 +281,9 @@ const AIPanelComponentInner = memo(() => {
                     chatid: globalStore.get(model.chatId),
                     widgetaccess: globalStore.get(model.widgetAccessAtom),
                     aimode: globalStore.get(model.currentAIMode),
+                    agentmode: globalStore.get(model.agentModeAtom),
+                    islocal: globalStore.get(model.isLocalAgentAtom),
+                    localprovider: globalStore.get(model.localAgentProviderAtom),
                 };
                 if (isBuilderWindow()) {
                     body.builderid = globalStore.get(atoms.builderId);
@@ -296,6 +305,16 @@ const AIPanelComponentInner = memo(() => {
     // console.log("AICHAT messages", messages);
     (window as any).aichatmessages = messages;
     (window as any).aichatstatus = status;
+
+    const agentStatusSnapshot = deriveAgentRuntimeStatus({
+        isLocalAgent,
+        provider: localAgentProvider,
+        mode: agentMode,
+        chatStatus: status,
+        messages,
+        errorMessage,
+        localAgentHealth,
+    });
 
     const handleKeyDown = (waveEvent: WaveKeyboardEvent): boolean => {
         if (checkKeyPressed(waveEvent, "Cmd:k")) {
@@ -578,6 +597,7 @@ const AIPanelComponentInner = memo(() => {
                     <TelemetryRequiredMessage />
                 ) : (
                     <>
+                        <AgentStatus snapshot={agentStatusSnapshot} />
                         {messages.length === 0 && initialLoadDone ? (
                             <div
                                 className="flex-1 overflow-y-auto p-2 relative"

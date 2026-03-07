@@ -427,6 +427,9 @@ func MakeTCPListener(serviceName string) (net.Listener, error) {
 		return nil, fmt.Errorf("error creating listener at %v: %v", serverAddr, err)
 	}
 	log.Printf("Server [%s] listening on %s\n", serviceName, rtn.Addr())
+	if serviceName == "web" {
+		wavebase.SetWebEndpoint(rtn.Addr().String())
+	}
 	return rtn, nil
 }
 
@@ -466,6 +469,7 @@ func RunWebServer(listener net.Listener) {
 
 	// Routes that should NOT have timeout handling (for streaming)
 	gr.HandleFunc("/api/post-chat-message", WebFnWrap(WebFnOpts{AllowCaching: false}, aiusechat.WaveAIPostMessageHandler))
+	gr.HandleFunc("/api/local-agent-health", WebFnWrap(WebFnOpts{AllowCaching: false}, aiusechat.LocalAgentHealthHandler))
 
 	// Other routes without timeout
 	gr.PathPrefix(schemaPrefix).Handler(http.StripPrefix(schemaPrefix, schema.GetSchemaHandler()))

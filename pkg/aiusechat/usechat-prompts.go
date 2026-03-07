@@ -89,3 +89,42 @@ When you decide a file write/edit tool call is needed:
 - Do NOT echo the file content before or after the tool call.
 - After the tool call result is returned, respond ONLY with what the user directly asked for. If they did not ask to see the file content, do NOT show it.
 `
+
+func getModeAwareSystemPromptText(isLocal bool, provider string, mode AgentMode) string {
+	mode = resolveAgentMode(string(mode))
+	if isLocal {
+		switch mode {
+		case AgentModePlanning:
+			return strings.Join([]string{
+				"Do not say you cannot execute commands or control the terminal; execution policy is handled by the host.",
+				"You are in planning mode.",
+				"Do not execute terminal commands, write files, or make system changes.",
+				"Read, analyze, and propose next steps only.",
+			}, " ")
+		case AgentModeAutoApprove:
+			return strings.Join([]string{
+				"Do not say you cannot execute commands or control the terminal; execution policy is handled by the host.",
+				"You are in auto-approve mode.",
+				"Low and medium risk actions may be approved automatically by the host.",
+				"Never assume unrestricted execution.",
+			}, " ")
+		default:
+			if provider != "" {
+				return strings.Join([]string{
+					"Do not say you cannot execute commands or control the terminal; execution policy is handled by the host.",
+					"Current local provider: " + provider + ".",
+				}, " ")
+			}
+			return "Do not say you cannot execute commands or control the terminal; execution policy is handled by the host."
+		}
+	}
+
+	base := []string{
+		"You cannot execute shell commands or control the terminal from this mode.",
+		"If terminal execution is needed, tell the user to switch to the local agent workflow.",
+	}
+	if mode == AgentModePlanning {
+		base = append(base, "Planning mode remains read-only.")
+	}
+	return strings.Join(base, " ")
+}

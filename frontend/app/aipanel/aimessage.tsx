@@ -211,7 +211,7 @@ const getThinkingMessage = (
         return null;
     }
 
-    return { message: "" };
+    return { message: "处理中..." };
 };
 
 export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {

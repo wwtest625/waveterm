@@ -1100,6 +1100,10 @@ declare global {
         "waveai:model"?: string;
         "waveai:chatid"?: string;
         "waveai:widgetcontext"?: boolean;
+        "waveai:autoexecute"?: boolean;
+        "waveai:provider"?: string;
+        "waveai:islocal"?: boolean;
+        "waveai:agentmode"?: string;
         "term:*"?: boolean;
         "term:fontsize"?: number;
         "term:fontfamily"?: string;
@@ -1173,6 +1177,7 @@ declare global {
         "shell:inputempty"?: boolean;
         "shell:lastcmd"?: string;
         "shell:lastcmdexitcode"?: number;
+        "term:lastuserinputts"?: number;
         "builder:layout"?: {[key: string]: number};
         "builder:appid"?: string;
         "builder:env"?: {[key: string]: string};
@@ -1526,6 +1531,7 @@ declare global {
         "waveai:mode"?: string;
         "waveai:provider"?: string;
         "waveai:islocal"?: boolean;
+        "waveai:agentmode"?: string;
         "waveai:feedback"?: "good" | "bad";
         "waveai:action"?: string;
         "job:donereason"?: string;

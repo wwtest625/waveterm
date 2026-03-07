@@ -84,6 +84,7 @@ export class TermViewModel implements ViewModel {
     termDurableStatus: jotai.Atom<BlockJobStatusData | null>;
     termConfigedDurable: jotai.Atom<null | boolean>;
     searchAtoms?: SearchAtoms;
+    lastUserActivityUpdateTs: number = 0;
 
     constructor(blockId: string, nodeModel: BlockNodeModel, tabModel: TabModel) {
         this.viewType = "term";
@@ -464,6 +465,14 @@ export class TermViewModel implements ViewModel {
     }
 
     sendDataToController(data: string) {
+        const now = Date.now();
+        if (now-this.lastUserActivityUpdateTs >= 1000) {
+            this.lastUserActivityUpdateTs = now;
+            RpcApi.SetRTInfoCommand(TabRpcClient, {
+                oref: WOS.makeORef("block", this.blockId),
+                data: { "term:lastuserinputts": now },
+            });
+        }
         const b64data = stringToBase64(data);
         RpcApi.ControllerInputCommand(TabRpcClient, { blockid: this.blockId, inputdata64: b64data });
     }
