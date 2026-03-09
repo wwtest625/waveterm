@@ -96,26 +96,20 @@ func getModeAwareSystemPromptText(isLocal bool, provider string, mode AgentMode)
 		switch mode {
 		case AgentModePlanning:
 			return strings.Join([]string{
-				"Do not say you cannot execute commands or control the terminal; execution policy is handled by the host.",
 				"You are in planning mode.",
 				"Do not execute terminal commands, write files, or make system changes.",
 				"Read, analyze, and propose next steps only.",
 			}, " ")
 		case AgentModeAutoApprove:
 			return strings.Join([]string{
-				"Do not say you cannot execute commands or control the terminal; execution policy is handled by the host.",
 				"You are in auto-approve mode.",
 				"Low and medium risk actions may be approved automatically by the host.",
-				"Never assume unrestricted execution.",
 			}, " ")
 		default:
 			if provider != "" {
-				return strings.Join([]string{
-					"Do not say you cannot execute commands or control the terminal; execution policy is handled by the host.",
-					"Current local provider: " + provider + ".",
-				}, " ")
+				return "Current local provider: " + provider + "."
 			}
-			return "Do not say you cannot execute commands or control the terminal; execution policy is handled by the host."
+			return ""
 		}
 	}
 

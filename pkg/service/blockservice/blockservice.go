@@ -87,6 +87,33 @@ type TerminalCommandStatusData struct {
 	LastOutputTs int64  `json:"lastoutputts,omitempty"`
 }
 
+type TerminalCommandResultData struct {
+	TabId          string   `json:"tabid"`
+	BlockId        string   `json:"blockid"`
+	Command        string   `json:"command,omitempty"`
+	Status         string   `json:"status"`
+	ExitCode       *int     `json:"exitcode,omitempty"`
+	CaptureStatus  string   `json:"capturestatus"`
+	StartOffset    int64    `json:"startoffset"`
+	ReadOffset     int64    `json:"readoffset"`
+	EndOffset      int64    `json:"endoffset"`
+	BytesRead      int      `json:"bytesread"`
+	Text           string   `json:"text"`
+	Lines          []string `json:"lines"`
+	Truncated      bool     `json:"truncated"`
+	BlockedReason  string   `json:"blockedreason,omitempty"`
+	OutputTooLarge bool     `json:"outputtoolarge,omitempty"`
+}
+
+type TerminalCommandResultRequest struct {
+	TabId       string `json:"tabid"`
+	BlockId     string `json:"blockid,omitempty"`
+	Command     string `json:"command,omitempty"`
+	StartOffset int64  `json:"startoffset,omitempty"`
+	MaxBytes    int    `json:"maxbytes,omitempty"`
+	MaxLines    int    `json:"maxlines,omitempty"`
+}
+
 type TerminalUserActivityStateData struct {
 	TabId          string `json:"tabid"`
 	BlockId        string `json:"blockid"`
@@ -204,6 +231,64 @@ func (bs *BlockService) GetTerminalScrollback(ctx context.Context, req TerminalS
 		Lines:     lines,
 		Truncated: truncated,
 	}, nil
+}
+
+func (*BlockService) GetTerminalCommandResult_Meta() tsgenmeta.MethodMeta {
+	return tsgenmeta.MethodMeta{
+		Desc:     "read incremental terminal command output from a start offset",
+		ArgNames: []string{"ctx", "req"},
+	}
+}
+
+func (bs *BlockService) GetTerminalCommandResult(ctx context.Context, req TerminalCommandResultRequest) (*TerminalCommandResultData, error) {
+	if req.TabId == "" {
+		return nil, fmt.Errorf("tabId is required")
+	}
+	termBlock, err := resolveTerminalBlockForTab(ctx, req.TabId, req.BlockId)
+	if err != nil {
+		return nil, err
+	}
+	maxBytes := req.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultTerminalTailBytes
+	}
+	if maxBytes > maxTerminalTailBytes {
+		maxBytes = maxTerminalTailBytes
+	}
+	maxLines := req.MaxLines
+	if maxLines <= 0 {
+		maxLines = defaultTerminalTailLines
+	}
+	readOffset, endOffset, rawOutput, truncated, err := readTerminalWindow(ctx, termBlock.OID, req.StartOffset, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+	controllerStatus := blockcontroller.GetBlockControllerRuntimeStatus(termBlock.OID)
+	rtInfo := wstore.GetRTInfo(waveobj.MakeORef(waveobj.OType_Block, termBlock.OID))
+	commandStatus := buildTerminalCommandStatusData(req.TabId, termBlock.OID, controllerStatus, rtInfo)
+	command := strings.TrimSpace(req.Command)
+	if command == "" && commandStatus != nil {
+		command = commandStatus.LastCommand
+	}
+	status := "unknown"
+	var exitCode *int
+	if commandStatus != nil {
+		status = commandStatus.Status
+		exitCode = commandStatus.ExitCode
+	}
+	return buildTerminalCommandResultData(
+		req.TabId,
+		termBlock.OID,
+		command,
+		status,
+		exitCode,
+		req.StartOffset,
+		readOffset,
+		endOffset,
+		rawOutput,
+		truncated,
+		maxLines,
+	), nil
 }
 
 func (*BlockService) InjectTerminalCommand_Meta() tsgenmeta.MethodMeta {
@@ -438,6 +523,45 @@ func readTerminalTail(ctx context.Context, blockId string, maxBytes int) ([]byte
 	return readData, truncated, nil
 }
 
+func readTerminalWindow(ctx context.Context, blockId string, startOffset int64, maxBytes int) (int64, int64, []byte, bool, error) {
+	waveFile, err := filestore.WFS.Stat(ctx, blockId, wavebase.BlockFile_Term)
+	if err == fs.ErrNotExist {
+		return startOffset, startOffset, []byte{}, false, nil
+	}
+	if err != nil {
+		return 0, 0, nil, false, fmt.Errorf("stating term file: %w", err)
+	}
+	dataStart := waveFile.DataStartIdx()
+	endOffset := waveFile.Size
+	readOffset := startOffset
+	truncated := false
+	if readOffset < dataStart {
+		readOffset = dataStart
+		truncated = true
+	}
+	if readOffset > endOffset {
+		readOffset = endOffset
+	}
+	readSize := endOffset - readOffset
+	if readSize <= 0 {
+		return readOffset, endOffset, []byte{}, truncated, nil
+	}
+	if maxBytes > 0 && readSize > int64(maxBytes) {
+		readOffset = endOffset - int64(maxBytes)
+		readSize = int64(maxBytes)
+		truncated = true
+	}
+	actualOffset, readData, err := filestore.WFS.ReadAt(ctx, blockId, wavebase.BlockFile_Term, readOffset, readSize)
+	if err != nil {
+		return 0, 0, nil, false, fmt.Errorf("reading term window: %w", err)
+	}
+	if actualOffset > readOffset {
+		truncated = true
+		readOffset = actualOffset
+	}
+	return readOffset, endOffset, readData, truncated, nil
+}
+
 func stripAnsi(text string) string {
 	return ansiEscapePattern.ReplaceAllString(text, "")
 }
@@ -457,6 +581,44 @@ func splitLines(text string) []string {
 		lines = lines[:len(lines)-1]
 	}
 	return lines
+}
+
+func buildTerminalCommandResultData(tabId string, blockId string, command string, status string, exitCode *int, startOffset int64, readOffset int64, endOffset int64, rawOutput []byte, truncated bool, maxLines int) *TerminalCommandResultData {
+	text := normalizeTermText(stripAnsi(string(rawOutput)))
+	lines := splitLines(text)
+	if maxLines <= 0 {
+		maxLines = defaultTerminalTailLines
+	}
+	outputTooLarge := false
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+		truncated = true
+		outputTooLarge = true
+	}
+	text = strings.Join(lines, "\n")
+	captureStatus := "ready"
+	if len(lines) == 0 {
+		captureStatus = "empty"
+	}
+	if outputTooLarge {
+		captureStatus = "too_large"
+	}
+	return &TerminalCommandResultData{
+		TabId:          tabId,
+		BlockId:        blockId,
+		Command:        command,
+		Status:         status,
+		ExitCode:       exitCode,
+		CaptureStatus:  captureStatus,
+		StartOffset:    startOffset,
+		ReadOffset:     readOffset,
+		EndOffset:      endOffset,
+		BytesRead:      len(rawOutput),
+		Text:           text,
+		Lines:          lines,
+		Truncated:      truncated,
+		OutputTooLarge: outputTooLarge,
+	}
 }
 
 func buildTerminalCommandStatusData(tabId string, blockId string, controllerStatus *blockcontroller.BlockControllerRuntimeStatus, rtInfo *waveobj.ObjRTInfo) *TerminalCommandStatusData {

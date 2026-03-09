@@ -35,6 +35,36 @@ describe("agent runtime status mapping", () => {
         expect(snapshot.modeLabel).toBe("Default");
     });
 
+    it("maps terminal command result reads into a reading phase", () => {
+        const snapshot = deriveAgentRuntimeStatus({
+            isLocalAgent: true,
+            provider: "codex",
+            mode: "default",
+            chatStatus: "streaming",
+            messages: [
+                {
+                    id: "m-result",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-result",
+                                toolname: "wave_get_terminal_command_result",
+                                tooldesc: "reading command result",
+                                status: "pending",
+                            },
+                        },
+                    ],
+                } as any,
+            ],
+            errorMessage: null,
+            localAgentHealth: { ok: true, provider: "codex", available: true, message: "ok" },
+        });
+
+        expect(snapshot.phase).toBe("reading-terminal");
+    });
+
     it("maps terminal execution and waiting states from tool use", () => {
         const executing = deriveAgentRuntimeStatus({
             isLocalAgent: true,
@@ -141,5 +171,57 @@ describe("agent runtime status mapping", () => {
 
         expect(snapshot.phase).toBe("error");
         expect(snapshot.blockedReason).toContain("timeout");
+    });
+
+    it("flags local agent capability misalignment when no terminal tool call was observed", () => {
+        const snapshot = deriveAgentRuntimeStatus({
+            isLocalAgent: true,
+            provider: "codex",
+            mode: "default",
+            chatStatus: "ready",
+            messages: [
+                {
+                    id: "m-capability",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "text",
+                            text: "我无法实际读取你机器的硬件传感器数据，也没有可用的 Wave 终端 MCP 接口直接读取结果。",
+                        },
+                    ],
+                } as any,
+            ],
+            errorMessage: null,
+            localAgentHealth: { ok: true, provider: "codex", available: true, message: "ok" },
+        });
+
+        expect(snapshot.phase).toBe("error");
+        expect(snapshot.blockedReason).toContain("No terminal tool call was observed");
+    });
+
+    it("flags host-policy claims when no terminal tool call was observed", () => {
+        const snapshot = deriveAgentRuntimeStatus({
+            isLocalAgent: true,
+            provider: "codex",
+            mode: "default",
+            chatStatus: "ready",
+            messages: [
+                {
+                    id: "m-host-policy",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "text",
+                            text: "当前我这边对终端的系统查询命令被宿主策略直接拦了，我已经尝试过本机查询方式，但都被拒绝执行。",
+                        },
+                    ],
+                } as any,
+            ],
+            errorMessage: null,
+            localAgentHealth: { ok: true, provider: "codex", available: true, message: "ok" },
+        });
+
+        expect(snapshot.phase).toBe("error");
+        expect(snapshot.blockedReason).toContain("No terminal tool call was observed");
     });
 });

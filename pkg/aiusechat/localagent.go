@@ -401,7 +401,29 @@ func buildLocalAgentPromptWithModeAndBudget(userText string, tabState string, hi
 	systemBlock := "You are Wave Local Agent. Follow the user's request exactly.\n" +
 		"If the user writes Chinese, answer in Chinese.\n" +
 		"Prefer concise, actionable output.\n" +
-		"When the user asks to run terminal commands, first add a brief explanation sentence, then provide the command in a fenced shell code block.\n" +
+		"\n" +
+		"CRITICAL TERMINAL QUERY RULES:\n" +
+		"When the user asks about system information (CPU, memory, disk, processes, network, files, etc.), you MUST:\n" +
+		"1. Call wave_inject_terminal_command with the appropriate shell command\n" +
+		"2. Call wave_wait_terminal_idle to wait for completion\n" +
+		"3. Call wave_get_terminal_command_result to read the output\n" +
+		"4. Format and present the result to the user\n" +
+		"\n" +
+		"DO NOT:\n" +
+		"- Reply with text before calling the tools\n" +
+		"- Claim \"host policy blocked\" or \"no MCP available\" without actually calling the tools\n" +
+		"- Ask the user to run commands manually\n" +
+		"- Output shell code blocks when you should be executing commands\n" +
+		"\n" +
+		"Example workflow:\n" +
+		"User: 帮我查询 CPU 型号\n" +
+		"Assistant: [calls wave_inject_terminal_command with \"lscpu | grep 'Model name' || sysctl -n machdep.cpu.brand_string\"]\n" +
+		"[calls wave_wait_terminal_idle]\n" +
+		"[calls wave_get_terminal_command_result]\n" +
+		"CPU 型号: Intel Core i7-9700K\n" +
+		"\n" +
+		"After you inject a terminal command, wait for it to finish and then call wave_get_terminal_command_result before deciding what happened.\n" +
+		"Prefer wave_get_terminal_command_result over broad scrollback reads when checking command output.\n" +
 		getModeAwareSystemPromptText(true, "", mode) + "\n"
 	tabBlock := ""
 	if strings.TrimSpace(tabState) != "" {
@@ -511,6 +533,8 @@ type localAgentLoopPhase struct {
 	ToolName   string
 	StatusLine string
 }
+
+var localAgentTerminalRetrySentinel = "You must use the available wave_ terminal MCP tools on this retry."
 
 type localAgentCommandRunner func(ctx context.Context, req *PostMessageRequest, provider string, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error)
 
@@ -793,6 +817,101 @@ func emitAssistantTextMessage(sseHandler *sse.SSEHandlerCh, msgID string, text s
 	_ = sseHandler.AiMsgFinish("stop", nil)
 }
 
+func isTerminalToolPhase(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "wave_read_current_terminal_context", "wave_read_terminal_scrollback", "wave_inject_terminal_command", "wave_get_terminal_command_status", "wave_wait_terminal_idle", "wave_get_terminal_command_result":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTerminalQueryRequest(userText string) bool {
+	text := strings.ToLower(strings.TrimSpace(userText))
+	if text == "" {
+		return false
+	}
+	keywords := []string{
+		"cpu", "memory", "disk", "process", "network", "查询", "查看", "检查",
+		"温度", "频率", "型号", "使用率", "运行", "状态", "列出", "显示",
+		"ls", "ps", "top", "df", "free", "lscpu", "uname", "ifconfig", "netstat",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+
+func localAgentClaimsTerminalBlock(output string) bool {
+	text := strings.ToLower(strings.TrimSpace(output))
+	if text == "" {
+		return false
+	}
+	phrases := []string{
+		"host policy blocked",
+		"blocked by host policy",
+		"refused to execute",
+		"no wave terminal mcp",
+		"no available wave terminal mcp",
+		"宿主策略直接拦了",
+		"被宿主策略拦了",
+		"被拒绝执行",
+		"拒绝执行",
+		"没有可用的 wave 终端 mcp",
+	}
+	for _, phrase := range phrases {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldRetryLocalAgentTerminalAttempt(mode AgentMode, prompt string, userText string, output string, observedPhases []localAgentLoopPhase) bool {
+	if mode == AgentModePlanning {
+		return false
+	}
+	if strings.Contains(prompt, localAgentTerminalRetrySentinel) {
+		return false
+	}
+	// 如果用户请求明显是 terminal query，但模型没有调用任何 terminal tool，强制重试
+	if isTerminalQueryRequest(userText) {
+		hasTerminalToolCall := false
+		for _, phase := range observedPhases {
+			if isTerminalToolPhase(phase.ToolName) {
+				hasTerminalToolCall = true
+				break
+			}
+		}
+		if !hasTerminalToolCall {
+			return true
+		}
+	}
+	// 如果模型编造了"宿主拦截"的理由，但实际上没有调用工具，也重试
+	if !localAgentClaimsTerminalBlock(output) {
+		return false
+	}
+	for _, phase := range observedPhases {
+		if isTerminalToolPhase(phase.ToolName) {
+			return false
+		}
+	}
+	return true
+}
+
+func buildLocalAgentTerminalRetryPrompt(prompt string) string {
+	return strings.TrimSpace(prompt + "\n\n" +
+		"RETRY INSTRUCTION:\n" +
+		localAgentTerminalRetrySentinel + "\n" +
+		"Your previous response did NOT call any wave_ terminal tools.\n" +
+		"You MUST call wave_inject_terminal_command, wave_wait_terminal_idle, and wave_get_terminal_command_result.\n" +
+		"Do NOT claim \"host policy blocked\" or \"no MCP\" without actually calling the tools first.\n" +
+		"If a tool call fails, report the actual error message from the tool.\n")
+}
+
 func WaveAILocalAgentPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, req *PostMessageRequest, chatOpts uctypes.WaveChatOpts) error {
 	if err := sseHandler.SetupSSE(); err != nil {
 		return fmt.Errorf("failed to setup SSE: %w", err)
@@ -821,16 +940,33 @@ func WaveAILocalAgentPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHan
 	_ = sseHandler.AiMsgStartStep()
 	_ = sseHandler.AiMsgTextStart(textID)
 	emittedDelta := false
+	observedPhases := make([]localAgentLoopPhase, 0, 8)
 
-	output, runErr := runLocalAgentCommandFn(ctx, req, provider, prompt, func(delta string) {
+	runOutput, runErr := runLocalAgentCommandFn(ctx, req, provider, prompt, func(delta string) {
 		if strings.TrimSpace(delta) == "" {
 			return
 		}
 		emittedDelta = true
 		_ = sseHandler.AiMsgTextDelta(textID, delta)
 	}, func(phase localAgentLoopPhase) {
+		observedPhases = append(observedPhases, phase)
 		emitLocalAgentLoopPhase(sseHandler, phase)
 	})
+	if shouldRetryLocalAgentTerminalAttempt(resolveAgentMode(chatOpts.AgentMode), prompt, userText, runOutput, observedPhases) {
+		retryPrompt := buildLocalAgentTerminalRetryPrompt(prompt)
+		observedPhases = observedPhases[:0]
+		runOutput, runErr = runLocalAgentCommandFn(ctx, req, provider, retryPrompt, func(delta string) {
+			if strings.TrimSpace(delta) == "" {
+				return
+			}
+			emittedDelta = true
+			_ = sseHandler.AiMsgTextDelta(textID, delta)
+		}, func(phase localAgentLoopPhase) {
+			observedPhases = append(observedPhases, phase)
+			emitLocalAgentLoopPhase(sseHandler, phase)
+		})
+	}
+	output := runOutput
 	if runErr != nil {
 		if !emittedDelta && strings.TrimSpace(output) != "" {
 			_ = sseHandler.AiMsgTextDelta(textID, output)

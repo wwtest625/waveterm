@@ -20,6 +20,7 @@ func TestMCPServeToolsIncludeStatusAndWait(t *testing.T) {
 		"wave_read_terminal_scrollback",
 		"wave_inject_terminal_command",
 		"wave_get_terminal_command_status",
+		"wave_get_terminal_command_result",
 		"wave_wait_terminal_idle",
 	} {
 		if !toolNames[name] {
@@ -80,6 +81,21 @@ func TestMCPServeStatusToolValidatesBlockIDType(t *testing.T) {
 		t.Fatalf("handleToolCall() error: %v", err)
 	}
 	requireMCPToolErrorContains(t, result, "block_id must be a non-empty string")
+}
+
+func TestMCPServeCommandResultToolValidatesStartOffsetType(t *testing.T) {
+	s := &mcpServerState{defaultTabId: "tab-123"}
+
+	result, err := s.handleToolCall(map[string]any{
+		"name": "wave_get_terminal_command_result",
+		"arguments": map[string]any{
+			"start_offset": "abc",
+		},
+	})
+	if err != nil {
+		t.Fatalf("handleToolCall() error: %v", err)
+	}
+	requireMCPToolErrorContains(t, result, "start_offset must be an integer number")
 }
 
 func TestMCPServeInjectToolAcceptsBooleanForce(t *testing.T) {

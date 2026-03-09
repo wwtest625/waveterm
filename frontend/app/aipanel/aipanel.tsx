@@ -19,6 +19,7 @@ import { useDrop } from "react-dnd";
 import { formatFileSizeError, isAcceptableFile, validateFileSize } from "./ai-utils";
 import { AIDroppedFiles } from "./aidroppedfiles";
 import { AIModeDropdown } from "./aimode";
+import { loadInitialChatForPanel } from "./aipanel-loadutil";
 import { AIPanelHeader } from "./aipanelheader";
 import { AIPanelInput } from "./aipanelinput";
 import { AIPanelMessages } from "./aipanelmessages";
@@ -288,9 +289,9 @@ const AIPanelComponentInner = memo(() => {
                 if (isBuilderWindow()) {
                     body.builderid = globalStore.get(atoms.builderId);
                     body.builderappid = globalStore.get(atoms.builderAppId);
-                } else {
-                    body.tabid = tabModel.tabId;
                 }
+                // Always include tabid for MCP terminal tools
+                body.tabid = tabModel.tabId;
                 return { body };
             },
         }),
@@ -337,11 +338,7 @@ const AIPanelComponentInner = memo(() => {
     }, []);
 
     useEffect(() => {
-        const loadChat = async () => {
-            await model.uiLoadInitialChat();
-            setInitialLoadDone(true);
-        };
-        loadChat();
+        void loadInitialChatForPanel(model, () => setInitialLoadDone(true));
     }, [model]);
 
     useEffect(() => {
@@ -638,3 +635,4 @@ const AIPanelComponent = () => {
 AIPanelComponent.displayName = "AIPanel";
 
 export { AIPanelComponent as AIPanel };
+export { loadInitialChatForPanel } from "./aipanel-loadutil";

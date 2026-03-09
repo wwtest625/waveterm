@@ -32,7 +32,7 @@ func TestLocalAgentLoop_ReadInjectWaitRead(t *testing.T) {
 		onPhase(localAgentLoopPhase{ToolName: "wave_read_current_terminal_context", StatusLine: "Reading terminal context"})
 		onPhase(localAgentLoopPhase{ToolName: "wave_inject_terminal_command", StatusLine: "Injecting command"})
 		onPhase(localAgentLoopPhase{ToolName: "wave_wait_terminal_idle", StatusLine: "Waiting for terminal idle"})
-		onPhase(localAgentLoopPhase{ToolName: "wave_read_terminal_scrollback", StatusLine: "Reading terminal output"})
+		onPhase(localAgentLoopPhase{ToolName: "wave_get_terminal_command_result", StatusLine: "Reading terminal command result"})
 		onDelta("loop complete")
 		return "loop complete", nil
 	}
@@ -67,7 +67,7 @@ func TestLocalAgentLoop_ReadInjectWaitRead(t *testing.T) {
 		`"toolname":"wave_read_current_terminal_context"`,
 		`"toolname":"wave_inject_terminal_command"`,
 		`"toolname":"wave_wait_terminal_idle"`,
-		`"toolname":"wave_read_terminal_scrollback"`,
+		`"toolname":"wave_get_terminal_command_result"`,
 	}
 	lastIdx := -1
 	for _, marker := range expectedOrder {
@@ -85,5 +85,107 @@ func TestLocalAgentLoop_ReadInjectWaitRead(t *testing.T) {
 	}
 	if !strings.Contains(body, `"type":"text-delta"`) || !strings.Contains(body, `"delta":"loop complete"`) {
 		t.Fatalf("expected final assistant text delta, got:\n%s", body)
+	}
+}
+
+func TestLocalAgentLoop_RetriesWhenAgentClaimsHostPolicyButNoTerminalToolWasUsed(t *testing.T) {
+	origRunner := runLocalAgentCommandFn
+	t.Cleanup(func() {
+		runLocalAgentCommandFn = origRunner
+	})
+
+	callCount := 0
+	runLocalAgentCommandFn = func(ctx context.Context, req *PostMessageRequest, provider string, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
+		callCount++
+		if callCount == 1 {
+			return "当前我这边对终端的系统查询命令被宿主策略直接拦了。", nil
+		}
+		if !strings.Contains(prompt, "You must use the available wave_ terminal MCP tools on this retry") {
+			t.Fatalf("expected retry prompt to require terminal MCP tool usage, got:\n%s", prompt)
+		}
+		onPhase(localAgentLoopPhase{ToolName: "wave_inject_terminal_command", StatusLine: "Injecting command"})
+		onPhase(localAgentLoopPhase{ToolName: "wave_wait_terminal_idle", StatusLine: "Waiting for terminal idle"})
+		onPhase(localAgentLoopPhase{ToolName: "wave_get_terminal_command_result", StatusLine: "Reading terminal command result"})
+		onDelta("CPU result")
+		return "CPU result", nil
+	}
+
+	recorder := &testSSERecorder{ResponseRecorder: httptest.NewRecorder()}
+	sseHandler := sse.MakeSSEHandlerCh(recorder, context.Background())
+	req := &PostMessageRequest{
+		ChatID:        "test-localagent-retry",
+		LocalProvider: LocalProviderCodex,
+		Msg: uctypes.AIMessage{
+			MessageId: "msg-localagent-retry",
+			Parts: []uctypes.AIMessagePart{
+				{Type: uctypes.AIMessagePartTypeText, Text: "帮我查询cpu 型号 频率 温度 整理成表格给我"},
+			},
+		},
+	}
+	chatOpts := uctypes.WaveChatOpts{
+		AgentMode: "default",
+		Config: uctypes.AIOptsType{
+			APIType: "openai-chat",
+			Model:   "local-codex",
+		},
+	}
+
+	if err := WaveAILocalAgentPostMessageWrap(context.Background(), sseHandler, req, chatOpts); err != nil {
+		t.Fatalf("WaveAILocalAgentPostMessageWrap() error: %v", err)
+	}
+	sseHandler.Close()
+
+	body := recorder.Body.String()
+	if callCount != 2 {
+		t.Fatalf("expected local agent retry, got %d calls", callCount)
+	}
+	if !strings.Contains(body, `"toolname":"wave_inject_terminal_command"`) {
+		t.Fatalf("expected retry path to emit terminal tool usage, got:\n%s", body)
+	}
+	if strings.Contains(body, "宿主策略直接拦了") && !strings.Contains(body, "CPU result") {
+		t.Fatalf("expected retry result to replace first bogus refusal, got:\n%s", body)
+	}
+}
+
+func TestLocalAgentLoop_DoesNotRetryWhenTerminalToolWasActuallyUsed(t *testing.T) {
+	origRunner := runLocalAgentCommandFn
+	t.Cleanup(func() {
+		runLocalAgentCommandFn = origRunner
+	})
+
+	callCount := 0
+	runLocalAgentCommandFn = func(ctx context.Context, req *PostMessageRequest, provider string, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
+		callCount++
+		onPhase(localAgentLoopPhase{ToolName: "wave_inject_terminal_command", StatusLine: "Injecting command"})
+		return "当前我这边对终端的系统查询命令被宿主策略直接拦了。", nil
+	}
+
+	recorder := &testSSERecorder{ResponseRecorder: httptest.NewRecorder()}
+	sseHandler := sse.MakeSSEHandlerCh(recorder, context.Background())
+	req := &PostMessageRequest{
+		ChatID:        "test-localagent-no-retry",
+		LocalProvider: LocalProviderCodex,
+		Msg: uctypes.AIMessage{
+			MessageId: "msg-localagent-no-retry",
+			Parts: []uctypes.AIMessagePart{
+				{Type: uctypes.AIMessagePartTypeText, Text: "帮我查询cpu 型号 频率 温度 整理成表格给我"},
+			},
+		},
+	}
+	chatOpts := uctypes.WaveChatOpts{
+		AgentMode: "default",
+		Config: uctypes.AIOptsType{
+			APIType: "openai-chat",
+			Model:   "local-codex",
+		},
+	}
+
+	if err := WaveAILocalAgentPostMessageWrap(context.Background(), sseHandler, req, chatOpts); err != nil {
+		t.Fatalf("WaveAILocalAgentPostMessageWrap() error: %v", err)
+	}
+	sseHandler.Close()
+
+	if callCount != 1 {
+		t.Fatalf("expected no retry once a terminal tool was observed, got %d calls", callCount)
 	}
 }

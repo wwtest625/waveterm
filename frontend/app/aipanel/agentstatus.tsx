@@ -57,6 +57,7 @@ function getToolUsePhase(toolName: string | undefined): Pick<AgentRuntimeStatusS
     switch (toolName) {
         case "wave_read_current_terminal_context":
         case "wave_read_terminal_scrollback":
+        case "wave_get_terminal_command_result":
         case "term_get_scrollback":
         case "term_command_output":
             return { phase: "reading-terminal", phaseLabel: "Reading Terminal" };
@@ -67,6 +68,43 @@ function getToolUsePhase(toolName: string | undefined): Pick<AgentRuntimeStatusS
         default:
             return null;
     }
+}
+
+function messageTextIncludesLocalAgentCapabilityDenial(message: WaveUIMessage | undefined): boolean {
+    if (!message?.parts?.length) {
+        return false;
+    }
+    const combinedText = message.parts
+        .filter((part) => part.type === "text" && typeof part.text === "string")
+        .map((part) => part.text)
+        .join("\n")
+        .toLowerCase();
+    if (!combinedText) {
+        return false;
+    }
+    const denialPhrases = [
+        "i can't access the terminal",
+        "i cannot access the terminal",
+        "i can't read the terminal",
+        "i cannot read the terminal",
+        "i don't have access to the terminal",
+        "host policy blocked",
+        "blocked by host policy",
+        "refused to execute",
+        "no wave terminal mcp",
+        "no available wave terminal mcp",
+        "没有可用的 wave 终端 mcp",
+        "无法实际读取",
+        "不能真实读取",
+        "无法访问终端",
+        "不能访问终端",
+        "宿主策略直接拦了",
+        "被宿主策略拦了",
+        "被主策略直接拦了",
+        "被拒绝执行",
+        "拒绝执行",
+    ];
+    return denialPhrases.some((phrase) => combinedText.includes(phrase));
 }
 
 export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentRuntimeStatusSnapshot {
@@ -86,6 +124,15 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
     const hasPendingApproval =
         lastAssistantMessage?.parts?.some(
             (part) => part.type === "data-tooluse" && part.data?.approval === "needs-approval"
+        ) ?? false;
+    const hasObservedTerminalToolCall =
+        assistantMessages.some((message) =>
+            message.parts?.some(
+                (part) =>
+                    (part.type === "data-tooluse" || part.type === "data-toolprogress") &&
+                    typeof part.data?.toolname === "string" &&
+                    part.data.toolname.startsWith("wave_")
+            )
         ) ?? false;
     const lastToolUse = [...(lastAssistantMessage?.parts ?? [])]
         .reverse()
@@ -116,6 +163,22 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             phaseLabel: "Unavailable",
             lastCommand,
             blockedReason: input.localAgentHealth.message,
+        };
+    }
+
+    if (
+        messageTextIncludesLocalAgentCapabilityDenial(lastAssistantMessage) &&
+        !hasObservedTerminalToolCall &&
+        input.localAgentHealth?.available !== false
+    ) {
+        return {
+            visible: true,
+            providerLabel: formatProviderLabel(input.provider),
+            modeLabel: formatModeLabel(input.mode),
+            phase: "error",
+            phaseLabel: "Capability Mismatch",
+            lastCommand,
+            blockedReason: "No terminal tool call was observed. The local agent replied as if terminal tools were unavailable.",
         };
     }
 

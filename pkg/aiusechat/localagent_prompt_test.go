@@ -32,7 +32,7 @@ func TestLocalAgentPrompt_UsesRecentTurnsWithinBudget(t *testing.T) {
 		"CURRENT-REQUEST please run tests and summarize result",
 		"cwd=/repo",
 		history,
-		170,
+		400,
 	)
 
 	if !strings.Contains(prompt, "CURRENT-REQUEST") {
@@ -54,10 +54,22 @@ func TestLocalAgentPrompt_IncludesCommandExecutionGuidance(t *testing.T) {
 		256,
 	)
 
-	if !strings.Contains(prompt, "first add a brief explanation sentence, then provide the command in a fenced shell code block") {
-		t.Fatalf("expected prompt to instruct explanation + command block output, got prompt:\n%s", prompt)
+	if !strings.Contains(prompt, "CRITICAL TERMINAL QUERY RULES") {
+		t.Fatalf("expected prompt to include critical terminal query rules, got prompt:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "Do not say you cannot execute commands or control the terminal") {
-		t.Fatalf("expected prompt to avoid contradictory inability disclaimers, got prompt:\n%s", prompt)
+	if !strings.Contains(prompt, "you MUST:") {
+		t.Fatalf("expected prompt to use strong mandatory language, got prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "wave_inject_terminal_command") {
+		t.Fatalf("expected prompt to mention wave_inject_terminal_command, got prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Example workflow:") {
+		t.Fatalf("expected prompt to include example workflow, got prompt:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "first add a brief explanation sentence, then provide the command in a fenced shell code block") {
+		t.Fatalf("expected local agent prompt not to prefer shell code block output, got prompt:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Do not say you cannot execute commands or control the terminal") {
+		t.Fatalf("expected prompt to avoid contradictory disclaimers, got prompt:\n%s", prompt)
 	}
 }

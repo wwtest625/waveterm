@@ -33,6 +33,8 @@ const (
 	maxWaitTimeoutMS     = 300000
 	minWaitPollMS        = 50
 	maxWaitPollMS        = 10000
+	maxCommandResultBytes = 2 * 1024 * 1024
+	maxCommandResultLines = 10000
 )
 
 var (
@@ -212,7 +214,7 @@ func getMCPTools() []mcpTool {
 	return []mcpTool{
 		{
 			Name:        "wave_read_current_terminal_context",
-			Description: "Read current terminal context in Wave (tab/block/connection/cwd/status).",
+			Description: "Read current terminal context in Wave (tab/block/connection/cwd/status). Use this before deciding what terminal command to run.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -254,7 +256,7 @@ func getMCPTools() []mcpTool {
 		},
 		{
 			Name:        "wave_inject_terminal_command",
-			Description: "Inject a command into current terminal controller (auto appends newline).",
+			Description: "Inject a command into current terminal controller (auto appends newline). After this, wait for completion and then read the command result tool.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -296,8 +298,41 @@ func getMCPTools() []mcpTool {
 			},
 		},
 		{
+			Name:        "wave_get_terminal_command_result",
+			Description: "Read incremental output for the current terminal command since a start offset. Use this after wave_wait_terminal_idle to inspect the result of the command you just ran.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"tab_id": map[string]any{
+						"type":        "string",
+						"description": "Optional tab id override.",
+					},
+					"block_id": map[string]any{
+						"type":        "string",
+						"description": "Optional terminal block id override.",
+					},
+					"command": map[string]any{
+						"type":        "string",
+						"description": "Optional command label for the returned result.",
+					},
+					"start_offset": map[string]any{
+						"type":        "number",
+						"description": "Logical terminal byte offset to start reading from.",
+					},
+					"max_bytes": map[string]any{
+						"type":        "number",
+						"description": "Maximum bytes to read from the incremental output window.",
+					},
+					"max_lines": map[string]any{
+						"type":        "number",
+						"description": "Maximum returned lines after sanitizing output.",
+					},
+				},
+			},
+		},
+		{
 			Name:        "wave_wait_terminal_idle",
-			Description: "Poll terminal command status until command is no longer running or timeout.",
+			Description: "Poll terminal command status until command is no longer running or timeout. Use this after command injection before reading the command result.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -391,6 +426,40 @@ func (s *mcpServerState) handleToolCall(params map[string]any) (map[string]any, 
 			return toolError(err), nil
 		}
 		data, err := s.callWaveService("block", "GetTerminalCommandStatus", []any{tabId, blockId})
+		if err != nil {
+			return toolError(err), nil
+		}
+		return toolText(data), nil
+	case "wave_get_terminal_command_result":
+		tabId, blockId, err := parseTerminalTargetArgs(args, s.defaultTabId, s.defaultBlockId)
+		if err != nil {
+			return toolError(err), nil
+		}
+		startOffset, err := strictIntArg(args, "start_offset", 0, 0, 0)
+		if err != nil {
+			return toolError(err), nil
+		}
+		maxBytes, err := strictIntArg(args, "max_bytes", 0, 0, maxCommandResultBytes)
+		if err != nil {
+			return toolError(err), nil
+		}
+		maxLines, err := strictIntArg(args, "max_lines", 0, 0, maxCommandResultLines)
+		if err != nil {
+			return toolError(err), nil
+		}
+		req := map[string]any{
+			"tabid":       tabId,
+			"blockid":     blockId,
+			"command":     stringArg(args, "command", ""),
+			"startoffset": startOffset,
+		}
+		if maxBytes > 0 {
+			req["maxbytes"] = maxBytes
+		}
+		if maxLines > 0 {
+			req["maxlines"] = maxLines
+		}
+		data, err := s.callWaveService("block", "GetTerminalCommandResult", []any{req})
 		if err != nil {
 			return toolError(err), nil
 		}
