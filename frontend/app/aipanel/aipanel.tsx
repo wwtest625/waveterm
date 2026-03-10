@@ -4,7 +4,7 @@
 import { handleWaveAIContextMenu } from "@/app/aipanel/aipanel-contextmenu";
 import { waveAIHasSelection } from "@/app/aipanel/waveai-focus-utils";
 import { ErrorBoundary } from "@/app/element/errorboundary";
-import { atoms, getSettingsKeyAtom } from "@/app/store/global";
+import { atoms, getSettingsKeyAtom, getFocusedBlockId } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { isBuilderWindow } from "@/app/store/windowtype";
 import { maybeUseTabModel } from "@/app/store/tab-model";
@@ -290,8 +290,11 @@ const AIPanelComponentInner = memo(() => {
                     body.builderid = globalStore.get(atoms.builderId);
                     body.builderappid = globalStore.get(atoms.builderAppId);
                 }
-                // Always include tabid for MCP terminal tools
                 body.tabid = tabModel.tabId;
+                const focusedBlockId = getFocusedBlockId();
+                if (focusedBlockId) {
+                    body.blockid = focusedBlockId;
+                }
                 return { body };
             },
         }),

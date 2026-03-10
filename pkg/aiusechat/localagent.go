@@ -118,7 +118,7 @@ func resolveLocalAgentCommand(provider string) (string, []string, error) {
 		if cmd, args, ok := parseCommandOverride(os.Getenv(localCodexCmdEnvName)); ok {
 			return cmd, args, nil
 		}
-		return "codex", []string{"exec", "--skip-git-repo-check", "-"}, nil
+		return "codex", []string{"exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "--ephemeral", "-c", "model_reasoning_effort=\"low\""}, nil
 	default:
 		return "", nil, fmt.Errorf("unsupported local provider: %s", provider)
 	}
@@ -188,6 +188,9 @@ func resolveWaveMCPInvocation(req *PostMessageRequest) (string, []string, error)
 	}
 	args := append([]string{}, mcpArgs...)
 	args = append(args, "--endpoint", endpoint, "--authkey", authKeyVal, "--tabid", req.TabId)
+	if strings.TrimSpace(req.BlockId) != "" {
+		args = append(args, "--blockid", strings.TrimSpace(req.BlockId))
+	}
 	args = append(args, "--agentmode", string(resolveAgentMode(req.AgentMode)))
 	return resolvedMcpCmd, args, nil
 }
