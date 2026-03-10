@@ -3,6 +3,8 @@
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { Button } from "@/app/element/button";
+import { globalStore } from "@/app/store/jotaiStore";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TabModel } from "@/app/store/tab-model";
@@ -10,12 +12,19 @@ import { atoms, getConnStatusAtom } from "@/store/global";
 import { RpcApi } from "@/store/wshclientapi";
 import { useAtomValue } from "jotai";
 import { atom } from "jotai";
-import { useEffect, useMemo, useState } from "react";
+import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import {
+    buildConnectionHost,
+    buildPasswordSecretName,
     buildConnMetaFromForm,
     connectionMatchesQuery,
     ConnectionFormState,
+    getEnsureWshButtonLabel,
+    getWshBadgeInfo,
     makeConnectionFormFromConfig,
+    normalizeConnectionUser,
+    parseConnectionHost,
+    shouldReinstallWsh,
     sortConnectionHosts,
 } from "./connections-manager-util";
 
@@ -25,13 +34,131 @@ function makeBlankForm(): ConnectionFormState {
         displayName: "",
         group: "",
         remark: "",
-        user: "",
+        user: "root",
         hostname: "",
         port: "22",
+        password: "",
+        passwordSecretName: "",
+        hasStoredPassword: false,
         passwordAuth: false,
         pubkeyAuth: true,
         keyboardInteractiveAuth: false,
     };
+}
+
+function AuthToggle({
+    label,
+    active,
+    onClick,
+}: {
+    label: string;
+    active: boolean;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            className={`rounded px-3 py-1.5 text-sm border transition-colors ${
+                active
+                    ? "bg-zinc-700 text-white border-zinc-600"
+                    : "bg-panel text-secondary border-border hover:text-primary"
+            }`}
+            onClick={onClick}
+        >
+            {label}
+        </button>
+    );
+}
+
+function ListActionButton({
+    label,
+    onClick,
+    disabled,
+    variant = "default",
+}: {
+    label: string;
+    onClick: (e: MouseEvent<HTMLButtonElement>) => void;
+    disabled?: boolean;
+    variant?: "default" | "danger";
+}) {
+    const className =
+        variant === "danger"
+            ? "!h-[24px] !px-2 !text-xs !bg-red-500/10 !border-red-500/30 !text-red-300 hover:!bg-red-500/20"
+            : "!h-[24px] !px-2 !text-xs";
+    return (
+        <Button className={className} onClick={onClick} disabled={disabled}>
+            {label}
+        </Button>
+    );
+}
+
+function ConnectionListRow({
+    host,
+    meta,
+    isSelected,
+    latencyText,
+    onSelect,
+    onConnect,
+    onMore,
+}: {
+    host: string;
+    meta: ConnKeywords | undefined;
+    isSelected: boolean;
+    latencyText: string;
+    onSelect: () => void;
+    onConnect: (host: string) => void;
+    onMore: (e: MouseEvent<HTMLButtonElement>, host: string) => void;
+}) {
+    const connStatus = useAtomValue(getConnStatusAtom(host));
+    const group = (((meta as any)?.["display:group"] as string) ?? "").trim();
+    const parsedHost = parseConnectionHost(host);
+    const addressUser = meta?.["ssh:user"] ?? parsedHost.user;
+    const addressHost = meta?.["ssh:hostname"] ?? parsedHost.hostname;
+    const addressLabel = addressHost ? `${addressUser}@${addressHost}` : host;
+    const isConnecting = connStatus?.status === "connecting";
+    const displayLabel = meta?.["display:name"] || host;
+
+    return (
+        <div
+            className={`flex items-center gap-2 rounded px-2 py-2 cursor-pointer border ${
+                isSelected ? "bg-green-900/30 border-green-700" : "bg-panel border-transparent hover:border-border"
+            }`}
+            onClick={onSelect}
+        >
+            <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 min-w-0">
+                    <div className="truncate text-sm">{displayLabel}</div>
+                    <div className="shrink-0 text-[11px] text-secondary">{latencyText}</div>
+                </div>
+                <div className="truncate text-xs text-secondary">{addressLabel}</div>
+                <div className="truncate text-[11px] text-secondary">{group === "" ? "Ungrouped" : group}</div>
+            </div>
+            <div className="w-[96px] shrink-0 flex justify-center">
+                <ConnectionStatusBadge host={host} />
+            </div>
+            <div className="w-[88px] shrink-0 flex justify-center">
+                <WshStatusBadge host={host} />
+            </div>
+            <div className="shrink-0 flex items-center gap-1">
+                <ListActionButton
+                    label={isConnecting ? "Connecting" : "Connect"}
+                    disabled={isConnecting}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onConnect(host);
+                    }}
+                />
+                <button
+                    type="button"
+                    className="h-[24px] w-[24px] shrink-0 rounded border border-border bg-panel text-secondary hover:text-primary hover:border-zinc-500"
+                    onClick={(e) => onMore(e, host)}
+                    aria-label="More actions"
+                >
+                    <i className="fa fa-ellipsis-h text-[11px]" />
+                </button>
+            </div>
+        </div>
+    );
 }
 
 class ConnectionsManagerViewModel implements ViewModel {
@@ -71,6 +198,16 @@ function ConnectionStatusBadge({ host }: { host: string }) {
     return <span className={`px-2 py-0.5 rounded border text-xs ${className}`}>{label}</span>;
 }
 
+function WshStatusBadge({ host }: { host: string }) {
+    const connStatus = useAtomValue(getConnStatusAtom(host));
+    const badge = getWshBadgeInfo(connStatus);
+    return (
+        <span className={`px-2 py-0.5 rounded border text-xs ${badge.className}`} title={badge.title}>
+            {badge.label}
+        </span>
+    );
+}
+
 function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManagerViewModel>) {
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
     const [query, setQuery] = useState("");
@@ -79,8 +216,10 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     const [form, setForm] = useState<ConnectionFormState>(makeBlankForm());
     const [saving, setSaving] = useState(false);
     const [testing, setTesting] = useState(false);
+    const [ensuringWsh, setEnsuringWsh] = useState(false);
     const [connectionsState, setConnectionsState] = useState<{[key: string]: ConnKeywords}>({});
     const [latencyMap, setLatencyMap] = useState<Record<string, number | null>>({});
+    const selectedConnStatus = useAtomValue(getConnStatusAtom(selectedHost));
 
     useEffect(() => {
         setConnectionsState(fullConfig?.connections ?? {});
@@ -89,6 +228,9 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     const groups = useMemo(() => {
         const set = new Set<string>();
         for (const host of Object.keys(connectionsState)) {
+            if (connectionsState[host]?.["display:hidden"]) {
+                continue;
+            }
             const g = ((connectionsState[host] as any)?.["display:group"] as string) ?? "";
             if (g.trim() !== "") {
                 set.add(g.trim());
@@ -100,6 +242,10 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     const filteredHosts = useMemo(() => {
         const sorted = sortConnectionHosts(connectionsState);
         return sorted.filter((host) => {
+            const isHidden = !!connectionsState[host]?.["display:hidden"];
+            if (isHidden) {
+                return false;
+            }
             const group = (((connectionsState[host] as any)?.["display:group"] as string) ?? "").trim();
             const groupMatch = activeGroup === "All" || group === activeGroup;
             return groupMatch && connectionMatchesQuery(host, connectionsState[host], query);
@@ -131,29 +277,152 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         setForm(makeConnectionFormFromConfig(selectedHost, connectionsState[selectedHost]));
     }, [selectedHost, connectionsState]);
 
-    async function handleSave() {
-        const host = form.host.trim();
+    async function persistForm(): Promise<string | null> {
+        const isNewConnection = selectedHost === "__new__";
+        const normalizedUser = normalizeConnectionUser(form.user);
+        const derivedHost = buildConnectionHost(normalizedUser, form.hostname);
+        const currentHost = selectedHost !== "__new__" ? selectedHost : form.host.trim();
+        const host = isNewConnection ? derivedHost : currentHost || derivedHost;
+
         if (host === "") {
-            modalsModel.pushModal("MessageModal", { children: "Host is required (example: root@192.168.2.9)" });
+            modalsModel.pushModal("MessageModal", { children: "SSH Hostname is required before saving." });
+            return null;
+        }
+        if (isNewConnection && connectionsState[host] && !connectionsState[host]?.["display:hidden"]) {
+            modalsModel.pushModal("MessageModal", {
+                children: `Connection "${host}" already exists. Change SSH Hostname before saving the copy.`,
+            });
+            return null;
+        }
+
+        let passwordSecretName = form.passwordSecretName.trim();
+        const password = form.password;
+        if (form.passwordAuth && password.trim() !== "") {
+            passwordSecretName = passwordSecretName || buildPasswordSecretName(host);
+            await RpcApi.SetSecretsCommand(TabRpcClient, {
+                [passwordSecretName]: password,
+            });
+        }
+
+        const nextForm: ConnectionFormState = {
+            ...form,
+            host,
+            user: normalizedUser,
+            password: "",
+            passwordSecretName,
+            hasStoredPassword: passwordSecretName !== "",
+        };
+        const metaMap = buildConnMetaFromForm(nextForm);
+        metaMap["display:hidden"] = false;
+        await RpcApi.SetConnectionsConfigCommand(TabRpcClient, {
+            host: host,
+            metamaptype: metaMap,
+        });
+        setConnectionsState((prev) => {
+            const next = { ...prev };
+            const oldHost = selectedHost !== "__new__" ? selectedHost : "";
+            if (oldHost !== "" && oldHost !== host) {
+                delete next[oldHost];
+            }
+            next[host] = { ...(next[host] ?? {}), ...metaMap };
+            return next;
+        });
+        setSelectedHost(host);
+        setForm(nextForm);
+        return host;
+    }
+
+    async function handleConnect(host: string) {
+        try {
+            await RpcApi.ConnEnsureCommand(
+                TabRpcClient,
+                {
+                    connname: host,
+                    logblockid: model.blockId,
+                },
+                { timeout: 60000 }
+            );
+        } catch (e) {
+            modalsModel.pushModal("MessageModal", { children: `Connect failed: ${String(e)}` });
+        }
+    }
+
+    function handleCopy(host: string) {
+        const sourceMeta = connectionsState[host];
+        const copiedForm = makeConnectionFormFromConfig(host, sourceMeta);
+        const nextDisplayName = copiedForm.displayName.trim() === "" ? "" : `${copiedForm.displayName} Copy`;
+        setSelectedHost("__new__");
+        setForm({
+            ...copiedForm,
+            host: "",
+            displayName: nextDisplayName,
+            password: "",
+            passwordSecretName: "",
+            hasStoredPassword: false,
+        });
+        modalsModel.pushModal("MessageModal", {
+            children: "Connection copied to a new draft. Modify SSH Hostname if needed, then click Save.",
+        });
+    }
+
+    async function handleSoftDelete(host: string) {
+        if (!window.confirm(`Hide connection "${host}" from the list?`)) {
             return;
         }
-        const metaMap = buildConnMetaFromForm(form);
-        setSaving(true);
         try {
             await RpcApi.SetConnectionsConfigCommand(TabRpcClient, {
-                host: host,
-                metamaptype: metaMap,
+                host,
+                metamaptype: {
+                    "display:hidden": true,
+                },
             });
-            setConnectionsState((prev) => {
-                const next = { ...prev };
-                const oldHost = selectedHost !== "__new__" ? selectedHost : "";
-                if (oldHost !== "" && oldHost !== host) {
-                    delete next[oldHost];
-                }
-                next[host] = { ...(next[host] ?? {}), ...metaMap };
-                return next;
-            });
-            setSelectedHost(host);
+            setConnectionsState((prev) => ({
+                ...prev,
+                [host]: {
+                    ...(prev[host] ?? {}),
+                    "display:hidden": true,
+                },
+            }));
+            if (selectedHost === host) {
+                setSelectedHost("");
+                setForm(makeBlankForm());
+            }
+        } catch (e) {
+            modalsModel.pushModal("MessageModal", { children: `Delete failed: ${String(e)}` });
+        }
+    }
+
+    function handleMoreActions(e: MouseEvent<HTMLButtonElement>, host: string) {
+        ContextMenuModel.getInstance().showContextMenu(
+            [
+                {
+                    label: "Copy",
+                    click: () => handleCopy(host),
+                },
+                {
+                    label: "Ping",
+                    click: () => {
+                        void probeLatency(host);
+                    },
+                },
+                {
+                    type: "separator",
+                },
+                {
+                    label: "Delete",
+                    click: () => {
+                        void handleSoftDelete(host);
+                    },
+                },
+            ],
+            e
+        );
+    }
+
+    async function handleSave() {
+        setSaving(true);
+        try {
+            await persistForm();
         } catch (e) {
             modalsModel.pushModal("MessageModal", { children: `Save failed: ${String(e)}` });
         } finally {
@@ -162,13 +431,12 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     }
 
     async function handleTestConnection() {
-        const host = form.host.trim();
-        if (host === "") {
-            modalsModel.pushModal("MessageModal", { children: "Host is required before testing connection." });
-            return;
-        }
         setTesting(true);
         try {
+            const host = await persistForm();
+            if (!host) {
+                return;
+            }
             await RpcApi.ConnEnsureCommand(
                 TabRpcClient,
                 {
@@ -181,6 +449,40 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
             modalsModel.pushModal("MessageModal", { children: `Connection test failed: ${String(e)}` });
         } finally {
             setTesting(false);
+        }
+    }
+
+    async function handleEnsureWsh() {
+        setEnsuringWsh(true);
+        try {
+            const host = await persistForm();
+            if (!host) {
+                return;
+            }
+            const connStatus = globalStore.get(getConnStatusAtom(host));
+            if (shouldReinstallWsh(connStatus)) {
+                await RpcApi.ConnReinstallWshCommand(
+                    TabRpcClient,
+                    {
+                        connname: host,
+                        logblockid: model.blockId,
+                    },
+                    { timeout: 60000 }
+                );
+                await RpcApi.ConnDisconnectCommand(TabRpcClient, host, { timeout: 10000 });
+            }
+            await RpcApi.ConnEnsureCommand(
+                TabRpcClient,
+                {
+                    connname: host,
+                    logblockid: model.blockId,
+                },
+                { timeout: 60000 }
+            );
+        } catch (e) {
+            modalsModel.pushModal("MessageModal", { children: `WSH setup failed: ${String(e)}` });
+        } finally {
+            setEnsuringWsh(false);
         }
     }
 
@@ -236,54 +538,28 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                         <div className="text-secondary text-sm px-2 py-3">No connections</div>
                     ) : (
                         <div className="space-y-1">
-                            <div className="grid grid-cols-[1.4fr_1.8fr_84px_88px_70px] text-[11px] text-secondary px-2 py-1">
-                                <div>Name / Group</div>
-                                <div>Address</div>
-                                <div>Latency</div>
-                                <div>Status</div>
-                                <div>Probe</div>
+                            <div className="flex items-center gap-2 text-[11px] text-secondary px-2 py-1">
+                                <div className="flex-1 min-w-0">Name / Address / Group</div>
+                                <div className="w-[96px] shrink-0 text-center">Status</div>
+                                <div className="w-[88px] shrink-0 text-center">WSH</div>
+                                <div className="shrink-0 w-[96px] text-left">Actions</div>
                             </div>
                             {filteredHosts.map((host) => {
                                 const meta = connectionsState[host];
                                 const isSelected = selectedHost === host;
-                                const group = (((meta as any)?.["display:group"] as string) ?? "").trim();
                                 const latency = latencyMap[host];
                                 const latencyText = latency == null ? "-" : `${latency} ms`;
                                 return (
-                                    <div
+                                    <ConnectionListRow
                                         key={host}
-                                        className={`grid grid-cols-[1.4fr_1.8fr_84px_88px_70px] items-center rounded px-2 py-2 cursor-pointer border ${
-                                            isSelected
-                                                ? "bg-green-900/30 border-green-700"
-                                                : "bg-panel border-transparent hover:border-border"
-                                        }`}
-                                        onClick={() => setSelectedHost(host)}
-                                    >
-                                        <div className="min-w-0">
-                                            <div className="truncate text-sm">{meta?.["display:name"] || host}</div>
-                                            <div className="truncate text-[11px] text-secondary">
-                                                {group === "" ? "Ungrouped" : group}
-                                            </div>
-                                        </div>
-                                        <div className="truncate text-xs text-secondary">
-                                            {(meta?.["ssh:user"] || "") + "@" + (meta?.["ssh:hostname"] || host)}
-                                        </div>
-                                        <div className="text-xs text-secondary">{latencyText}</div>
-                                        <div>
-                                            <ConnectionStatusBadge host={host} />
-                                        </div>
-                                        <div>
-                                            <Button
-                                                className="!h-[24px] !px-2 !text-xs"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    void probeLatency(host);
-                                                }}
-                                            >
-                                                Ping
-                                            </Button>
-                                        </div>
-                                    </div>
+                                        host={host}
+                                        meta={meta}
+                                        isSelected={isSelected}
+                                        latencyText={latencyText}
+                                        onSelect={() => setSelectedHost(host)}
+                                        onConnect={(nextHost) => void handleConnect(nextHost)}
+                                        onMore={handleMoreActions}
+                                    />
                                 );
                             })}
                         </div>
@@ -292,17 +568,9 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
             </div>
 
             <div className="flex-1 overflow-auto">
-                <div className="max-w-[760px] p-4">
+                <div className="max-w-[820px] p-4">
                     <div className="text-lg font-semibold mb-3">Connections Manager</div>
-                    <div className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-3 items-center">
-                        <div className="text-secondary text-sm">Host Key</div>
-                        <input
-                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                            value={form.host}
-                            onChange={(e) => setForm((prev) => ({ ...prev, host: e.target.value }))}
-                            placeholder="root@192.168.2.9"
-                        />
-
+                    <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-3 items-start">
                         <div className="text-secondary text-sm">Display Name</div>
                         <input
                             className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
@@ -319,14 +587,6 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                             placeholder="Production / Staging / Lab"
                         />
 
-                        <div className="text-secondary text-sm">Remark</div>
-                        <textarea
-                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none min-h-[70px]"
-                            value={form.remark}
-                            onChange={(e) => setForm((prev) => ({ ...prev, remark: e.target.value }))}
-                            placeholder="Host purpose, ownership, notes..."
-                        />
-
                         <div className="text-secondary text-sm">SSH User</div>
                         <input
                             className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
@@ -335,51 +595,77 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                             placeholder="root"
                         />
 
-                        <div className="text-secondary text-sm">SSH Hostname</div>
-                        <input
-                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                            value={form.hostname}
-                            onChange={(e) => setForm((prev) => ({ ...prev, hostname: e.target.value }))}
-                            placeholder="192.168.2.9"
-                        />
-
-                        <div className="text-secondary text-sm">SSH Port</div>
-                        <input
-                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                            value={form.port}
-                            onChange={(e) => setForm((prev) => ({ ...prev, port: e.target.value }))}
-                            placeholder="22"
-                        />
+                        <div className="text-secondary text-sm">SSH Hostname / Port</div>
+                        <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-3">
+                            <input
+                                className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
+                                value={form.hostname}
+                                onChange={(e) => setForm((prev) => ({ ...prev, hostname: e.target.value }))}
+                                placeholder="192.168.2.9"
+                            />
+                            <input
+                                className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
+                                value={form.port}
+                                onChange={(e) => setForm((prev) => ({ ...prev, port: e.target.value }))}
+                                placeholder="22"
+                            />
+                        </div>
 
                         <div className="text-secondary text-sm">Auth</div>
-                        <div className="flex flex-wrap gap-4 text-sm">
-                            <label className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    checked={form.passwordAuth}
-                                    onChange={(e) => setForm((prev) => ({ ...prev, passwordAuth: e.target.checked }))}
-                                />
-                                Password
-                            </label>
-                            <label className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    checked={form.pubkeyAuth}
-                                    onChange={(e) => setForm((prev) => ({ ...prev, pubkeyAuth: e.target.checked }))}
-                                />
-                                Public Key
-                            </label>
-                            <label className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    checked={form.keyboardInteractiveAuth}
-                                    onChange={(e) =>
-                                        setForm((prev) => ({ ...prev, keyboardInteractiveAuth: e.target.checked }))
-                                    }
-                                />
-                                Keyboard Interactive
-                            </label>
+                        <div className="flex flex-wrap gap-2">
+                            <AuthToggle
+                                label="Password"
+                                active={form.passwordAuth}
+                                onClick={() => setForm((prev) => ({ ...prev, passwordAuth: !prev.passwordAuth }))}
+                            />
+                            <AuthToggle
+                                label="Public Key"
+                                active={form.pubkeyAuth}
+                                onClick={() => setForm((prev) => ({ ...prev, pubkeyAuth: !prev.pubkeyAuth }))}
+                            />
+                            <AuthToggle
+                                label="Keyboard Interactive"
+                                active={form.keyboardInteractiveAuth}
+                                onClick={() =>
+                                    setForm((prev) => ({
+                                        ...prev,
+                                        keyboardInteractiveAuth: !prev.keyboardInteractiveAuth,
+                                    }))
+                                }
+                            />
                         </div>
+
+                        {form.passwordAuth && (
+                            <>
+                                <div className="text-secondary text-sm pt-2">Password</div>
+                                <div>
+                                    <input
+                                        type="password"
+                                        className="w-full rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
+                                        value={form.password}
+                                        onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
+                                        placeholder={
+                                            form.hasStoredPassword
+                                                ? "Leave blank to keep the saved password"
+                                                : "Stored securely in Wave's secret store"
+                                        }
+                                    />
+                                    {form.hasStoredPassword && form.password === "" && (
+                                        <div className="mt-1 text-[11px] text-secondary">
+                                            A password is already stored for this connection.
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+
+                        <div className="text-secondary text-sm pt-2">Remark</div>
+                        <textarea
+                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none min-h-[88px]"
+                            value={form.remark}
+                            onChange={(e) => setForm((prev) => ({ ...prev, remark: e.target.value }))}
+                            placeholder="Host purpose, ownership, notes..."
+                        />
                     </div>
 
                     <div className="mt-5 flex gap-2">
@@ -389,12 +675,15 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                         <Button className="green !px-4" onClick={handleSave} disabled={saving}>
                             {saving ? "Saving..." : "Save"}
                         </Button>
+                        <Button className="!px-3" onClick={handleEnsureWsh} disabled={ensuringWsh}>
+                            {ensuringWsh ? "Setting up WSH..." : getEnsureWshButtonLabel(selectedConnStatus)}
+                        </Button>
                         <Button
                             className="!px-3"
                             onClick={() =>
                                 modalsModel.pushModal("MessageModal", {
                                     children:
-                                        "Tip: You can still use 'Edit Connections' in dropdown for raw JSON editing.",
+                                        "Tip: Passwords are saved to Wave's secret store. You can still use 'Edit Connections' for raw JSON editing.",
                                 })
                             }
                         >

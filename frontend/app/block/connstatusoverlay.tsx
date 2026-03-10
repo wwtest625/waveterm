@@ -128,6 +128,7 @@ export const ConnStatusOverlay = React.memo(
         const [showError, setShowError] = React.useState(false);
         const fullConfig = jotai.useAtomValue(atoms.fullConfigAtom);
         const [showWshError, setShowWshError] = React.useState(false);
+        const wshStatusDetail = connStatus.wsherror || connStatus.nowshreason || "";
 
         React.useEffect(() => {
             if (width) {
@@ -193,12 +194,11 @@ export const ConnStatusOverlay = React.memo(
         React.useEffect(() => {
             const showWshErrorTemp =
                 connStatus.status == "connected" &&
-                connStatus.wsherror &&
-                connStatus.wsherror != "" &&
+                wshStatusDetail != "" &&
                 wshConfigEnabled;
 
             setShowWshError(showWshErrorTemp);
-        }, [connStatus, wshConfigEnabled]);
+        }, [connStatus.status, wshConfigEnabled, wshStatusDetail]);
 
         const handleCopy = React.useCallback(
             async (e: React.MouseEvent) => {
@@ -207,12 +207,12 @@ export const ConnStatusOverlay = React.memo(
                     errTexts.push(`error: ${connStatus.error}`);
                 }
                 if (showWshError) {
-                    errTexts.push(`unable to use wsh: ${connStatus.wsherror}`);
+                    errTexts.push(`unable to use wsh: ${wshStatusDetail}`);
                 }
                 const textToCopy = errTexts.join("\n");
                 await navigator.clipboard.writeText(textToCopy);
             },
-            [showError, showWshError, connStatus.error, connStatus.wsherror]
+            [showError, showWshError, connStatus.error, wshStatusDetail]
         );
 
         let showStalled = connStatus.status == "connected" && connStatus.connhealthstatus == "stalled";
@@ -240,7 +240,7 @@ export const ConnStatusOverlay = React.memo(
                                 >
                                     <CopyButton className="copy-button" onClick={handleCopy} title="Copy" />
                                     {showError ? <div>error: {connStatus.error}</div> : null}
-                                    {showWshError ? <div>unable to use wsh: {connStatus.wsherror}</div> : null}
+                                    {showWshError ? <div>unable to use wsh: {wshStatusDetail}</div> : null}
                                 </OverlayScrollbarsComponent>
                             )}
                             {showWshError && (

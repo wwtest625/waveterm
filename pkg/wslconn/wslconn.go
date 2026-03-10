@@ -733,6 +733,7 @@ func (conn *WslConn) SetWshError(err error) {
 func (conn *WslConn) ClearWshError() {
 	conn.WithLock(func() {
 		conn.WshError = ""
+		conn.NoWshReason = ""
 	})
 }
 

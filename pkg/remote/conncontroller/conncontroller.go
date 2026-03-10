@@ -864,6 +864,13 @@ type WshCheckResult struct {
 	WshError      error
 }
 
+func shouldPersistConnWshEnabled(hasConnConfig bool, connConfig wconfig.ConnKeywords, result WshCheckResult) bool {
+	if hasConnConfig && connConfig.ConnWshEnabled != nil {
+		return false
+	}
+	return result.WshEnabled
+}
+
 // returns (wsh-enabled, clientVersion, text-reason, wshError)
 func (conn *SSHConn) tryEnableWsh(ctx context.Context, clientDisplayName string) WshCheckResult {
 	conn.Infof(ctx, "running tryEnableWsh...\n")
@@ -936,7 +943,7 @@ func (conn *SSHConn) persistWshInstalled(ctx context.Context, result WshCheckRes
 		conn.WshVersion = result.ClientVersion
 	})
 	connConfig, ok := conn.getConnectionConfig()
-	if ok && connConfig.ConnWshEnabled != nil {
+	if !shouldPersistConnWshEnabled(ok, connConfig, result) {
 		return
 	}
 	meta := make(map[string]any)
@@ -1037,6 +1044,7 @@ func (conn *SSHConn) SetWshError(err error) {
 func (conn *SSHConn) ClearWshError() {
 	conn.WithLock(func() {
 		conn.WshError = ""
+		conn.NoWshReason = ""
 	})
 }
 
