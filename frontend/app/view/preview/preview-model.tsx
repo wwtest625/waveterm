@@ -20,6 +20,7 @@ import { loadable } from "jotai/utils";
 import type * as MonacoTypes from "monaco-editor";
 import { createRef } from "react";
 import { PreviewView } from "./preview";
+import { buildRemoteFileError } from "./preview-error-util";
 
 // TODO drive this using config
 const BOOKMARKS: { label: string; path: string }[] = [
@@ -411,10 +412,7 @@ export class PreviewModel implements ViewModel {
                 });
                 return statFile;
             } catch (e) {
-                const errorStatus: ErrorMsg = {
-                    status: "File Read Failed",
-                    text: `${e}`,
-                };
+                const errorStatus = buildRemoteFileError(e, get(this.connStatus), get(this.connectionImmediate));
                 globalStore.set(this.errorMsgAtom, errorStatus);
             }
         });
@@ -441,10 +439,7 @@ export class PreviewModel implements ViewModel {
                 });
                 return file;
             } catch (e) {
-                const errorStatus: ErrorMsg = {
-                    status: "File Read Failed",
-                    text: `${e}`,
-                };
+                const errorStatus = buildRemoteFileError(e, get(this.connStatus), get(this.connectionImmediate));
                 globalStore.set(this.errorMsgAtom, errorStatus);
             }
         });

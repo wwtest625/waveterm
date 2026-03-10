@@ -42,6 +42,7 @@ import {
     mergeError,
     overwriteError,
 } from "./preview-directory-utils";
+import { buildRemoteFileError } from "./preview-error-util";
 import { type PreviewModel } from "./preview-model";
 
 const PageJumpSize = 20;
@@ -571,6 +572,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const [selectedPath, setSelectedPath] = useState("");
     const [refreshVersion, setRefreshVersion] = useAtom(model.refreshVersion);
     const conn = useAtomValue(model.connection);
+    const connStatus = useAtomValue(model.connStatus);
     const blockData = useAtomValue(model.blockAtom);
     const finfo = useAtomValue(model.statFile);
     const dirPath = finfo?.path;
@@ -610,14 +612,11 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         });
                     }
                 } catch (e) {
-                    setErrorMsg({
-                        status: "Cannot Read Directory",
-                        text: `${e}`,
-                    });
+                    setErrorMsg(buildRemoteFileError(e, connStatus, conn, "Cannot Read Directory"));
                 }
                 setUnfilteredData(entries);
             }),
-        [conn, dirPath, refreshVersion]
+        [conn, connStatus, dirPath, refreshVersion]
     );
 
     const filteredData = useMemo(

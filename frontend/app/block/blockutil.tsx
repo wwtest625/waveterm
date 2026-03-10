@@ -34,6 +34,9 @@ export function blockViewToIcon(view: string): string {
     if (view == "connectionsmanager") {
         return "server";
     }
+    if (view == "quickcommands") {
+        return "bolt";
+    }
     return "square";
 }
 
@@ -58,6 +61,9 @@ export function blockViewToName(view: string): string {
     }
     if (view == "tips") {
         return "Tips";
+    }
+    if (view == "quickcommands") {
+        return "Quick Commands";
     }
     if (view == "connectionsmanager") {
         return "Connections";

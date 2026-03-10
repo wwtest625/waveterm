@@ -3,11 +3,13 @@
 
 import { Tooltip } from "@/app/element/tooltip";
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { uxCloseBlock } from "@/app/store/keymodel";
+import { getActiveTabModel } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { shouldIncludeWidgetForWorkspace } from "@/app/workspace/widgetfilter";
 import { getLayoutModelForStaticTab } from "@/layout/lib/layoutModelHooks";
-import { atoms, createBlock, globalStore, isDev, WOS } from "@/store/global";
+import { atoms, createBlock, globalStore, isDev, refocusNode, WOS } from "@/store/global";
 import { fireAndForget, isBlank, makeIconClass } from "@/util/util";
 import {
     FloatingPortal,
@@ -22,22 +24,63 @@ import clsx from "clsx";
 import { useAtomValue } from "jotai";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { buildWidgetBlockDef } from "./widgetblockdef";
+import { getWidgetToggleAction } from "./widgettoggle";
 
-function sortByDisplayOrder(wmap: { [key: string]: WidgetConfigType }): WidgetConfigType[] {
+type WidgetListEntry = {
+    key: string;
+    widget: WidgetConfigType;
+};
+
+const widgetOpenBlockIdsByTabId = new Map<string, Record<string, string>>();
+
+function sortByDisplayOrder(wmap: { [key: string]: WidgetConfigType }): WidgetListEntry[] {
     if (wmap == null) {
         return [];
     }
-    const wlist = Object.values(wmap);
+    const wlist = Object.entries(wmap).map(([key, widget]) => ({ key, widget }));
     wlist.sort((a, b) => {
-        return (a["display:order"] ?? 0) - (b["display:order"] ?? 0);
+        return (a.widget["display:order"] ?? 0) - (b.widget["display:order"] ?? 0);
     });
     return wlist;
 }
 
-async function handleWidgetSelect(widget: WidgetConfigType) {
+function getTrackedWidgetBlockIds(tabId: string): Record<string, string> {
+    let trackedBlockIds = widgetOpenBlockIdsByTabId.get(tabId);
+    if (trackedBlockIds == null) {
+        trackedBlockIds = {};
+        widgetOpenBlockIdsByTabId.set(tabId, trackedBlockIds);
+    }
+    return trackedBlockIds;
+}
+
+async function handleWidgetSelect(widgetKey: string, widget: WidgetConfigType) {
+    const tabModel = getActiveTabModel();
+    if (tabModel == null) {
+        return;
+    }
+
+    const tabData = globalStore.get(tabModel.tabAtom);
+    const trackedBlockIds = getTrackedWidgetBlockIds(tabModel.tabId);
+    const trackedBlockId = trackedBlockIds[widgetKey];
+    const layoutModel = getLayoutModelForStaticTab();
+    const focusedNode = globalStore.get(layoutModel.focusedNode);
+    const toggleAction = getWidgetToggleAction(trackedBlockId, tabData?.blockids ?? [], focusedNode?.data?.blockId);
+
+    if (toggleAction.type === "close") {
+        delete trackedBlockIds[widgetKey];
+        uxCloseBlock(toggleAction.blockId);
+        return;
+    }
+
+    if (toggleAction.type === "focus") {
+        refocusNode(toggleAction.blockId);
+        return;
+    }
+
     const focusedBlock = getFocusedBlockContext();
     const blockDef = buildWidgetBlockDef(widget, focusedBlock);
-    createBlock(blockDef, widget.magnified);
+    const blockId = await createBlock(blockDef, widget.magnified);
+    trackedBlockIds[widgetKey] = blockId;
 }
 
 function getFocusedBlockContext(): { view?: string; connection?: string; cwd?: string } | undefined {
@@ -60,45 +103,55 @@ function getFocusedBlockContext(): { view?: string; connection?: string; cwd?: s
     };
 }
 
-const Widget = memo(({ widget, mode }: { widget: WidgetConfigType; mode: "normal" | "compact" | "supercompact" }) => {
-    const [isTruncated, setIsTruncated] = useState(false);
-    const labelRef = useRef<HTMLDivElement>(null);
+const Widget = memo(
+    ({
+        widget,
+        widgetKey,
+        mode,
+    }: {
+        widget: WidgetConfigType;
+        widgetKey: string;
+        mode: "normal" | "compact" | "supercompact";
+    }) => {
+        const [isTruncated, setIsTruncated] = useState(false);
+        const labelRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        if (mode === "normal" && labelRef.current) {
-            const element = labelRef.current;
-            setIsTruncated(element.scrollWidth > element.clientWidth);
-        }
-    }, [mode, widget.label]);
+        useEffect(() => {
+            if (mode === "normal" && labelRef.current) {
+                const element = labelRef.current;
+                setIsTruncated(element.scrollWidth > element.clientWidth);
+            }
+        }, [mode, widget.label]);
 
-    const shouldDisableTooltip = mode !== "normal" ? false : !isTruncated;
+        const shouldDisableTooltip = mode !== "normal" ? false : !isTruncated;
 
-    return (
-        <Tooltip
-            content={widget.description || widget.label}
-            placement="left"
-            disable={shouldDisableTooltip}
-            divClassName={clsx(
-                "flex flex-col justify-center items-center w-full py-1.5 pr-0.5 text-secondary overflow-hidden rounded-sm hover:bg-hoverbg hover:text-white cursor-pointer",
-                mode === "supercompact" ? "text-sm" : "text-lg",
-                widget["display:hidden"] && "hidden"
-            )}
-            divOnClick={() => handleWidgetSelect(widget)}
-        >
-            <div style={{ color: widget.color }}>
-                <i className={makeIconClass(widget.icon, true, { defaultIcon: "browser" })}></i>
-            </div>
-            {mode === "normal" && !isBlank(widget.label) ? (
-                <div
-                    ref={labelRef}
-                    className="text-xxs mt-0.5 w-full px-0.5 text-center whitespace-nowrap overflow-hidden text-ellipsis"
-                >
-                    {widget.label}
+        return (
+            <Tooltip
+                content={widget.description || widget.label}
+                placement="left"
+                disable={shouldDisableTooltip}
+                divClassName={clsx(
+                    "flex flex-col justify-center items-center w-full py-1.5 pr-0.5 text-secondary overflow-hidden rounded-sm hover:bg-hoverbg hover:text-white cursor-pointer",
+                    mode === "supercompact" ? "text-sm" : "text-lg",
+                    widget["display:hidden"] && "hidden"
+                )}
+                divOnClick={() => fireAndForget(async () => handleWidgetSelect(widgetKey, widget))}
+            >
+                <div style={{ color: widget.color }}>
+                    <i className={makeIconClass(widget.icon, true, { defaultIcon: "browser" })}></i>
                 </div>
-            ) : null}
-        </Tooltip>
-    );
-});
+                {mode === "normal" && !isBlank(widget.label) ? (
+                    <div
+                        ref={labelRef}
+                        className="text-xxs mt-0.5 w-full px-0.5 text-center whitespace-nowrap overflow-hidden text-ellipsis"
+                    >
+                        {widget.label}
+                    </div>
+                ) : null}
+            </Tooltip>
+        );
+    }
+);
 
 function calculateGridSize(appCount: number): number {
     if (appCount <= 4) return 2;
@@ -354,7 +407,7 @@ const Widgets = memo(() => {
             return shouldIncludeWidgetForWorkspace(widget, workspace?.oid);
         })
     );
-    const widgets = sortByDisplayOrder(filteredWidgets);
+    const widgetEntries = sortByDisplayOrder(filteredWidgets);
 
     const [isAppsOpen, setIsAppsOpen] = useState(false);
     const appsButtonRef = useRef<HTMLDivElement>(null);
@@ -374,7 +427,7 @@ const Widgets = memo(() => {
             newMode = "compact";
 
             // Calculate total widget count for supercompact check
-            const totalWidgets = (widgets?.length || 0) + 1;
+            const totalWidgets = widgetEntries.length + 1;
             const minHeightPerWidget = 32;
             const requiredHeight = totalWidgets * minHeightPerWidget;
 
@@ -386,7 +439,7 @@ const Widgets = memo(() => {
         if (newMode !== mode) {
             setMode(newMode);
         }
-    }, [mode, widgets]);
+    }, [mode, widgetEntries]);
 
     useEffect(() => {
         const resizeObserver = new ResizeObserver(() => {
@@ -404,7 +457,7 @@ const Widgets = memo(() => {
 
     useEffect(() => {
         checkModeNeeded();
-    }, [widgets, checkModeNeeded]);
+    }, [widgetEntries, checkModeNeeded]);
 
     const handleWidgetsBarContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -437,8 +490,8 @@ const Widgets = memo(() => {
                 {mode === "supercompact" ? (
                     <>
                         <div className="grid grid-cols-2 gap-0 w-full">
-                            {widgets?.map((data, idx) => (
-                                <Widget key={`widget-${idx}`} widget={data} mode={mode} />
+                            {widgetEntries.map(({ key, widget }) => (
+                                <Widget key={key} widgetKey={key} widget={widget} mode={mode} />
                             ))}
                         </div>
                         <div className="flex-grow" />
@@ -471,8 +524,8 @@ const Widgets = memo(() => {
                     </>
                 ) : (
                     <>
-                        {widgets?.map((data, idx) => (
-                            <Widget key={`widget-${idx}`} widget={data} mode={mode} />
+                        {widgetEntries.map(({ key, widget }) => (
+                            <Widget key={key} widgetKey={key} widget={widget} mode={mode} />
                         ))}
                         <div className="flex-grow" />
                         {isDev() || featureWaveAppBuilder ? (
@@ -536,8 +589,8 @@ const Widgets = memo(() => {
                 ref={measurementRef}
                 className="flex flex-col w-12 py-1 -ml-1 select-none absolute -z-10 opacity-0 pointer-events-none"
             >
-                {widgets?.map((data, idx) => (
-                    <Widget key={`measurement-widget-${idx}`} widget={data} mode="normal" />
+                {widgetEntries.map(({ key, widget }) => (
+                    <Widget key={`measurement-${key}`} widgetKey={key} widget={widget} mode="normal" />
                 ))}
                 <div className="flex-grow" />
                 <div className="flex flex-col justify-center items-center w-full py-1.5 pr-0.5 text-lg">

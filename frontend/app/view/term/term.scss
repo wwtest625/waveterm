@@ -62,6 +62,31 @@
         margin: 5px 1px 5px 4px;
     }
 
+    .term-quick-input {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-end;
+        gap: 10px;
+        padding: 8px 10px 10px;
+        border-top: 1px solid var(--border-color);
+        flex-shrink: 0;
+        position: relative;
+        z-index: 1;
+    }
+
+    .term-quick-input-editor {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .term-quick-input-field {
+        width: 100%;
+        min-height: 36px;
+        padding: 8px 10px;
+        background-color: color-mix(in srgb, var(--main-bg-color) 82%, transparent);
+        border-color: var(--border-color);
+    }
+
     .term-htmlelem {
         display: flex;
         flex-direction: column;

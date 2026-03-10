@@ -3,7 +3,9 @@
 
 import { SubBlock } from "@/app/block/block";
 import type { BlockNodeModel } from "@/app/block/blocktypes";
+import { Button } from "@/app/element/button";
 import { NullErrorBoundary } from "@/app/element/errorboundary";
+import { MultiLineInput } from "@/app/element/multilineinput";
 import { Search, useSearch } from "@/app/element/search";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { useTabModel } from "@/app/store/tab-model";
@@ -19,6 +21,7 @@ import clsx from "clsx";
 import debug from "debug";
 import * as jotai from "jotai";
 import * as React from "react";
+import { isQuickInputSubmitKeyEvent } from "./term-quickinput";
 import { TermLinkTooltip } from "./term-tooltip";
 import { TermStickers } from "./termsticker";
 import { TermThemeUpdater } from "./termtheme";
@@ -186,6 +189,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const isFocused = jotai.useAtomValue(model.nodeModel.isFocused);
     const isMI = jotai.useAtomValue(tabModel.isTermMultiInput);
     const isBasicTerm = termMode != "vdom" && blockData?.meta?.controller != "cmd"; // needs to match isBasicTerm
+    const [quickInputValue, setQuickInputValue] = jotai.useAtom(model.quickInputValueAtom);
 
     // search
     const searchProps = useSearch({
@@ -374,6 +378,26 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         [model]
     );
 
+    const handleQuickInputSend = React.useCallback(() => {
+        model.submitQuickInput();
+    }, [model]);
+
+    const handleQuickInputKeyDown = React.useCallback(
+        (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+            if (!isQuickInputSubmitKeyEvent(e)) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            model.submitQuickInput();
+        },
+        [model]
+    );
+
+    const handleQuickInputFocus = React.useCallback(() => {
+        model.nodeModel.focusNode();
+    }, [model]);
+
     return (
         <div className={clsx("view-term", "term-mode-" + termMode)} ref={viewRef} onContextMenu={handleContextMenu}>
             {termBg && <div key="term-bg" className="absolute inset-0 z-0 pointer-events-none" style={termBg} />}
@@ -383,6 +407,31 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
             <TermToolbarVDomNode key="vdom-toolbar" blockId={blockId} model={model} />
             <TermVDomNode key="vdom" blockId={blockId} model={model} />
             <div key="connect-elem" className="term-connectelem" ref={connectElemRef} />
+            {isBasicTerm ? (
+                <div className="term-quick-input" onMouseDown={(e) => e.stopPropagation()}>
+                    <div className="term-quick-input-editor">
+                        <MultiLineInput
+                            ref={model.quickInputRef}
+                            value={quickInputValue}
+                            onChange={(e) => setQuickInputValue(e.target.value)}
+                            onKeyDown={handleQuickInputKeyDown}
+                            onFocus={handleQuickInputFocus}
+                            placeholder="快捷输入框，Ctrl+Enter 发送"
+                            rows={2}
+                            maxRows={6}
+                            className="term-quick-input-field text-sm"
+                        />
+                    </div>
+                    <Button
+                        className="!h-[36px] !px-3 !text-xs"
+                        onClick={handleQuickInputSend}
+                        disabled={quickInputValue.trim() === ""}
+                        title="发送 (Ctrl+Enter)"
+                    >
+                        发送 (Ctrl+Enter)
+                    </Button>
+                </div>
+            ) : null}
             <NullErrorBoundary debugName="TermLinkTooltip">
                 <TermLinkTooltip termWrap={termWrapInst} />
             </NullErrorBoundary>

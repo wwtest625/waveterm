@@ -50,5 +50,15 @@
                 "view": "sysinfo"
             }
         }
+    },
+    "defwidget@quickcommands": {
+        "display:order": 0,
+        "icon": "bolt",
+        "label": "commands",
+        "blockdef": {
+            "meta": {
+                "view": "quickcommands"
+            }
+        }
     }
 }

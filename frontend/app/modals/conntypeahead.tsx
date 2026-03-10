@@ -20,6 +20,7 @@ import * as keyutil from "@/util/keyutil";
 import * as util from "@/util/util";
 import * as jotai from "jotai";
 import * as React from "react";
+import { getRemoteConnectionNames } from "./conntypeahead-util";
 
 // newConnList -> connList => filteredList -> remoteItems -> sortedRemoteItems => remoteSuggestion
 // filteredList -> createNew
@@ -307,7 +308,6 @@ const ChangeConnectionBlockModal = React.memo(
         const connection = blockData?.meta?.connection;
         const connStatusAtom = getConnStatusAtom(connection);
         const connStatus = jotai.useAtomValue(connStatusAtom);
-        const [connList, setConnList] = React.useState<Array<string>>([]);
         const [wslList, setWslList] = React.useState<Array<string>>([]);
         const allConnStatus = jotai.useAtomValue(atoms.allConnStatus);
         const [rowIndex, setRowIndex] = React.useState(0);
@@ -316,6 +316,10 @@ const ChangeConnectionBlockModal = React.memo(
         let filterOutNowsh = util.useAtomValueSafe(viewModel.filterOutNowsh) ?? true;
         const hasGitBash = jotai.useAtomValue(ConnectionsModel.getInstance().hasGitBashAtom);
         const localName = jotai.useAtomValue(getLocalHostDisplayNameAtom());
+        const remoteConnList = React.useMemo(
+            () => getRemoteConnectionNames(fullConfig, allConnStatus, connection),
+            [fullConfig, allConnStatus, connection]
+        );
 
         let maxActiveConnNum = 1;
         for (const conn of allConnStatus) {
@@ -326,13 +330,9 @@ const ChangeConnectionBlockModal = React.memo(
         }
         React.useEffect(() => {
             if (!changeConnModalOpen) {
-                setConnList([]);
+                setWslList([]);
                 return;
             }
-            const prtn = RpcApi.ConnListCommand(TabRpcClient, { timeout: 2000 });
-            prtn.then((newConnList) => {
-                setConnList(newConnList ?? []);
-            }).catch((e) => console.log("unable to load conn list from backend. using blank list: ", e));
             const p2rtn = RpcApi.WslListCommand(TabRpcClient, { timeout: 2000 });
             p2rtn
                 .then((newWslList) => {
@@ -387,7 +387,7 @@ const ChangeConnectionBlockModal = React.memo(
             hasGitBash
         );
         const remoteSuggestions = getRemoteSuggestions(
-            connList,
+            remoteConnList,
             connection,
             connSelected,
             connStatusMap,
@@ -399,7 +399,7 @@ const ChangeConnectionBlockModal = React.memo(
         const newConnectionSuggestionItem = getNewConnectionSuggestionItem(
             connSelected,
             localName,
-            connList,
+            remoteConnList,
             wslList,
             changeConnection,
             changeConnModalAtom

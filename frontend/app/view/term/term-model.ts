@@ -40,6 +40,7 @@ import { boundNumber, fireAndForget, stringToBase64 } from "@/util/util";
 import * as jotai from "jotai";
 import * as React from "react";
 import { getBlockingCommand } from "./shellblocking";
+import { normalizeQuickInputForSend } from "./term-quickinput";
 import { computeTheme, DefaultTermTheme } from "./termutil";
 import { TermWrap } from "./termwrap";
 
@@ -49,6 +50,7 @@ export class TermViewModel implements ViewModel {
     tabModel: TabModel;
     connected: boolean;
     termRef: React.RefObject<TermWrap> = { current: null };
+    quickInputRef: React.RefObject<HTMLTextAreaElement> = { current: null };
     blockAtom: jotai.Atom<Block>;
     termMode: jotai.Atom<string>;
     blockId: string;
@@ -65,6 +67,7 @@ export class TermViewModel implements ViewModel {
     vdomToolbarBlockId: jotai.Atom<string>;
     vdomToolbarTarget: jotai.PrimitiveAtom<VDomTargetToolbar>;
     fontSizeAtom: jotai.Atom<number>;
+    quickInputValueAtom: jotai.PrimitiveAtom<string>;
     termThemeNameAtom: jotai.Atom<string>;
     termTransparencyAtom: jotai.Atom<number>;
     termBPMAtom: jotai.Atom<boolean>;
@@ -278,6 +281,7 @@ export class TermViewModel implements ViewModel {
                 return rtnFontSize;
             });
         });
+        this.quickInputValueAtom = useBlockAtom(blockId, "termquickinputvalue", () => jotai.atom(""));
         this.noPadding = jotai.atom(true);
         this.endIconButtons = jotai.atom((get) => {
             const blockData = get(this.blockAtom);
@@ -475,6 +479,46 @@ export class TermViewModel implements ViewModel {
         }
         const b64data = stringToBase64(data);
         RpcApi.ControllerInputCommand(TabRpcClient, { blockid: this.blockId, inputdata64: b64data });
+    }
+
+    supportsQuickInput(): boolean {
+        const termMode = globalStore.get(this.termMode);
+        const blockData = globalStore.get(this.blockAtom);
+        return termMode == "term" && blockData?.meta?.controller != "cmd";
+    }
+
+    setQuickInputValue(value: string) {
+        globalStore.set(this.quickInputValueAtom, value ?? "");
+    }
+
+    focusQuickInput(): boolean {
+        if (!this.supportsQuickInput()) {
+            return false;
+        }
+        this.nodeModel.focusNode();
+        const inputElem = this.quickInputRef.current;
+        if (inputElem == null) {
+            return false;
+        }
+        requestAnimationFrame(() => {
+            inputElem.focus();
+            const length = inputElem.value.length;
+            inputElem.setSelectionRange(length, length);
+        });
+        return true;
+    }
+
+    submitQuickInput(): boolean {
+        const data = normalizeQuickInputForSend(globalStore.get(this.quickInputValueAtom));
+        if (data == null) {
+            return false;
+        }
+        this.sendDataToController(data);
+        if (globalStore.get(this.tabModel.isTermMultiInput) && this.supportsQuickInput()) {
+            this.multiInputHandler(data);
+        }
+        globalStore.set(this.quickInputValueAtom, "");
+        return true;
     }
 
     setTermMode(mode: "term" | "vdom") {
