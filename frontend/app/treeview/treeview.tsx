@@ -8,6 +8,7 @@ import React, {
     CSSProperties,
     KeyboardEvent,
     MouseEvent,
+    useCallback,
     forwardRef,
     useEffect,
     useImperativeHandle,
@@ -26,6 +27,8 @@ export interface TreeNodeData {
     isDirectory: boolean;
     mimeType?: string;
     icon?: string;
+    expandedIcon?: string;
+    iconColor?: string;
     isReadonly?: boolean;
     notfound?: boolean;
     staterror?: string;
@@ -67,17 +70,24 @@ export interface TreeViewProps {
     height?: number | string;
     className?: string;
     onOpenFile?: (id: string, node: TreeNodeData) => void;
+    onOpenDirectory?: (id: string, node: TreeNodeData) => void;
     onSelectionChange?: (id: string, node: TreeNodeData) => void;
+    onContextMenu?: (id: string, node: TreeNodeData, event: MouseEvent<HTMLDivElement>) => void;
+    selectedId?: string;
+    defaultExpandedIds?: string[];
+    ensureExpandedIds?: string[];
+    disableDirectoryDoubleClick?: boolean;
 }
 
 export interface TreeViewRef {
     scrollToId: (id: string) => void;
+    focus: () => void;
 }
 
 const DefaultRowHeight = 24;
 const DefaultIndentWidth = 16;
 const DefaultOverscan = 10;
-const ChevronWidth = 16;
+const IconWidth = 16;
 
 function normalizeLabel(node: TreeNodeData): string {
     if (node.label?.trim()) {
@@ -180,6 +190,9 @@ function getNodeIcon(node: TreeNodeData, isExpanded: boolean): string {
     if (node.notfound || node.staterror) {
         return "triangle-exclamation";
     }
+    if (isExpanded && node.expandedIcon) {
+        return node.expandedIcon;
+    }
     if (node.icon) {
         return node.icon;
     }
@@ -218,17 +231,27 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
         height = 360,
         className,
         onOpenFile,
+        onOpenDirectory,
         onSelectionChange,
+        onContextMenu,
+        selectedId: controlledSelectedId,
+        defaultExpandedIds,
+        ensureExpandedIds,
+        disableDirectoryDoubleClick = false,
     } = props;
+    const firstRootId = rootIds[0];
     const [nodesById, setNodesById] = useState<Map<string, TreeNodeData>>(
         () =>
             new Map(
                 Object.entries(initialNodes).map(([id, node]) => [id, { ...node, childrenStatus: node.childrenStatus ?? "unloaded" }])
             )
     );
-    const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-    const [selectedId, setSelectedId] = useState<string>(rootIds[0]);
+    const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(defaultExpandedIds ?? []));
+    const [internalSelectedId, setInternalSelectedId] = useState<string>(controlledSelectedId ?? firstRootId);
+    const selectedId = controlledSelectedId ?? internalSelectedId;
+    const containerRef = useRef<HTMLDivElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const ensureExpandedKey = useMemo(() => (ensureExpandedIds ?? []).join("\0"), [ensureExpandedIds]);
 
     useEffect(() => {
         setNodesById(
@@ -244,6 +267,23 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
         );
     }, [initialNodes]);
 
+    useEffect(() => {
+        if ((ensureExpandedIds ?? []).length === 0) {
+            return;
+        }
+        setExpandedIds((prev) => {
+            const next = new Set(prev);
+            ensureExpandedIds?.forEach((id) => next.add(id));
+            return next;
+        });
+    }, [ensureExpandedKey, ensureExpandedIds]);
+
+    useEffect(() => {
+        if (controlledSelectedId == null) {
+            setInternalSelectedId(firstRootId);
+        }
+    }, [controlledSelectedId, firstRootId]);
+
     const visibleRows = useMemo(() => buildVisibleRows(nodesById, rootIds, expandedIds), [nodesById, rootIds, expandedIds]);
     const idToIndex = useMemo(
         () => new Map(visibleRows.map((row, index) => [row.id, index])),
@@ -256,32 +296,41 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
         overscan,
     });
 
-    const commitSelection = (id: string) => {
+    const commitSelection = useCallback((id: string) => {
         const node = nodesById.get(id);
         if (node == null) {
             return;
         }
-        setSelectedId(id);
+        if (controlledSelectedId == null) {
+            setInternalSelectedId(id);
+        }
         onSelectionChange?.(id, node);
-    };
+    }, [controlledSelectedId, nodesById, onSelectionChange]);
 
-    const scrollToId = (id: string) => {
+    const scrollToId = useCallback((id: string) => {
         const index = idToIndex.get(id);
         if (index == null) {
             return;
         }
         virtualizer.scrollToIndex(index, { align: "auto" });
-    };
+    }, [idToIndex, virtualizer]);
+
+    useEffect(() => {
+        if (selectedId != null) {
+            scrollToId(selectedId);
+        }
+    }, [scrollToId, selectedId, visibleRows.length]);
 
     useImperativeHandle(
         ref,
         () => ({
             scrollToId,
+            focus: () => containerRef.current?.focus(),
         }),
-        [idToIndex, virtualizer]
+        [scrollToId]
     );
 
-    const loadChildren = async (id: string) => {
+    const loadChildren = useCallback(async (id: string) => {
         const currentNode = nodesById.get(id);
         if (currentNode == null || !currentNode.isDirectory || currentNode.notfound || currentNode.staterror || fetchDir == null) {
             return;
@@ -332,7 +381,19 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
                 return next;
             });
         }
-    };
+    }, [fetchDir, maxDirEntries, nodesById]);
+
+    useEffect(() => {
+        expandedIds.forEach((id) => {
+            const node = nodesById.get(id);
+            if (node == null || !node.isDirectory) {
+                return;
+            }
+            if ((node.childrenStatus ?? "unloaded") === "unloaded") {
+                void loadChildren(id);
+            }
+        });
+    }, [expandedIds, loadChildren, nodesById]);
 
     const toggleExpand = (id: string) => {
         const node = nodesById.get(id);
@@ -340,9 +401,6 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
             return;
         }
         const expanded = expandedIds.has(id);
-        if (!expanded) {
-            loadChildren(id);
-        }
         setExpandedIds((prev) => {
             const next = new Set(prev);
             if (expanded) {
@@ -417,6 +475,19 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
                 commitSelection(node.childrenIds[0]);
                 scrollToId(node.childrenIds[0]);
             }
+            return;
+        }
+        if (event.key === "Enter") {
+            event.preventDefault();
+            if (node.isDirectory) {
+                if (onOpenDirectory != null) {
+                    onOpenDirectory(node.id, node);
+                } else {
+                    toggleExpand(node.id);
+                }
+                return;
+            }
+            onOpenFile?.(node.id, node);
         }
     };
 
@@ -428,10 +499,11 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
     };
 
     return (
-        <div
-            className={clsx("rounded-md border border-border bg-panel", className)}
-            style={containerStyle}
-            tabIndex={0}
+            <div
+                ref={containerRef}
+                className={clsx("rounded-md border border-border bg-panel", className)}
+                style={containerStyle}
+                tabIndex={0}
             onKeyDown={onKeyDown}
         >
             <div ref={scrollRef} className="h-full overflow-auto">
@@ -455,27 +527,46 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
                                     height: rowHeight,
                                     transform: `translateY(${virtualRow.start}px)`,
                                 }}
-                                onClick={() => row.kind === "node" && commitSelection(row.id)}
+                                onClick={() => {
+                                    if (row.kind !== "node") {
+                                        return;
+                                    }
+                                    commitSelection(row.id);
+                                    if (row.isDirectory) {
+                                        toggleExpand(row.id);
+                                    }
+                                }}
                                 onDoubleClick={() => {
                                     if (row.kind !== "node") {
                                         return;
                                     }
                                     if (row.isDirectory) {
-                                        toggleExpand(row.id);
+                                        if (disableDirectoryDoubleClick) {
+                                            return;
+                                        }
+                                        if (row.node != null && onOpenDirectory != null) {
+                                            onOpenDirectory(row.id, row.node);
+                                        } else {
+                                            toggleExpand(row.id);
+                                        }
                                         return;
                                     }
                                     if (row.node != null) {
                                         onOpenFile?.(row.id, row.node);
                                     }
                                 }}
+                                onContextMenu={(event) => {
+                                    if (row.kind !== "node" || row.node == null) {
+                                        return;
+                                    }
+                                    commitSelection(row.id);
+                                    onContextMenu?.(row.id, row.node, event);
+                                }}
                             >
-                                <div
-                                    className="flex items-center"
-                                    style={{ paddingLeft: row.depth * indentWidth, width: ChevronWidth + row.depth * indentWidth }}
-                                >
+                                <div className="flex items-center" style={{ paddingLeft: row.depth * indentWidth }}>
                                     {row.kind === "node" && row.isDirectory && row.hasChildren ? (
                                         <button
-                                            className="h-4 w-4 rounded text-muted hover:text-foreground cursor-pointer"
+                                            className="flex h-4 w-4 items-center justify-center rounded text-muted hover:text-foreground cursor-pointer"
                                             onClick={(event: MouseEvent<HTMLButtonElement>) => {
                                                 event.stopPropagation();
                                                 toggleExpand(row.id);
@@ -494,12 +585,20 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
                                 </div>
                                 {row.kind === "node" ? (
                                     <>
-                                        <i
-                                            className={makeIconClass(getNodeIcon(row.node, row.isExpanded), true)}
-                                            style={{
-                                                color: row.node.notfound || row.node.staterror ? "var(--color-error)" : "inherit",
-                                            }}
-                                        />
+                                        <span
+                                            className="ml-1 inline-flex items-center justify-center"
+                                            style={{ width: IconWidth, minWidth: IconWidth }}
+                                        >
+                                            <i
+                                                className={makeIconClass(getNodeIcon(row.node, row.isExpanded), true)}
+                                                style={{
+                                                    color:
+                                                        row.node.notfound || row.node.staterror
+                                                            ? "var(--color-error)"
+                                                            : (row.node.iconColor ?? "inherit"),
+                                                }}
+                                            />
+                                        </span>
                                         <span
                                             className={clsx("ml-2 pr-3", row.node.isReadonly && "text-muted")}
                                             title={row.label}

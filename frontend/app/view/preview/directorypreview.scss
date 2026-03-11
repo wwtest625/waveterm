@@ -5,7 +5,33 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    position: relative;
     --min-row-width: 35rem;
+
+    &.native-file-drag-over {
+        outline: 1px dashed rgb(from var(--accent-color) r g b / 0.85);
+        outline-offset: -4px;
+    }
+
+    .native-file-upload-overlay {
+        position: absolute;
+        inset: 8px;
+        z-index: 15;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        border: 1px dashed rgb(from var(--accent-color) r g b / 0.85);
+        background: rgb(from var(--accent-color) r g b / 0.14);
+        backdrop-filter: blur(6px);
+        color: var(--main-text-color);
+        font-size: 0.9rem;
+        font-weight: 600;
+        pointer-events: none;
+        text-align: center;
+        padding: 1rem;
+    }
+
     .dir-table {
         height: 100%;
         width: 100%;
@@ -184,5 +210,48 @@
         display: flex;
         flex-direction: row;
         gap: 10px;
+    }
+}
+
+.upload-confirm-modal {
+    width: min(560px, calc(100vw - 32px));
+}
+
+.upload-confirm-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: 6px;
+
+    .upload-confirm-title {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--main-text-color);
+    }
+
+    .upload-confirm-file-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 180px;
+        overflow: auto;
+        padding: 8px 0;
+        color: var(--secondary-text-color);
+        font-size: 0.85rem;
+        word-break: break-all;
+    }
+
+    .upload-confirm-file-item {
+        line-height: 1.45;
+    }
+
+    .upload-confirm-label {
+        color: var(--main-text-color);
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .upload-confirm-target-input {
+        width: 100%;
     }
 }

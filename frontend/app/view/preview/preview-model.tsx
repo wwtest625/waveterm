@@ -11,7 +11,7 @@ import * as services from "@/store/services";
 import * as WOS from "@/store/wos";
 import { goHistory, goHistoryBack, goHistoryForward } from "@/util/historyutil";
 import { checkKeyPressed } from "@/util/keyutil";
-import { addOpenMenuItems } from "@/util/previewutil";
+import { addOpenMenuItems, openPreviewInNewBlock } from "@/util/previewutil";
 import { base64ToString, fireAndForget, isBlank, jotaiLoadableValue, stringToBase64 } from "@/util/util";
 import { formatRemoteUri } from "@/util/waveutil";
 import clsx from "clsx";
@@ -19,6 +19,7 @@ import { Atom, atom, Getter, PrimitiveAtom, WritableAtom } from "jotai";
 import { loadable } from "jotai/utils";
 import type * as MonacoTypes from "monaco-editor";
 import { createRef } from "react";
+import type { TreeViewRef } from "@/app/treeview/treeview";
 import { PreviewView } from "./preview";
 import { buildRemoteFileError } from "./preview-error-util";
 
@@ -163,11 +164,13 @@ export class PreviewModel implements ViewModel {
     monacoRef: React.RefObject<MonacoTypes.editor.IStandaloneCodeEditor>;
 
     showHiddenFiles: PrimitiveAtom<boolean>;
+    directoryViewMode: PrimitiveAtom<"tree" | "list">;
     refreshVersion: PrimitiveAtom<number>;
     directorySearchActive: PrimitiveAtom<boolean>;
     refreshCallback: () => void;
     directoryKeyDownHandler: (waveEvent: WaveKeyboardEvent) => boolean;
     codeEditKeyDownHandler: (waveEvent: WaveKeyboardEvent) => boolean;
+    directoryTreeRef: React.RefObject<TreeViewRef>;
 
     constructor(blockId: string, nodeModel: BlockNodeModel, tabModel: TabModel) {
         this.viewType = "preview";
@@ -176,6 +179,7 @@ export class PreviewModel implements ViewModel {
         this.tabModel = tabModel;
         let showHiddenFiles = globalStore.get(getSettingsKeyAtom("preview:showhiddenfiles")) ?? true;
         this.showHiddenFiles = atom<boolean>(showHiddenFiles);
+        this.directoryViewMode = atom<"tree" | "list">("tree");
         this.refreshVersion = atom(0);
         this.directorySearchActive = atom(false);
         this.previewTextRef = createRef();
@@ -188,6 +192,7 @@ export class PreviewModel implements ViewModel {
         this.markdownShowToc = atom(false);
         this.filterOutNowsh = atom(true);
         this.monacoRef = createRef();
+        this.directoryTreeRef = createRef();
         this.connectionError = atom("");
         this.errorMsgAtom = atom(null) as PrimitiveAtom<ErrorMsg | null>;
         this.viewIcon = atom((get) => {
@@ -332,7 +337,17 @@ export class PreviewModel implements ViewModel {
             const isCeView = loadableSV.state == "hasData" && loadableSV.data.specializedView == "codeedit";
             if (mimeType == "directory") {
                 const showHiddenFiles = get(this.showHiddenFiles);
+                const directoryViewMode = get(this.directoryViewMode);
                 return [
+                    {
+                        elemtype: "iconbutton",
+                        icon: directoryViewMode === "tree" ? "bars" : "folder-open",
+                        title: directoryViewMode === "tree" ? "List View" : "Tree View",
+                        click: () => {
+                            globalStore.set(this.directoryViewMode, (prev) => (prev === "tree" ? "list" : "tree"));
+                            globalStore.set(this.directorySearchActive, false);
+                        },
+                    },
                     {
                         elemtype: "iconbutton",
                         icon: showHiddenFiles ? "eye" : "eye-slash",
@@ -678,7 +693,16 @@ export class PreviewModel implements ViewModel {
             return true;
         }
         try {
-            this.goHistory(filePath);
+            const targetFileInfo = await RpcApi.FileInfoCommand(TabRpcClient, {
+                info: {
+                    path: await this.formatRemoteUri(filePath, globalStore.get),
+                },
+            });
+            if (fileInfo.isdir && targetFileInfo != null && !targetFileInfo.isdir && !targetFileInfo.notfound) {
+                await openPreviewInNewBlock(filePath, globalStore.get(this.connectionImmediate), this.blockId);
+                return true;
+            }
+            await this.goHistory(filePath);
             refocusNode(this.blockId);
         } catch (e) {
             globalStore.set(this.openFileError, e.message);
@@ -715,7 +739,7 @@ export class PreviewModel implements ViewModel {
                 }),
         });
         menuItems.push({
-            label: "Copy File Name",
+            label: "复制文件名",
             click: () =>
                 fireAndForget(async () => {
                     const fileInfo = await globalStore.get(this.statFile);
@@ -757,7 +781,7 @@ export class PreviewModel implements ViewModel {
             submenu: fontSizeSubMenu,
         });
         const finfo = jotaiLoadableValue(globalStore.get(this.loadableFileInfo), null);
-        addOpenMenuItems(menuItems, globalStore.get(this.connectionImmediate), finfo);
+        addOpenMenuItems(menuItems, globalStore.get(this.connectionImmediate), finfo, this.blockId);
         const loadableSV = globalStore.get(this.loadableSpecializedView);
         const wordWrapAtom = getOverrideConfigAtom(this.blockId, "editor:wordwrap");
         const wordWrap = globalStore.get(wordWrapAtom) ?? false;
@@ -800,6 +824,10 @@ export class PreviewModel implements ViewModel {
         }
         if (this.monacoRef.current) {
             this.monacoRef.current.focus();
+            return true;
+        }
+        if (this.isSpecializedView("directory") && globalStore.get(this.directoryViewMode) === "tree") {
+            this.directoryTreeRef.current?.focus();
             return true;
         }
         return false;

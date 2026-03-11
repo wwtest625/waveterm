@@ -35,6 +35,7 @@ import {
     handleOsc7Command,
     type ShellIntegrationStatus,
 } from "./osc-handlers";
+import { FilePathLinkProvider } from "./term-link-provider";
 import { bufferLinesToText, createTempFileFromBlob, extractAllClipboardData, normalizeCursorStyle } from "./termutil";
 
 const dlog = debug("wave:termwrap");
@@ -203,6 +204,20 @@ export class TermWrap {
         this.terminal.parser.registerOscHandler(16162, (data: string) => {
             return handleOsc16162Command(data, this.blockId, this.loaded, this);
         });
+        this.toDispose.push(
+            this.terminal.registerLinkProvider(
+                new FilePathLinkProvider(this.terminal, this.blockId, {
+                    onHover: (linkText, event) => {
+                        this.hoveredLinkUri = linkText;
+                        this.onLinkHover?.(linkText, event.clientX, event.clientY);
+                    },
+                    onLeave: () => {
+                        this.hoveredLinkUri = null;
+                        this.onLinkHover?.(null, 0, 0);
+                    },
+                })
+            )
+        );
         this.toDispose.push(
             this.terminal.parser.registerCsiHandler({ final: "J" }, (params) => {
                 if (params[0] === 3) {

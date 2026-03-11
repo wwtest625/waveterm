@@ -1,28 +1,74 @@
-import { createBlock, getApi } from "@/app/store/global";
-import { makeNativeLabel } from "./platformutil";
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+import { startDownloadTransfer } from "@/app/transfer/transfer-store";
+import { createBlock, createBlockSplitHorizontally, getApi } from "@/app/store/global";
 import { fireAndForget } from "./util";
 import { formatRemoteUri } from "./waveutil";
 
-export function addOpenMenuItems(menu: ContextMenuItem[], conn: string, finfo: FileInfo): ContextMenuItem[] {
+export async function openPreviewInNewBlock(filePath: string, conn: string, currentBlockId?: string): Promise<string> {
+    const blockDef: BlockDef = {
+        meta: {
+            view: "preview",
+            file: filePath,
+            connection: conn,
+        },
+    };
+    if (currentBlockId) {
+        return createBlockSplitHorizontally(blockDef, currentBlockId, "after");
+    }
+    return createBlock(blockDef);
+}
+
+export async function openCommandInNewBlock(
+    command: string,
+    cwd: string,
+    conn: string,
+    currentBlockId?: string,
+    title?: string
+): Promise<string> {
+    const blockDef: BlockDef = {
+        meta: {
+            view: "term",
+            controller: "cmd",
+            cmd: command,
+            "cmd:cwd": cwd,
+            "cmd:closeonexit": false,
+            "cmd:runonce": true,
+            connection: conn,
+            ...(title ? { "display:name": title } : {}),
+        },
+    };
+    if (currentBlockId) {
+        return createBlockSplitHorizontally(blockDef, currentBlockId, "after");
+    }
+    return createBlock(blockDef);
+}
+
+export function addOpenMenuItems(
+    menu: ContextMenuItem[],
+    conn: string,
+    finfo: FileInfo,
+    currentBlockId?: string
+): ContextMenuItem[] {
     if (!finfo) {
         return menu;
     }
+
     menu.push({
         type: "separator",
     });
+
     if (!conn) {
-        // TODO:  resolve correct host path if connection is WSL
-        // if the entry is a directory, reveal it in the file manager, if the entry is a file, reveal its parent directory
         menu.push({
-            label: makeNativeLabel(true),
+            label: "\u5728\u6587\u4ef6\u7ba1\u7406\u5668\u4e2d\u663e\u793a",
             click: () => {
                 getApi().openNativePath(finfo.isdir ? finfo.path : finfo.dir);
             },
         });
-        // if the entry is a file, open it in the default application
         if (!finfo.isdir) {
             menu.push({
-                label: makeNativeLabel(false),
+                label: "\u7528\u9ed8\u8ba4\u7a0b\u5e8f\u6253\u5f00",
                 click: () => {
                     getApi().openNativePath(finfo.path);
                 },
@@ -30,34 +76,32 @@ export function addOpenMenuItems(menu: ContextMenuItem[], conn: string, finfo: F
         }
     } else {
         menu.push({
-            label: "Download File",
+            label: "\u4e0b\u8f7d\u6587\u4ef6",
             click: () => {
                 const remoteUri = formatRemoteUri(finfo.path, conn);
-                getApi().downloadFile(remoteUri);
+                startDownloadTransfer({
+                    remoteUri,
+                    connection: conn,
+                    name: finfo.name ?? finfo.path.split("/").at(-1) ?? finfo.path,
+                    sourcePath: finfo.path,
+                });
             },
         });
     }
+
     menu.push({
         type: "separator",
     });
+
     if (!finfo.isdir) {
         menu.push({
-            label: "Open Preview in New Block",
-            click: () =>
-                fireAndForget(async () => {
-                    const blockDef: BlockDef = {
-                        meta: {
-                            view: "preview",
-                            file: finfo.path,
-                            connection: conn,
-                        },
-                    };
-                    await createBlock(blockDef);
-                }),
+            label: "\u5728\u65b0\u5757\u4e2d\u9884\u89c8\u6253\u5f00",
+            click: () => fireAndForget(() => openPreviewInNewBlock(finfo.path, conn, currentBlockId)),
         });
     }
+
     menu.push({
-        label: "Open Terminal Here",
+        label: "\u5728\u6b64\u5904\u6253\u5f00\u7ec8\u7aef",
         click: () => {
             const termBlockDef: BlockDef = {
                 meta: {
@@ -70,5 +114,6 @@ export function addOpenMenuItems(menu: ContextMenuItem[], conn: string, finfo: F
             fireAndForget(() => createBlock(termBlockDef));
         },
     });
+
     return menu;
 }

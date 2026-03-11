@@ -2,13 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { Modal } from "@/app/modals/modal";
+import { uploadFileWithTransfer } from "@/app/transfer/transfer-store";
+import { TreeNodeData, TreeView } from "@/app/treeview/treeview";
 import { atoms, getApi, globalStore } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { checkKeyPressed, isCharacterKeyEvent } from "@/util/keyutil";
 import { PLATFORM, PlatformMacOS } from "@/util/platformutil";
-import { addOpenMenuItems } from "@/util/previewutil";
-import { fireAndForget } from "@/util/util";
+import { addOpenMenuItems, openCommandInNewBlock, openPreviewInNewBlock } from "@/util/previewutil";
+import { fireAndForget, makeIconClass } from "@/util/util";
 import { formatRemoteUri } from "@/util/waveutil";
 import { offset, useDismiss, useFloating, useInteractions } from "@floating-ui/react";
 import {
@@ -30,15 +33,16 @@ import { useDrag, useDrop } from "react-dnd";
 import { quote as shellQuote } from "shell-quote";
 import { debounce } from "throttle-debounce";
 import "./directorypreview.scss";
+import { Input } from "@/app/element/input";
 import { EntryManagerOverlay, EntryManagerOverlayProps, EntryManagerType } from "./entry-manager";
 import {
     cleanMimetype,
     getBestUnit,
     getLastModifiedTime,
+    getPreviewIconInfo,
     getSortIcon,
     handleFileDelete,
     handleRename,
-    isIconValid,
     mergeError,
     overwriteError,
 } from "./preview-directory-utils";
@@ -46,6 +50,287 @@ import { buildRemoteFileError } from "./preview-error-util";
 import { type PreviewModel } from "./preview-model";
 
 const PageJumpSize = 20;
+const TreeMaxWidth = 100000;
+const ArchiveSuffixes = [".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".tbz2", ".txz", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar"];
+
+function getDisplayName(path: string, fallback?: string): string {
+    if (fallback) {
+        return fallback;
+    }
+    if (path === "/") {
+        return "/";
+    }
+    const chunks = path.split("/").filter(Boolean);
+    return chunks[chunks.length - 1] ?? path;
+}
+
+export function shouldIncludeDirectoryEntry(
+    entry: Pick<FileInfo, "name"> | null | undefined,
+    showHiddenFiles: boolean
+): boolean {
+    const name = entry?.name;
+    if (!name) {
+        return false;
+    }
+    if (!showHiddenFiles && name.startsWith(".") && name !== "..") {
+        return false;
+    }
+    return true;
+}
+
+type ArchiveExtractionPlan = {
+    command: string;
+    cwd: string;
+    destinationLabel: string;
+    title: string;
+};
+
+type UploadConfirmState = {
+    files: File[];
+    targetDir: string;
+};
+
+function getLocalFileDisplayPath(file: File): string {
+    const fileWithPath = file as File & { path?: string; webkitRelativePath?: string };
+    return fileWithPath.path || fileWithPath.webkitRelativePath || file.name;
+}
+
+function getParentDirectory(fileInfo: Pick<FileInfo, "path" | "dir">): string {
+    if (fileInfo.dir) {
+        return fileInfo.dir;
+    }
+    const path = fileInfo.path;
+    if (!path || path === "/") {
+        return "/";
+    }
+    const lastSlash = path.lastIndexOf("/");
+    if (lastSlash <= 0) {
+        return lastSlash === 0 ? "/" : ".";
+    }
+    return path.slice(0, lastSlash);
+}
+
+function stripArchiveSuffix(fileName: string): string {
+    const lowerName = fileName.toLowerCase();
+    const matchedSuffix = ArchiveSuffixes.find((suffix) => lowerName.endsWith(suffix));
+    if (!matchedSuffix) {
+        return fileName;
+    }
+    const stripped = fileName.slice(0, -matchedSuffix.length);
+    return stripped || `${fileName}-extracted`;
+}
+
+export function getArchiveExtractionPlan(
+    fileInfo: Pick<FileInfo, "path" | "name" | "dir" | "mimetype">
+): ArchiveExtractionPlan | null {
+    const fileName = getDisplayName(fileInfo.path, fileInfo.name);
+    const lowerName = fileName.toLowerCase();
+    const cwd = getParentDirectory(fileInfo);
+    const outputName = stripArchiveSuffix(fileName);
+    const quotedFilePath = shellQuote([fileInfo.path]);
+    const quotedOutputName = shellQuote([outputName]);
+
+    if (lowerName.endsWith(".zip")) {
+        return {
+            command: `mkdir -p ${quotedOutputName} && unzip -o ${quotedFilePath} -d ${quotedOutputName}`,
+            cwd,
+            destinationLabel: `${cwd}/${outputName}`.replace("//", "/"),
+            title: `解压 ${fileName}`,
+        };
+    }
+    if (
+        lowerName.endsWith(".tar") ||
+        lowerName.endsWith(".tar.gz") ||
+        lowerName.endsWith(".tgz") ||
+        lowerName.endsWith(".tar.bz2") ||
+        lowerName.endsWith(".tbz2") ||
+        lowerName.endsWith(".tar.xz") ||
+        lowerName.endsWith(".txz")
+    ) {
+        return {
+            command: `mkdir -p ${quotedOutputName} && tar -xf ${quotedFilePath} -C ${quotedOutputName}`,
+            cwd,
+            destinationLabel: `${cwd}/${outputName}`.replace("//", "/"),
+            title: `解压 ${fileName}`,
+        };
+    }
+    if (lowerName.endsWith(".7z")) {
+        return {
+            command: `mkdir -p ${quotedOutputName} && cd ${quotedOutputName} && 7z x -y ${quotedFilePath}`,
+            cwd,
+            destinationLabel: `${cwd}/${outputName}`.replace("//", "/"),
+            title: `解压 ${fileName}`,
+        };
+    }
+    if (lowerName.endsWith(".rar")) {
+        return {
+            command: `mkdir -p ${quotedOutputName} && cd ${quotedOutputName} && unrar x -o+ ${quotedFilePath}`,
+            cwd,
+            destinationLabel: `${cwd}/${outputName}`.replace("//", "/"),
+            title: `解压 ${fileName}`,
+        };
+    }
+    if (lowerName.endsWith(".gz")) {
+        return {
+            command: `gunzip -c ${quotedFilePath} > ${quotedOutputName}`,
+            cwd,
+            destinationLabel: `${cwd}/${outputName}`.replace("//", "/"),
+            title: `解压 ${fileName}`,
+        };
+    }
+    if (lowerName.endsWith(".bz2")) {
+        return {
+            command: `bunzip2 -c ${quotedFilePath} > ${quotedOutputName}`,
+            cwd,
+            destinationLabel: `${cwd}/${outputName}`.replace("//", "/"),
+            title: `解压 ${fileName}`,
+        };
+    }
+    if (lowerName.endsWith(".xz")) {
+        return {
+            command: `xz -dc ${quotedFilePath} > ${quotedOutputName}`,
+            cwd,
+            destinationLabel: `${cwd}/${outputName}`.replace("//", "/"),
+            title: `解压 ${fileName}`,
+        };
+    }
+    return null;
+}
+
+function canExtractArchive(fileInfo: Pick<FileInfo, "path" | "name" | "dir" | "mimetype" | "isdir">): boolean {
+    if (fileInfo.isdir) {
+        return false;
+    }
+    return getArchiveExtractionPlan(fileInfo) != null;
+}
+
+function handleFileActivation(
+    fileInfo: FileInfo,
+    model: PreviewModel,
+    conn: string,
+    setErrorMsg: (msg: ErrorMsg) => void
+) {
+    if (fileInfo.isdir) {
+        fireAndForget(() => model.goHistory(fileInfo.path));
+        return;
+    }
+    const extractionPlan = getArchiveExtractionPlan(fileInfo);
+    if (extractionPlan) {
+        const fileName = getDisplayName(fileInfo.path, fileInfo.name);
+        setErrorMsg({
+            status: "\u89e3\u538b\u786e\u8ba4",
+            text: `\u662f\u5426\u5c06 "${fileName}" \u89e3\u538b\u5230 "${extractionPlan.destinationLabel}"\uff1f`,
+            level: "warning",
+            buttons: [
+                {
+                    text: "\u786e\u5b9a",
+                    onClick: () =>
+                        fireAndForget(() =>
+                            openCommandInNewBlock(
+                                extractionPlan.command,
+                                extractionPlan.cwd,
+                                conn,
+                                model.blockId,
+                                extractionPlan.title
+                            )
+                        ),
+                },
+            ],
+        });
+        return;
+    }
+    fireAndForget(() => openPreviewInNewBlock(fileInfo.path, conn, model.blockId));
+}
+
+export function getTreeRootPath(path: string): string {
+    if (!path) {
+        return "/";
+    }
+    if (path === "~" || path.startsWith("~/")) {
+        return "~";
+    }
+    if (path.startsWith("/")) {
+        return "/";
+    }
+    return path;
+}
+
+export function getAncestorPaths(rootPath: string, targetPath: string): string[] {
+    if (!rootPath || !targetPath) {
+        return [];
+    }
+    if (rootPath === "~") {
+        if (!(targetPath === "~" || targetPath.startsWith("~/"))) {
+            return ["~"];
+        }
+        const segments = targetPath.slice(2).split("/").filter(Boolean);
+        const result = ["~"];
+        let current = "~";
+        for (const segment of segments) {
+            current = `${current}/${segment}`;
+            result.push(current);
+        }
+        return result;
+    }
+    if (rootPath === "/") {
+        const segments = targetPath.split("/").filter(Boolean);
+        const result = ["/"];
+        let current = "";
+        for (const segment of segments) {
+            current += `/${segment}`;
+            result.push(current);
+        }
+        return result;
+    }
+    if (targetPath === rootPath) {
+        return [rootPath];
+    }
+    if (!targetPath.startsWith(`${rootPath}/`)) {
+        return [rootPath];
+    }
+    const suffix = targetPath.slice(rootPath.length + 1);
+    const segments = suffix.split("/").filter(Boolean);
+    const result = [rootPath];
+    let current = rootPath;
+    for (const segment of segments) {
+        current = `${current}/${segment}`;
+        result.push(current);
+    }
+    return result;
+}
+
+function fileInfoToTreeNode(fileInfo: FileInfo, fullConfig: FullConfigType, parentId?: string): TreeNodeData {
+    const iconInfo = getPreviewIconInfo(fileInfo, fullConfig);
+    return {
+        id: fileInfo.path,
+        parentId,
+        path: fileInfo.path,
+        label: getDisplayName(fileInfo.path, fileInfo.name),
+        isDirectory: !!fileInfo.isdir,
+        mimeType: fileInfo.mimetype,
+        icon: iconInfo.icon,
+        expandedIcon: iconInfo.expandedIcon,
+        iconColor: iconInfo.color,
+        isReadonly: fileInfo.readonly,
+        notfound: fileInfo.notfound,
+        staterror: fileInfo.staterror,
+        childrenStatus: fileInfo.isdir ? "unloaded" : "loaded",
+    };
+}
+
+function treeNodeToFileInfo(node: TreeNodeData): FileInfo {
+    const path = node.path ?? node.id;
+    return {
+        path,
+        dir: node.parentId,
+        name: node.label,
+        staterror: node.staterror,
+        notfound: node.notfound,
+        isdir: node.isDirectory,
+        mimetype: node.mimeType,
+        readonly: node.isReadonly,
+    };
+}
 
 interface DirectoryTableHeaderCellProps {
     header: Header<FileInfo, unknown>;
@@ -97,6 +382,28 @@ interface DirectoryTableProps {
 
 const columnHelper = createColumnHelper<FileInfo>();
 
+function openRenameEntryManager(
+    setEntryManagerProps: (props?: EntryManagerOverlayProps) => void,
+    model: PreviewModel,
+    path: string,
+    isDir: boolean,
+    setErrorMsg: (msg: ErrorMsg) => void
+) {
+    const fileName = path.split("/").at(-1);
+    setEntryManagerProps({
+        entryManagerType: EntryManagerType.EditName,
+        startingValue: fileName,
+        onSave: (newName: string) => {
+            if (newName !== fileName) {
+                const lastInstance = path.lastIndexOf(fileName);
+                const newPath = path.substring(0, lastInstance) + newName;
+                handleRename(model, path, newPath, isDir, setErrorMsg);
+            }
+            setEntryManagerProps(undefined);
+        },
+    });
+}
+
 function DirectoryTable({
     model,
     data,
@@ -113,32 +420,13 @@ function DirectoryTable({
     const searchActive = useAtomValue(model.directorySearchActive);
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
     const setErrorMsg = useSetAtom(model.errorMsgAtom);
-    const getIconFromMimeType = useCallback(
-        (mimeType: string): string => {
-            while (mimeType.length > 0) {
-                const icon = fullConfig.mimetypes?.[mimeType]?.icon ?? null;
-                if (isIconValid(icon)) {
-                    return `fa fa-solid fa-${icon} fa-fw`;
-                }
-                mimeType = mimeType.slice(0, -1);
-            }
-            return "fa fa-solid fa-file fa-fw";
-        },
-        [fullConfig.mimetypes]
-    );
-    const getIconColor = useCallback(
-        (mimeType: string): string => fullConfig.mimetypes?.[mimeType]?.color ?? "inherit",
-        [fullConfig.mimetypes]
-    );
     const columns = useMemo(
         () => [
             columnHelper.accessor("mimetype", {
-                cell: (info) => (
-                    <i
-                        className={getIconFromMimeType(info.getValue() ?? "")}
-                        style={{ color: getIconColor(info.getValue() ?? "") }}
-                    ></i>
-                ),
+                cell: (info) => {
+                    const iconInfo = getPreviewIconInfo(info.row.original, fullConfig);
+                    return <i className={makeIconClass(iconInfo.icon, true, { defaultIcon: "file" })} style={{ color: iconInfo.color }} />;
+                },
                 header: () => <span></span>,
                 id: "logo",
                 size: 25,
@@ -190,23 +478,9 @@ function DirectoryTable({
 
     const updateName = useCallback(
         (path: string, isDir: boolean) => {
-            const fileName = path.split("/").at(-1);
-            setEntryManagerProps({
-                entryManagerType: EntryManagerType.EditName,
-                startingValue: fileName,
-                onSave: (newName: string) => {
-                    let newPath: string;
-                    if (newName !== fileName) {
-                        const lastInstance = path.lastIndexOf(fileName);
-                        newPath = path.substring(0, lastInstance) + newName;
-                        console.log(`replacing ${fileName} with ${newName}: ${path}`);
-                        handleRename(model, path, newPath, isDir, setErrorMsg);
-                    }
-                    setEntryManagerProps(undefined);
-                },
-            });
+            openRenameEntryManager(setEntryManagerProps, model, path, isDir, setErrorMsg);
         },
-        [model, setErrorMsg]
+        [model, setErrorMsg, setEntryManagerProps]
     );
 
     const table = useReactTable({
@@ -364,70 +638,38 @@ function TableBody({
     }, [focusIndex]);
 
     const handleFileContextMenu = useCallback(
-        async (e: any, finfo: FileInfo) => {
+        (e: any) => {
             e.preventDefault();
             e.stopPropagation();
-            if (finfo == null) {
-                return;
-            }
-            const fileName = finfo.path.split("/").pop();
             const menu: ContextMenuItem[] = [
                 {
-                    label: "New File",
+                    label: "\u65b0\u5efa\u6587\u4ef6",
                     click: () => {
-                        table.options.meta.newFile();
+                        newFile();
                     },
                 },
                 {
-                    label: "New Folder",
+                    label: "\u65b0\u5efa\u6587\u4ef6\u5939",
                     click: () => {
-                        table.options.meta.newDirectory();
+                        newDirectory();
                     },
                 },
                 {
-                    label: "Rename",
+                    label: "\u4e0a\u4f20\u5230\u5f53\u524d\u76ee\u5f55",
                     click: () => {
-                        table.options.meta.updateName(finfo.path, finfo.isdir);
+                        openUploadFilePicker(dirPath ?? rootPath);
                     },
                 },
                 {
                     type: "separator",
-                },
-                {
-                    label: "Copy File Name",
-                    click: () => fireAndForget(() => navigator.clipboard.writeText(fileName)),
-                },
-                {
-                    label: "Copy Full File Name",
-                    click: () => fireAndForget(() => navigator.clipboard.writeText(finfo.path)),
-                },
-                {
-                    label: "Copy File Name (Shell Quoted)",
-                    click: () => fireAndForget(() => navigator.clipboard.writeText(shellQuote([fileName]))),
-                },
-                {
-                    label: "Copy Full File Name (Shell Quoted)",
-                    click: () => fireAndForget(() => navigator.clipboard.writeText(shellQuote([finfo.path]))),
                 },
             ];
-            addOpenMenuItems(menu, conn, finfo);
-            menu.push(
-                {
-                    type: "separator",
-                },
-                {
-                    label: "Delete",
-                    click: () => handleFileDelete(model, finfo.path, false, setErrorMsg),
-                }
-            );
+            addOpenMenuItems(menu, conn, finfo, model.blockId);
+
             ContextMenuModel.getInstance().showContextMenu(menu, e);
         },
-        [setRefreshVersion, conn]
+        [conn, dirPath, finfo, model.blockId, newDirectory, newFile, openUploadFilePicker, rootPath]
     );
-
-    const allRows = table.getRowModel().flatRows;
-    const dotdotRow = allRows.find((row) => row.getValue("name") === "..");
-    const otherRows = allRows.filter((row) => row.getValue("name") !== "..");
 
     return (
         <div className="dir-table-body" ref={bodyRef}>
@@ -502,9 +744,10 @@ const TableRow = React.forwardRef(function ({
     setSearch,
     idx,
     handleFileContextMenu,
-}: TableRowProps) {
+}: TableRowProps, _ref: React.ForwardedRef<HTMLDivElement>) {
     const dirPath = useAtomValue(model.statFilePath);
     const connection = useAtomValue(model.connection);
+    const setErrorMsg = useSetAtom(model.errorMsgAtom);
 
     const dragItem: DraggedFile = {
         relName: row.getValue("name") as string,
@@ -533,8 +776,7 @@ const TableRow = React.forwardRef(function ({
             className={clsx("dir-table-body-row", { focused: focusIndex === idx })}
             data-rowindex={idx}
             onDoubleClick={() => {
-                const newFileName = row.getValue("path") as string;
-                model.goHistory(newFileName);
+                handleFileActivation(row.original, model, connection, setErrorMsg);
                 setSearch("");
                 globalStore.set(model.directorySearchActive, false);
             }}
@@ -560,6 +802,193 @@ const MemoizedTableBody = React.memo(
     (prev, next) => prev.table.options.data == next.table.options.data
 ) as typeof TableBody;
 
+interface DirectoryTreeProps {
+    model: PreviewModel;
+    rootPath: string;
+    dirPath: string;
+    conn: string;
+    connStatus: ConnStatus;
+    fullConfig: FullConfigType;
+    showHiddenFiles: boolean;
+    selectedPath: string;
+    setSelectedPath: (_: string) => void;
+    setErrorMsg: (msg: ErrorMsg) => void;
+    setEntryManagerProps: (props?: EntryManagerOverlayProps) => void;
+    newFile: () => void;
+    newDirectory: () => void;
+    openUploadFilePicker: (targetDir: string) => void;
+}
+
+function DirectoryTree({
+    model,
+    rootPath,
+    dirPath,
+    conn,
+    connStatus,
+    fullConfig,
+    showHiddenFiles,
+    selectedPath,
+    setSelectedPath,
+    setErrorMsg,
+    setEntryManagerProps,
+    newFile,
+    newDirectory,
+    openUploadFilePicker,
+}: DirectoryTreeProps) {
+    const ensuredExpandedIds = useMemo(() => {
+        const targetPath = selectedPath || dirPath || rootPath;
+        return getAncestorPaths(rootPath, targetPath);
+    }, [dirPath, rootPath, selectedPath]);
+
+    const initialNodes = useMemo(
+        () => ({
+            [rootPath]: fileInfoToTreeNode(
+                {
+                    path: rootPath,
+                    dir: rootPath,
+                    name: rootPath === "/" ? "/" : rootPath,
+                    isdir: true,
+                    mimetype: "directory",
+                },
+                fullConfig,
+                undefined
+            ),
+        }),
+        [fullConfig, rootPath]
+    );
+
+    const showNodeContextMenu = useCallback(
+        (finfo: FileInfo, event: React.MouseEvent<HTMLDivElement>) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const fileName = finfo.path.split("/").pop() ?? finfo.path;
+            const isRootNode = finfo.path === rootPath;
+            const uploadTargetDir = finfo.isdir ? finfo.path : (finfo.dir ?? rootPath);
+            const menu: ContextMenuItem[] = [
+                {
+                    label: "\u65b0\u5efa\u6587\u4ef6",
+                    click: () => newFile(finfo.isdir ? finfo.path : finfo.dir),
+                },
+                {
+                    label: "\u65b0\u5efa\u6587\u4ef6\u5939",
+                    click: () => newDirectory(finfo.isdir ? finfo.path : finfo.dir),
+                },
+                {
+                    label: "\u4e0a\u4f20\u5230\u6b64\u5904",
+                    click: () => openUploadFilePicker(uploadTargetDir),
+                },
+            ];
+            if (!isRootNode) {
+                menu.push(
+                    {
+                        label: "\u91cd\u547d\u540d",
+                        click: () => openRenameEntryManager(setEntryManagerProps, model, finfo.path, !!finfo.isdir, setErrorMsg),
+                    },
+                    {
+                        type: "separator",
+                    },
+                    {
+                        label: "\u590d\u5236\u6587\u4ef6\u540d",
+                        click: () => fireAndForget(() => navigator.clipboard.writeText(fileName)),
+                    },
+                    {
+                        label: "\u590d\u5236\u5b8c\u6574\u6587\u4ef6\u540d",
+                        click: () => fireAndForget(() => navigator.clipboard.writeText(finfo.path)),
+                    },
+                    {
+                        label: "\u590d\u5236\u6587\u4ef6\u540d\uff08Shell \u5f15\u53f7\uff09",
+                        click: () => fireAndForget(() => navigator.clipboard.writeText(shellQuote([fileName]))),
+                    },
+                    {
+                        label: "\u590d\u5236\u5b8c\u6574\u6587\u4ef6\u540d\uff08Shell \u5f15\u53f7\uff09",
+                        click: () => fireAndForget(() => navigator.clipboard.writeText(shellQuote([finfo.path]))),
+                    }
+                );
+            }
+            if (canExtractArchive(finfo)) {
+                menu.push(
+                    {
+                        type: "separator",
+                    },
+                    {
+                        label: "\u89e3\u538b\u5230\u5f53\u524d\u76ee\u5f55",
+                        click: () => handleFileActivation(finfo, model, conn, setErrorMsg),
+                    }
+                );
+            }
+            menu.push({ type: "separator" });
+            addOpenMenuItems(menu, conn, finfo, model.blockId);
+            if (!isRootNode) {
+                menu.push(
+                    {
+                        type: "separator",
+                    },
+                    {
+                        label: "\u5220\u9664",
+                        click: () => handleFileDelete(model, finfo.path, false, setErrorMsg),
+                    }
+                );
+            }
+            ContextMenuModel.getInstance().showContextMenu(menu, event);
+        },
+        [conn, model, newDirectory, newFile, openUploadFilePicker, rootPath, setEntryManagerProps, setErrorMsg]
+    );
+
+    const fetchDir = useCallback(
+        async (id: string, limit: number) => {
+            try {
+                const entries = await RpcApi.FileListCommand(
+                    TabRpcClient,
+                    {
+                        path: await model.formatRemoteUri(id, globalStore.get),
+                        opts: {
+                            limit,
+                        },
+                    },
+                    null
+                );
+                return {
+                    nodes: entries
+                        .filter((entry) => entry.name !== "..")
+                        .filter((entry) => shouldIncludeDirectoryEntry(entry, showHiddenFiles))
+                        .map((entry) => fileInfoToTreeNode(entry, fullConfig, id)),
+                };
+            } catch (e) {
+                const remoteError = buildRemoteFileError(e, connStatus, conn, "Cannot Read Directory");
+                throw new Error(remoteError?.text ?? `${e}`);
+            }
+        },
+        [conn, connStatus, fullConfig, model, showHiddenFiles]
+    );
+
+    return (
+        <TreeView
+            ref={model.directoryTreeRef}
+            rootIds={[rootPath]}
+            initialNodes={initialNodes}
+            fetchDir={fetchDir}
+            selectedId={selectedPath || dirPath || rootPath}
+            defaultExpandedIds={[rootPath]}
+            ensureExpandedIds={ensuredExpandedIds}
+            width="100%"
+            height="100%"
+            minWidth={0}
+            maxWidth={TreeMaxWidth}
+            className="directory-tree-view border-0 rounded-none bg-transparent"
+            disableDirectoryDoubleClick={true}
+            onSelectionChange={(_id, node) => {
+                setSelectedPath(node.path ?? node.id);
+            }}
+            onOpenFile={(_id, node) => {
+                handleFileActivation(treeNodeToFileInfo(node), model, conn, setErrorMsg);
+            }}
+            onContextMenu={(_id, node, event) => {
+                showNodeContextMenu(treeNodeToFileInfo(node), event);
+            }}
+        />
+    );
+}
+
 interface DirectoryPreviewProps {
     model: PreviewModel;
 }
@@ -568,6 +997,10 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const [searchText, setSearchText] = useState("");
     const [focusIndex, setFocusIndex] = useState(0);
     const [unfilteredData, setUnfilteredData] = useState<FileInfo[]>([]);
+    const [isNativeFileDragOver, setIsNativeFileDragOver] = useState(false);
+    const [uploadConfirmState, setUploadConfirmState] = useState<UploadConfirmState | null>(null);
+    const fullConfig = useAtomValue(atoms.fullConfigAtom);
+    const directoryViewMode = useAtomValue(model.directoryViewMode);
     const showHiddenFiles = useAtomValue(model.showHiddenFiles);
     const [selectedPath, setSelectedPath] = useState("");
     const [refreshVersion, setRefreshVersion] = useAtom(model.refreshVersion);
@@ -576,7 +1009,10 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const blockData = useAtomValue(model.blockAtom);
     const finfo = useAtomValue(model.statFile);
     const dirPath = finfo?.path;
+    const rootPath = useMemo(() => getTreeRootPath(dirPath), [dirPath]);
     const setErrorMsg = useSetAtom(model.errorMsgAtom);
+    const fileUploadInputRef = useRef<HTMLInputElement>(null);
+    const pendingUploadTargetDirRef = useRef<string>("");
 
     useEffect(() => {
         model.refreshCallback = () => {
@@ -590,6 +1026,10 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     useEffect(
         () =>
             fireAndForget(async () => {
+                if (directoryViewMode !== "list") {
+                    setUnfilteredData([]);
+                    return;
+                }
                 let entries: FileInfo[];
                 try {
                     const file = await RpcApi.FileReadCommand(
@@ -616,26 +1056,42 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 }
                 setUnfilteredData(entries);
             }),
-        [conn, connStatus, dirPath, refreshVersion]
+        [conn, connStatus, dirPath, directoryViewMode, refreshVersion]
     );
 
     const filteredData = useMemo(
         () =>
             unfilteredData?.filter((fileInfo) => {
-                if (fileInfo.name == null) {
-                    console.log("fileInfo.name is null", fileInfo);
-                    return false;
-                }
-                if (!showHiddenFiles && fileInfo.name.startsWith(".") && fileInfo.name != "..") {
+                if (!shouldIncludeDirectoryEntry(fileInfo, showHiddenFiles)) {
+                    if (fileInfo.name == null) {
+                        console.log("fileInfo.name is null", fileInfo);
+                    }
                     return false;
                 }
                 return fileInfo.name.toLowerCase().includes(searchText);
             }) ?? [],
         [unfilteredData, showHiddenFiles, searchText]
     );
+    const selectedFileInfo = filteredData.find((fileInfo) => fileInfo.path === selectedPath) ?? null;
+
+    useEffect(() => {
+        if (dirPath) {
+            setSelectedPath(dirPath);
+        }
+    }, [dirPath]);
+
+    useEffect(() => {
+        if (directoryViewMode === "tree") {
+            setSearchText("");
+            globalStore.set(model.directorySearchActive, false);
+        }
+    }, [directoryViewMode, model]);
 
     useEffect(() => {
         model.directoryKeyDownHandler = (waveEvent: WaveKeyboardEvent): boolean => {
+            if (directoryViewMode === "tree") {
+                return false;
+            }
             if (checkKeyPressed(waveEvent, "Cmd:f")) {
                 globalStore.set(model.directorySearchActive, true);
                 return true;
@@ -662,10 +1118,10 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 return true;
             }
             if (checkKeyPressed(waveEvent, "Enter")) {
-                if (filteredData.length == 0) {
+                if (selectedFileInfo == null) {
                     return;
                 }
-                model.goHistory(selectedPath);
+                handleFileActivation(selectedFileInfo, model, conn, setErrorMsg);
                 setSearchText("");
                 globalStore.set(model.directorySearchActive, false);
                 return true;
@@ -695,7 +1151,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
         return () => {
             model.directoryKeyDownHandler = null;
         };
-    }, [filteredData, selectedPath, searchText]);
+    }, [conn, directoryViewMode, selectedFileInfo, selectedPath, searchText]);
 
     useEffect(() => {
         if (filteredData.length != 0 && focusIndex > filteredData.length - 1) {
@@ -759,6 +1215,125 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
         [model.refreshCallback]
     );
 
+    const uploadLocalFiles = useCallback(
+        async (targetDir: string, inputFiles: File[], overwrite = false) => {
+            const files = inputFiles.filter((file) => file != null);
+            if (files.length === 0) {
+                return;
+            }
+
+            try {
+                if (!overwrite) {
+                    const existingFiles: string[] = [];
+                    for (const file of files) {
+                        const targetPath = `${targetDir}/${file.name}`;
+                        const remotePath = await model.formatRemoteUri(targetPath, globalStore.get);
+                        const fileInfo = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: remotePath } }, null);
+                        if (fileInfo && !fileInfo.notfound) {
+                            existingFiles.push(file.name);
+                        }
+                    }
+                    if (existingFiles.length > 0) {
+                        setErrorMsg({
+                            status: "\u786e\u8ba4\u8986\u76d6",
+                            text: `\u76ee\u6807\u6587\u4ef6\u5939 "${targetDir}" \u4e2d\u5df2\u5b58\u5728\uff1a${existingFiles.join("\u3001")}\u3002\u662f\u5426\u7ee7\u7eed\u8986\u76d6\uff1f`,
+                            level: "warning",
+                            buttons: [
+                                {
+                                    text: "\u8986\u76d6",
+                                    onClick: () => {
+                                        void uploadLocalFiles(targetDir, files, true);
+                                    },
+                                },
+                            ],
+                        });
+                        return;
+                    }
+                }
+
+                for (const file of files) {
+                    const targetPath = `${targetDir}/${file.name}`;
+                    await uploadFileWithTransfer({
+                        file,
+                        connection: conn,
+                        targetPath,
+                        resolveRemotePath: (nextTargetPath) => model.formatRemoteUri(nextTargetPath, globalStore.get),
+                    });
+                }
+                model.refreshCallback();
+            } catch (e) {
+                setErrorMsg({
+                    status: "\u4e0a\u4f20\u5931\u8d25",
+                    text: `${e}`,
+                    level: "error",
+                });
+            }
+        },
+        [conn, model, setErrorMsg]
+    );
+
+    const beginUploadFlow = useCallback((targetDir: string, files: File[]) => {
+        const filteredFiles = files.filter((file) => file != null);
+        if (filteredFiles.length === 0) {
+            return;
+        }
+        setUploadConfirmState({
+            files: filteredFiles,
+            targetDir,
+        });
+    }, []);
+
+    const openUploadFilePicker = useCallback((targetDir: string) => {
+        pendingUploadTargetDirRef.current = targetDir;
+        if (fileUploadInputRef.current) {
+            fileUploadInputRef.current.value = "";
+            fileUploadInputRef.current.click();
+        }
+    }, []);
+
+    const hasNativeFilesDragged = useCallback((dataTransfer: DataTransfer) => dataTransfer?.types?.includes("Files") ?? false, []);
+
+    const handleNativeFileDragOver = useCallback(
+        (e: React.DragEvent<HTMLDivElement>) => {
+            if (!hasNativeFilesDragged(e.dataTransfer)) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            setIsNativeFileDragOver(true);
+        },
+        [hasNativeFilesDragged]
+    );
+
+    const handleNativeFileDragLeave = useCallback(
+        (e: React.DragEvent<HTMLDivElement>) => {
+            if (!hasNativeFilesDragged(e.dataTransfer)) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const { clientX, clientY } = e;
+            if (clientX <= rect.left || clientX >= rect.right || clientY <= rect.top || clientY >= rect.bottom) {
+                setIsNativeFileDragOver(false);
+            }
+        },
+        [hasNativeFilesDragged]
+    );
+
+    const handleNativeFileDrop = useCallback(
+        async (e: React.DragEvent<HTMLDivElement>) => {
+            if (!e.dataTransfer.files?.length) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            setIsNativeFileDragOver(false);
+            beginUploadFlow(dirPath ?? rootPath, Array.from(e.dataTransfer.files));
+        },
+        [beginUploadFlow, dirPath, rootPath]
+    );
+
     const [, drop] = useDrop(
         () => ({
             accept: "FILE_ITEM", //a name of file drop type
@@ -798,7 +1373,8 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const dismiss = useDismiss(context);
     const { getReferenceProps, getFloatingProps } = useInteractions([dismiss]);
 
-    const newFile = useCallback(() => {
+    const newFile = useCallback((basePath?: string) => {
+        const targetDir = basePath ?? dirPath;
         setEntryManagerProps({
             entryManagerType: EntryManagerType.NewFile,
             onSave: (newName: string) => {
@@ -808,7 +1384,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         TabRpcClient,
                         {
                             info: {
-                                path: await model.formatRemoteUri(`${dirPath}/${newName}`, globalStore.get),
+                                path: await model.formatRemoteUri(`${targetDir}/${newName}`, globalStore.get),
                             },
                         },
                         null
@@ -818,8 +1394,9 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 setEntryManagerProps(undefined);
             },
         });
-    }, [dirPath]);
-    const newDirectory = useCallback(() => {
+    }, [dirPath, model, setEntryManagerProps]);
+    const newDirectory = useCallback((basePath?: string) => {
+        const targetDir = basePath ?? dirPath;
         setEntryManagerProps({
             entryManagerType: EntryManagerType.NewDirectory,
             onSave: (newName: string) => {
@@ -827,7 +1404,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 fireAndForget(async () => {
                     await RpcApi.FileMkdirCommand(TabRpcClient, {
                         info: {
-                            path: await model.formatRemoteUri(`${dirPath}/${newName}`, globalStore.get),
+                            path: await model.formatRemoteUri(`${targetDir}/${newName}`, globalStore.get),
                         },
                     });
                     model.refreshCallback();
@@ -835,7 +1412,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 setEntryManagerProps(undefined);
             },
         });
-    }, [dirPath]);
+    }, [dirPath, model, setEntryManagerProps]);
 
     const handleFileContextMenu = useCallback(
         (e: any) => {
@@ -843,56 +1420,100 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
             e.stopPropagation();
             const menu: ContextMenuItem[] = [
                 {
-                    label: "New File",
+                    label: "新建文件",
                     click: () => {
                         newFile();
                     },
                 },
                 {
-                    label: "New Folder",
+                    label: "新建文件夹",
                     click: () => {
                         newDirectory();
+                    },
+                },
+                {
+                    label: "上传到当前目录",
+                    click: () => {
+                        openUploadFilePicker(dirPath ?? rootPath);
                     },
                 },
                 {
                     type: "separator",
                 },
             ];
-            addOpenMenuItems(menu, conn, finfo);
+            addOpenMenuItems(menu, conn, finfo, model.blockId);
 
             ContextMenuModel.getInstance().showContextMenu(menu, e);
         },
-        [setRefreshVersion, conn, newFile, newDirectory, dirPath]
+        [conn, dirPath, finfo, model.blockId, newDirectory, newFile, openUploadFilePicker, rootPath]
     );
 
     return (
         <Fragment>
             <div
                 ref={refs.setReference}
-                className="dir-table-container"
+                className={clsx("dir-table-container", isNativeFileDragOver && "native-file-drag-over")}
                 onChangeCapture={(e) => {
                     const event = e as React.ChangeEvent<HTMLInputElement>;
-                    if (!entryManagerProps) {
+                    if (!entryManagerProps && event.target.type !== "file") {
                         setSearchText(event.target.value.toLowerCase());
                     }
                 }}
                 {...getReferenceProps()}
                 onContextMenu={(e) => handleFileContextMenu(e)}
                 onClick={() => setEntryManagerProps(undefined)}
+                onDragEnter={handleNativeFileDragOver}
+                onDragOver={handleNativeFileDragOver}
+                onDragLeave={handleNativeFileDragLeave}
+                onDrop={handleNativeFileDrop}
             >
-                <DirectoryTable
-                    model={model}
-                    data={filteredData}
-                    search={searchText}
-                    focusIndex={focusIndex}
-                    setFocusIndex={setFocusIndex}
-                    setSearch={setSearchText}
-                    setSelectedPath={setSelectedPath}
-                    setRefreshVersion={setRefreshVersion}
-                    entryManagerOverlayPropsAtom={entryManagerPropsAtom}
-                    newFile={newFile}
-                    newDirectory={newDirectory}
+                <input
+                    ref={fileUploadInputRef}
+                    type="file"
+                    className="hidden"
+                    multiple
+                    onChange={(e) => {
+                        const targetDir = pendingUploadTargetDirRef.current || dirPath || rootPath;
+                        const files = Array.from(e.target.files ?? []);
+                        beginUploadFlow(targetDir, files);
+                    }}
                 />
+                {isNativeFileDragOver && (
+                    <div className="native-file-upload-overlay">{"\u4e0a\u4f20\u5230\uff1a"} {dirPath ?? rootPath}</div>
+                )}
+                {directoryViewMode === "tree" && dirPath && finfo ? (
+                    <DirectoryTree
+                        key={rootPath}
+                        model={model}
+                        rootPath={rootPath}
+                        dirPath={dirPath}
+                        conn={conn}
+                        connStatus={connStatus}
+                        fullConfig={fullConfig}
+                        showHiddenFiles={showHiddenFiles}
+                        selectedPath={selectedPath}
+                        setSelectedPath={setSelectedPath}
+                        setErrorMsg={setErrorMsg}
+                        setEntryManagerProps={setEntryManagerProps}
+                        newFile={newFile}
+                        newDirectory={newDirectory}
+                        openUploadFilePicker={openUploadFilePicker}
+                    />
+                ) : (
+                    <DirectoryTable
+                        model={model}
+                        data={filteredData}
+                        search={searchText}
+                        focusIndex={focusIndex}
+                        setFocusIndex={setFocusIndex}
+                        setSearch={setSearchText}
+                        setSelectedPath={setSelectedPath}
+                        setRefreshVersion={setRefreshVersion}
+                        entryManagerOverlayPropsAtom={entryManagerPropsAtom}
+                        newFile={newFile}
+                        newDirectory={newDirectory}
+                    />
+                )}
             </div>
             {entryManagerProps && (
                 <EntryManagerOverlay
@@ -902,6 +1523,48 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                     getReferenceProps={getFloatingProps}
                     onCancel={() => setEntryManagerProps(undefined)}
                 />
+            )}
+            {uploadConfirmState && (
+                <Modal
+                    className="upload-confirm-modal"
+                    onCancel={() => setUploadConfirmState(null)}
+                    onClose={() => setUploadConfirmState(null)}
+                    onClickBackdrop={() => setUploadConfirmState(null)}
+                    onOk={() => {
+                        void uploadLocalFiles(uploadConfirmState.targetDir, uploadConfirmState.files);
+                        setUploadConfirmState(null);
+                    }}
+                    cancelLabel="\u53d6\u6d88"
+                    okLabel="\u786e\u5b9a"
+                    okDisabled={uploadConfirmState.targetDir.trim() === ""}
+                >
+                    <div className="upload-confirm-content">
+                        <div className="upload-confirm-title">{"\u5c06\u4e0b\u5217\u6587\u4ef6\u4e0a\u4f20\u5230\u6307\u5b9a\u6587\u4ef6\u5939"}</div>
+                        <div className="upload-confirm-file-list">
+                            {uploadConfirmState.files.map((file) => (
+                                <div key={`${file.name}-${file.size}-${file.lastModified}`} className="upload-confirm-file-item">
+                                    {getLocalFileDisplayPath(file)}
+                                </div>
+                            ))}
+                        </div>
+                        <div className="upload-confirm-label">{"\u76ee\u6807\u6587\u4ef6\u5939:"}</div>
+                        <Input
+                            value={uploadConfirmState.targetDir}
+                            onChange={(value) =>
+                                setUploadConfirmState((current) => (current == null ? current : { ...current, targetDir: value }))
+                            }
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter" && event.ctrlKey && uploadConfirmState.targetDir.trim() !== "") {
+                                    event.preventDefault();
+                                    void uploadLocalFiles(uploadConfirmState.targetDir, uploadConfirmState.files);
+                                    setUploadConfirmState(null);
+                                }
+                            }}
+                            autoFocus={true}
+                            className="upload-confirm-target-input"
+                        />
+                    </div>
+                </Modal>
             )}
         </Fragment>
     );

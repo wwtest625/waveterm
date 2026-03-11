@@ -95,7 +95,8 @@ declare global {
         onContextMenuClick: (callback: (id: string | null) => void) => void; // contextmenu-click
         onNavigate: (callback: (url: string) => void) => void;
         onIframeNavigate: (callback: (url: string) => void) => void;
-        downloadFile: (path: string) => void; // download
+        downloadFile: (path: string, taskId?: string) => void; // download
+        onDownloadTransferEvent: (callback: (event: DownloadTransferEvent) => void) => void; // download-transfer-event
         openExternal: (url: string) => void; // open-external
         onFullScreenChange: (callback: (isFullScreen: boolean) => void) => void; // fullscreen-change
         onZoomFactorChange: (callback: (zoomFactor: number) => void) => void; // zoom-factor-change
@@ -144,6 +145,18 @@ declare global {
         visible?: boolean;
         enabled?: boolean;
         sublabel?: string;
+    };
+
+    type DownloadTransferEvent = {
+        taskId: string;
+        phase: "progress" | "done";
+        status?: "running" | "success" | "error" | "cancelled";
+        name?: string;
+        sourcePath?: string;
+        targetPath?: string;
+        transferredBytes?: number;
+        totalBytes?: number;
+        error?: string;
     };
 
     type ContextMenuItem = {

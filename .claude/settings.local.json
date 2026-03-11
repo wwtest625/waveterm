@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(go test:*)",
+      "Bash(xargs grep:*)",
+      "Bash(npm run:*)",
+      "Bash(go build:*)",
+      "Bash(wsh mcpserve:*)",
+      "Bash(echo:*)"
+    ]
+  }
+}

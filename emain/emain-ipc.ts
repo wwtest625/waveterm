@@ -30,6 +30,75 @@ const electronApp = electron.app;
 
 let webviewFocusId: number = null;
 let webviewKeys: string[] = [];
+const pendingDownloadRequests = new Map<number, Array<{ taskId: string; filePath: string }>>();
+const registeredDownloadSessions = new WeakSet<Electron.Session>();
+
+function enqueueDownloadRequest(webContentsId: number, payload: { taskId: string; filePath: string }): void {
+    const queue = pendingDownloadRequests.get(webContentsId) ?? [];
+    queue.push(payload);
+    pendingDownloadRequests.set(webContentsId, queue);
+}
+
+function dequeueDownloadRequest(webContentsId: number): { taskId: string; filePath: string } | null {
+    const queue = pendingDownloadRequests.get(webContentsId);
+    if (queue == null || queue.length === 0) {
+        return null;
+    }
+    const next = queue.shift();
+    if (queue.length === 0) {
+        pendingDownloadRequests.delete(webContentsId);
+    }
+    return next ?? null;
+}
+
+function ensureDownloadProgressBridge(session: Electron.Session): void {
+    if (registeredDownloadSessions.has(session)) {
+        return;
+    }
+    registeredDownloadSessions.add(session);
+    session.on("will-download", (_downloadEvent, item, webContents) => {
+        if (webContents == null) {
+            return;
+        }
+        const request = dequeueDownloadRequest(webContents.id);
+        if (request?.taskId == null) {
+            return;
+        }
+        const emitProgress = (status: "running" | "success" | "error" | "cancelled", phase: "progress" | "done", error?: string) => {
+            webContents.send("download-transfer-event", {
+                taskId: request.taskId,
+                phase,
+                status,
+                name: item.getFilename(),
+                sourcePath: request.filePath,
+                targetPath: item.getSavePath(),
+                transferredBytes: item.getReceivedBytes(),
+                totalBytes: item.getTotalBytes(),
+                error,
+            });
+        };
+
+        emitProgress("running", "progress");
+
+        item.on("updated", (_updatedEvent, state) => {
+            if (state === "interrupted") {
+                emitProgress("running", "progress");
+                return;
+            }
+            emitProgress("running", "progress");
+        });
+
+        item.once("done", (_doneEvent, state) => {
+            if (state === "completed") {
+                emitProgress("success", "done");
+            } else if (state === "cancelled") {
+                emitProgress("cancelled", "done");
+            } else {
+                emitProgress("error", "done", state);
+            }
+        });
+    });
+}
 
 export function openBuilderWindow(appId?: string) {
     const normalizedAppId = appId || "";
@@ -227,7 +296,15 @@ export function initIpcHandlers() {
         const baseName = encodeURIComponent(path.basename(payload.filePath));
         const streamingUrl =
             getWebServerEndpoint() + "/wave/stream-file/" + baseName + "?path=" + encodeURIComponent(payload.filePath);
-        event.sender.downloadURL(streamingUrl);
+        const sender = event.sender;
+        ensureDownloadProgressBridge(sender.session);
+        if (payload.taskId) {
+            enqueueDownloadRequest(sender.id, {
+                taskId: payload.taskId,
+                filePath: payload.filePath,
+            });
+        }
+        sender.downloadURL(streamingUrl);
     });
 
     electron.ipcMain.on("get-cursor-point", (event) => {

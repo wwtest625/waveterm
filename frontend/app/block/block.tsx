@@ -14,6 +14,7 @@ import { LauncherViewModel } from "@/app/view/launcher/launcher";
 import { PreviewModel } from "@/app/view/preview/preview-model";
 import { QuickCommandsViewModel } from "@/app/view/quickcommands/quickcommands-model";
 import { SysinfoViewModel } from "@/app/view/sysinfo/sysinfo";
+import { TransferViewModel } from "@/app/view/transfer/transfer-model";
 import { TsunamiViewModel } from "@/app/view/tsunami/tsunami";
 import { VDomModel } from "@/app/view/vdom/vdom-model";
 import { ErrorBoundary } from "@/element/errorboundary";
@@ -62,6 +63,7 @@ BlockRegistry.set("aifilediff", AiFileDiffViewModel);
 BlockRegistry.set("waveconfig", WaveConfigViewModel);
 BlockRegistry.set("connectionsmanager", ConnectionsManagerViewModel);
 BlockRegistry.set("quickcommands", QuickCommandsViewModel);
+BlockRegistry.set("transfer", TransferViewModel);
 
 function makeViewModel(blockId: string, blockView: string, nodeModel: BlockNodeModel, tabModel: TabModel): ViewModel {
     const ctor = BlockRegistry.get(blockView);

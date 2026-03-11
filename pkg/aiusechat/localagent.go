@@ -39,11 +39,13 @@ const (
 	localAgentTimeoutEnvName   = "WAVETERM_LOCAL_AGENT_TIMEOUT_MS"
 	localAgentIdleEnvName      = "WAVETERM_LOCAL_AGENT_IDLE_TIMEOUT_MS"
 
-	localCodexCmdEnvName        = "WAVETERM_LOCAL_AGENT_CODEX_CMD"
-	localClaudeCmdEnvName       = "WAVETERM_LOCAL_AGENT_CLAUDE_CMD"
-	localWaveMcpCmdEnvName      = "WAVETERM_LOCAL_AGENT_WAVE_MCP_CMD"
-	localCodexEnableMcpEnvName  = "WAVETERM_LOCAL_AGENT_CODEX_ENABLE_MCP"
-	localClaudeEnableMcpEnvName = "WAVETERM_LOCAL_AGENT_CLAUDE_ENABLE_MCP"
+	localCodexCmdEnvName          = "WAVETERM_LOCAL_AGENT_CODEX_CMD"
+	localCodexAppServerCmdEnvName = "WAVETERM_LOCAL_AGENT_CODEX_APP_SERVER_CMD"
+	localCodexUseAppServerEnvName = "WAVETERM_LOCAL_AGENT_CODEX_USE_APP_SERVER"
+	localClaudeCmdEnvName         = "WAVETERM_LOCAL_AGENT_CLAUDE_CMD"
+	localWaveMcpCmdEnvName        = "WAVETERM_LOCAL_AGENT_WAVE_MCP_CMD"
+	localCodexEnableMcpEnvName    = "WAVETERM_LOCAL_AGENT_CODEX_ENABLE_MCP"
+	localClaudeEnableMcpEnvName   = "WAVETERM_LOCAL_AGENT_CLAUDE_ENABLE_MCP"
 )
 
 type LocalAgentHealthResponse struct {
@@ -122,6 +124,17 @@ func resolveLocalAgentCommand(provider string) (string, []string, error) {
 	default:
 		return "", nil, fmt.Errorf("unsupported local provider: %s", provider)
 	}
+}
+
+func resolveCodexAppServerCommand() (string, []string, error) {
+	if cmd, args, ok := parseCommandOverride(os.Getenv(localCodexAppServerCmdEnvName)); ok {
+		return cmd, args, nil
+	}
+	return "codex", []string{"app-server"}, nil
+}
+
+func shouldUseCodexAppServer() bool {
+	return envEnabledByDefault(localCodexUseAppServerEnvName, false)
 }
 
 func envEnabledByDefault(envName string, defaultVal bool) bool {
@@ -284,7 +297,15 @@ func createCodexMCPConfigArgs(req *PostMessageRequest) ([]string, error) {
 
 func checkLocalAgentHealth(provider string) LocalAgentHealthResponse {
 	normalized := normalizeLocalProvider(provider)
-	cmd, _, err := resolveLocalAgentCommand(normalized)
+	var (
+		cmd string
+		err error
+	)
+	if normalized == LocalProviderCodex && shouldUseCodexAppServer() {
+		cmd, _, err = resolveCodexAppServerCommand()
+	} else {
+		cmd, _, err = resolveLocalAgentCommand(normalized)
+	}
 	if err != nil {
 		return LocalAgentHealthResponse{
 			Ok:        false,
@@ -537,6 +558,8 @@ type localAgentLoopPhase struct {
 	StatusLine string
 }
 
+type localAgentSSEHandlerContextKey struct{}
+
 var localAgentTerminalRetrySentinel = "You must use the available wave_ terminal MCP tools on this retry."
 
 type localAgentCommandRunner func(ctx context.Context, req *PostMessageRequest, provider string, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error)
@@ -616,11 +639,15 @@ func resetTimer(timer *time.Timer, dur time.Duration) {
 }
 
 func runLocalAgentCommand(ctx context.Context, req *PostMessageRequest, provider string, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
+	normalizedProvider := normalizeLocalProvider(provider)
+	if normalizedProvider == LocalProviderCodex && shouldUseCodexAppServer() {
+		return runCodexAppServerCommand(ctx, req, prompt, onDelta, onPhase)
+	}
+
 	cmdName, args, err := resolveLocalAgentCommand(provider)
 	if err != nil {
 		return "", err
 	}
-	normalizedProvider := normalizeLocalProvider(provider)
 	suppressLiveOutput := false
 	lastMessagePath := ""
 	switch normalizedProvider {
@@ -799,6 +826,28 @@ func emitLocalAgentLoopPhase(sseHandler *sse.SSEHandlerCh, phase localAgentLoopP
 	})
 }
 
+func emitLocalAgentToolUse(sseHandler *sse.SSEHandlerCh, toolUseData uctypes.UIMessageDataToolUse) {
+	if sseHandler == nil || strings.TrimSpace(toolUseData.ToolCallId) == "" {
+		return
+	}
+	_ = sseHandler.AiMsgData("data-tooluse", toolUseData.ToolCallId, toolUseData)
+}
+
+func localAgentContextWithSSEHandler(ctx context.Context, sseHandler *sse.SSEHandlerCh) context.Context {
+	if ctx == nil || sseHandler == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, localAgentSSEHandlerContextKey{}, sseHandler)
+}
+
+func localAgentSSEHandlerFromContext(ctx context.Context) *sse.SSEHandlerCh {
+	if ctx == nil {
+		return nil
+	}
+	h, _ := ctx.Value(localAgentSSEHandlerContextKey{}).(*sse.SSEHandlerCh)
+	return h
+}
+
 func emitAssistantTextMessage(sseHandler *sse.SSEHandlerCh, msgID string, text string) {
 	textID := uuid.New().String()
 	_ = sseHandler.AiMsgStart(msgID)
@@ -846,7 +895,6 @@ func isTerminalQueryRequest(userText string) bool {
 	}
 	return false
 }
-
 
 func localAgentClaimsTerminalBlock(output string) bool {
 	text := strings.ToLower(strings.TrimSpace(output))
@@ -936,6 +984,7 @@ func WaveAILocalAgentPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHan
 	prompt := buildLocalAgentPromptWithModeAndBudget(userText, chatOpts.TabState, history, getLocalPromptTokenBudget(), resolveAgentMode(chatOpts.AgentMode))
 	provider := normalizeLocalProvider(req.LocalProvider)
 	log.Printf("local-agent provider=%s chatid=%s widgetaccess=%v\n", provider, req.ChatID, req.WidgetAccess)
+	ctx = localAgentContextWithSSEHandler(ctx, sseHandler)
 
 	msgID := uuid.New().String()
 	textID := uuid.New().String()
