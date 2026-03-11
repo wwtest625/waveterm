@@ -6,6 +6,7 @@ package aiusechat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -134,7 +135,7 @@ func resolveCodexAppServerCommand() (string, []string, error) {
 }
 
 func shouldUseCodexAppServer() bool {
-	return envEnabledByDefault(localCodexUseAppServerEnvName, false)
+	return envEnabledByDefault(localCodexUseAppServerEnvName, true)
 }
 
 func envEnabledByDefault(envName string, defaultVal bool) bool {
@@ -560,6 +561,13 @@ type localAgentLoopPhase struct {
 
 type localAgentSSEHandlerContextKey struct{}
 
+type localAgentCodexTurnInputsContextKey struct{}
+
+type localAgentCodexTurnInputs struct {
+	BootstrapPrompt   string
+	IncrementalPrompt string
+}
+
 var localAgentTerminalRetrySentinel = "You must use the available wave_ terminal MCP tools on this retry."
 
 type localAgentCommandRunner func(ctx context.Context, req *PostMessageRequest, provider string, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error)
@@ -622,10 +630,27 @@ func streamPipeToChannel(reader io.Reader, source string, out chan<- localAgentS
 			return
 		}
 		if err != nil {
+			if isExpectedPipeCloseError(err) {
+				if tail := decoder.Flush(); tail != "" {
+					out <- localAgentStreamChunk{source: source, text: tail}
+				}
+				return
+			}
 			out <- localAgentStreamChunk{source: source, err: fmt.Errorf("read %s: %w", source, err)}
 			return
 		}
 	}
+}
+
+func isExpectedPipeCloseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe) {
+		return true
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "file already closed") || strings.Contains(msg, "closed pipe")
 }
 
 func resetTimer(timer *time.Timer, dur time.Duration) {
@@ -848,6 +873,24 @@ func localAgentSSEHandlerFromContext(ctx context.Context) *sse.SSEHandlerCh {
 	return h
 }
 
+func localAgentContextWithCodexTurnInputs(ctx context.Context, inputs localAgentCodexTurnInputs) context.Context {
+	if ctx == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, localAgentCodexTurnInputsContextKey{}, inputs)
+}
+
+func localAgentCodexTurnInputsFromContext(ctx context.Context) (localAgentCodexTurnInputs, bool) {
+	if ctx == nil {
+		return localAgentCodexTurnInputs{}, false
+	}
+	inputs, ok := ctx.Value(localAgentCodexTurnInputsContextKey{}).(localAgentCodexTurnInputs)
+	if !ok {
+		return localAgentCodexTurnInputs{}, false
+	}
+	return inputs, true
+}
+
 func emitAssistantTextMessage(sseHandler *sse.SSEHandlerCh, msgID string, text string) {
 	textID := uuid.New().String()
 	_ = sseHandler.AiMsgStart(msgID)
@@ -985,6 +1028,10 @@ func WaveAILocalAgentPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHan
 	provider := normalizeLocalProvider(req.LocalProvider)
 	log.Printf("local-agent provider=%s chatid=%s widgetaccess=%v\n", provider, req.ChatID, req.WidgetAccess)
 	ctx = localAgentContextWithSSEHandler(ctx, sseHandler)
+	ctx = localAgentContextWithCodexTurnInputs(ctx, localAgentCodexTurnInputs{
+		BootstrapPrompt:   prompt,
+		IncrementalPrompt: userText,
+	})
 
 	msgID := uuid.New().String()
 	textID := uuid.New().String()
@@ -1007,7 +1054,11 @@ func WaveAILocalAgentPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHan
 	if shouldRetryLocalAgentTerminalAttempt(resolveAgentMode(chatOpts.AgentMode), prompt, userText, runOutput, observedPhases) {
 		retryPrompt := buildLocalAgentTerminalRetryPrompt(prompt)
 		observedPhases = observedPhases[:0]
-		runOutput, runErr = runLocalAgentCommandFn(ctx, req, provider, retryPrompt, func(delta string) {
+		retryCtx := localAgentContextWithCodexTurnInputs(ctx, localAgentCodexTurnInputs{
+			BootstrapPrompt:   retryPrompt,
+			IncrementalPrompt: retryPrompt,
+		})
+		runOutput, runErr = runLocalAgentCommandFn(retryCtx, req, provider, retryPrompt, func(delta string) {
 			if strings.TrimSpace(delta) == "" {
 				return
 			}

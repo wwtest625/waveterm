@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/web/sse"
@@ -111,7 +112,7 @@ func (c *codexAppServerClient) readLoop() {
 			}
 		}
 		if err != nil {
-			if err == io.EOF {
+			if err == io.EOF || isExpectedPipeCloseError(err) {
 				c.closeWithError(nil)
 			} else {
 				c.closeWithError(err)
@@ -622,11 +623,197 @@ func handleCodexAppServerNotification(ctx context.Context, client *codexAppServe
 	return false, nil
 }
 
-func runCodexAppServerCommand(ctx context.Context, req *PostMessageRequest, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
-	cmdName, args, err := resolveCodexAppServerCommand()
+type codexAppServerSessionSpec struct {
+	ChatID     string
+	CmdName    string
+	Args       []string
+	WorkingDir string
+	SessionKey string
+}
+
+type codexAppServerSessionRunner interface {
+	runTurn(ctx context.Context, input localAgentCodexTurnInputs, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error)
+	close() error
+	threadID() string
+	connectionError() error
+}
+
+type codexManagedSession struct {
+	sessionKey string
+	runner     codexAppServerSessionRunner
+}
+
+type codexAppServerSessionManager struct {
+	mu       sync.Mutex
+	sessions map[string]*codexManagedSession
+	threads  map[string]string
+}
+
+type codexAppServerSession struct {
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stderrDone chan struct{}
+	stderrBuf  bytes.Buffer
+	client     *codexAppServerClient
+
+	stateMu      sync.Mutex
+	threadIDVal  string
+	bootstrapped bool
+
+	turnMu    sync.Mutex
+	closeOnce sync.Once
+	closeErr  error
+}
+
+var defaultCodexAppServerSessionManager = newCodexAppServerSessionManager()
+
+var newCodexAppServerSessionRunnerFn = func(ctx context.Context, req *PostMessageRequest, spec codexAppServerSessionSpec, resumeThreadID string) (codexAppServerSessionRunner, error) {
+	return newCodexAppServerSession(ctx, req, spec, resumeThreadID)
+}
+
+func newCodexAppServerSessionManager() *codexAppServerSessionManager {
+	return &codexAppServerSessionManager{
+		sessions: make(map[string]*codexManagedSession),
+		threads:  make(map[string]string),
+	}
+}
+
+func (m *codexAppServerSessionManager) rememberedThreadID(chatID string) string {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return ""
+	}
+
+	m.mu.Lock()
+	threadID := strings.TrimSpace(m.threads[chatID])
+	m.mu.Unlock()
+	if threadID != "" {
+		return threadID
+	}
+	return strings.TrimSpace(chatstore.DefaultChatStore.GetCodexThreadID(chatID))
+}
+
+func (m *codexAppServerSessionManager) rememberThreadID(chatID string, threadID string) {
+	chatID = strings.TrimSpace(chatID)
+	threadID = strings.TrimSpace(threadID)
+	if chatID == "" || threadID == "" {
+		return
+	}
+	m.mu.Lock()
+	m.threads[chatID] = threadID
+	m.mu.Unlock()
+	chatstore.DefaultChatStore.SetCodexThreadID(chatID, threadID)
+}
+
+func (m *codexAppServerSessionManager) discardSession(chatID string, runner codexAppServerSessionRunner) {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" || runner == nil {
+		return
+	}
+	threadID := strings.TrimSpace(runner.threadID())
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry := m.sessions[chatID]
+	if entry == nil || entry.runner != runner {
+		return
+	}
+	if threadID != "" {
+		m.threads[chatID] = threadID
+	}
+	delete(m.sessions, chatID)
+	if threadID != "" {
+		chatstore.DefaultChatStore.SetCodexThreadID(chatID, threadID)
+	}
+}
+
+func (m *codexAppServerSessionManager) getOrCreateSession(ctx context.Context, req *PostMessageRequest, spec codexAppServerSessionSpec) (*codexManagedSession, bool, error) {
+	resumeThreadID := m.rememberedThreadID(spec.ChatID)
+	m.mu.Lock()
+	entry := m.sessions[spec.ChatID]
+	var stale codexAppServerSessionRunner
+	if entry != nil {
+		if entry.sessionKey == spec.SessionKey && entry.runner.connectionError() == nil {
+			m.mu.Unlock()
+			return entry, false, nil
+		}
+		stale = entry.runner
+		delete(m.sessions, spec.ChatID)
+	}
+	m.mu.Unlock()
+	if stale != nil {
+		_ = stale.close()
+	}
+
+	runner, err := newCodexAppServerSessionRunnerFn(ctx, req, spec, resumeThreadID)
+	if err != nil {
+		return nil, false, err
+	}
+	newEntry := &codexManagedSession{sessionKey: spec.SessionKey, runner: runner}
+
+	m.mu.Lock()
+	existing := m.sessions[spec.ChatID]
+	if existing != nil && existing.sessionKey == spec.SessionKey && existing.runner.connectionError() == nil {
+		m.mu.Unlock()
+		_ = runner.close()
+		return existing, false, nil
+	}
+	var replaced codexAppServerSessionRunner
+	if existing != nil {
+		replaced = existing.runner
+	}
+	m.sessions[spec.ChatID] = newEntry
+	if threadID := strings.TrimSpace(runner.threadID()); threadID != "" {
+		m.threads[spec.ChatID] = threadID
+	}
+	m.mu.Unlock()
+	if replaced != nil {
+		_ = replaced.close()
+	}
+	return newEntry, true, nil
+}
+
+func (m *codexAppServerSessionManager) runTurn(ctx context.Context, req *PostMessageRequest, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
+	timeout := getLocalAgentTimeout()
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	spec, err := buildCodexAppServerSessionSpec(req)
 	if err != nil {
 		return "", err
 	}
+	entry, created, err := m.getOrCreateSession(runCtx, req, spec)
+	if err != nil {
+		return "", err
+	}
+	if created {
+		codexEmitPhase(onPhase, "codex_thinking", "Starting Codex app-server")
+	}
+	inputs, ok := localAgentCodexTurnInputsFromContext(runCtx)
+	if !ok {
+		inputs = localAgentCodexTurnInputs{BootstrapPrompt: prompt, IncrementalPrompt: prompt}
+	}
+	if strings.TrimSpace(inputs.BootstrapPrompt) == "" {
+		inputs.BootstrapPrompt = prompt
+	}
+	if strings.TrimSpace(inputs.IncrementalPrompt) == "" {
+		inputs.IncrementalPrompt = prompt
+	}
+	output, err := entry.runner.runTurn(runCtx, inputs, onDelta, onPhase)
+	if err != nil {
+		m.discardSession(req.ChatID, entry.runner)
+		_ = entry.runner.close()
+		return output, err
+	}
+	m.rememberThreadID(req.ChatID, entry.runner.threadID())
+	return output, nil
+}
+
+func buildCodexAppServerSessionSpec(req *PostMessageRequest) (codexAppServerSessionSpec, error) {
+	cmdName, args, err := resolveCodexAppServerCommand()
+	if err != nil {
+		return codexAppServerSessionSpec{}, err
+	}
+	args = append([]string{}, args...)
 	if envEnabledByDefault(localCodexEnableMcpEnvName, true) {
 		codexMCPArgs, mcpErr := createCodexMCPConfigArgs(req)
 		if mcpErr != nil {
@@ -635,80 +822,246 @@ func runCodexAppServerCommand(ctx context.Context, req *PostMessageRequest, prom
 			args = append(codexMCPArgs, args...)
 		}
 	}
-
-	timeout := getLocalAgentTimeout()
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(runCtx, cmdName, args...)
 	workingDir, wdErr := os.Getwd()
-	if wdErr == nil && strings.TrimSpace(workingDir) != "" {
-		cmd.Dir = workingDir
+	if wdErr != nil {
+		workingDir = ""
+	}
+	keyParts := append([]string{cmdName, workingDir}, args...)
+	return codexAppServerSessionSpec{
+		ChatID:     strings.TrimSpace(req.ChatID),
+		CmdName:    cmdName,
+		Args:       args,
+		WorkingDir: workingDir,
+		SessionKey: strings.Join(keyParts, "\x00"),
+	}, nil
+}
+
+func selectCodexTurnPrompt(input localAgentCodexTurnInputs, bootstrapped bool) string {
+	bootstrap := strings.TrimSpace(input.BootstrapPrompt)
+	incremental := strings.TrimSpace(input.IncrementalPrompt)
+	if !bootstrapped && bootstrap != "" {
+		return sanitizePromptForStdin(bootstrap)
+	}
+	if incremental != "" {
+		return sanitizePromptForStdin(incremental)
+	}
+	if bootstrap != "" {
+		return sanitizePromptForStdin(bootstrap)
+	}
+	return ""
+}
+
+func codexBuildThreadStartRequest(workingDir string, legacyEnums bool) map[string]any {
+	approvalPolicy := "unlessTrusted"
+	sandbox := "workspaceWrite"
+	if legacyEnums {
+		approvalPolicy = "untrusted"
+		sandbox = "workspace-write"
+	}
+	threadReq := map[string]any{
+		"approvalPolicy": approvalPolicy,
+		"sandbox":        sandbox,
+		"serviceName":    "waveterm",
+	}
+	if strings.TrimSpace(workingDir) != "" {
+		threadReq["cwd"] = workingDir
+	}
+	return threadReq
+}
+
+func codexInitializeUserAgent(initResp map[string]any) string {
+	return codexJSONString(initResp, []string{"userAgent"})
+}
+
+func codexUserAgentPrefersLegacyEnums(userAgent string) bool {
+	userAgent = strings.ToLower(strings.TrimSpace(userAgent))
+	if userAgent == "" {
+		return false
+	}
+	// Older app-server builds still advertise the vscode-flavored user agent
+	// and only accept legacy thread/start enum spellings.
+	return strings.Contains(userAgent, "codex_vscode/0.108.")
+}
+
+func codexShouldRetryThreadStartWithLegacyEnums(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	msg = strings.NewReplacer("`", "", "\"", "", "'", "").Replace(msg)
+	if !strings.Contains(msg, "codex app-server thread/start failed") {
+		return false
+	}
+	if !strings.Contains(msg, "invalid request") {
+		return false
+	}
+	return strings.Contains(msg, "unknown variant unlesstrusted") || strings.Contains(msg, "unknown variant workspacewrite")
+}
+
+func codexStartOrResumeThread(ctx context.Context, client *codexAppServerClient, workingDir string, resumeThreadID string, stderrText string, preferLegacyEnums bool) (string, bool, error) {
+	resumeThreadID = strings.TrimSpace(resumeThreadID)
+	if resumeThreadID != "" {
+		var resumeResp struct {
+			Thread struct {
+				ID string `json:"id"`
+			} `json:"thread"`
+		}
+		if err := client.call(ctx, "thread/resume", map[string]any{"threadId": resumeThreadID}, &resumeResp); err == nil {
+			threadID := strings.TrimSpace(resumeResp.Thread.ID)
+			if threadID == "" {
+				threadID = resumeThreadID
+			}
+			if threadID != "" {
+				return threadID, true, nil
+			}
+		} else {
+			log.Printf("local-agent: codex app-server thread/resume failed for %s: %v\n", resumeThreadID, err)
+		}
+	}
+
+	var threadResp struct {
+		Thread struct {
+			ID string `json:"id"`
+		} `json:"thread"`
+	}
+	if err := client.call(ctx, "thread/start", codexBuildThreadStartRequest(workingDir, preferLegacyEnums), &threadResp); err != nil {
+		if codexShouldRetryThreadStartWithLegacyEnums(err) {
+			log.Printf("local-agent: codex app-server rejected modern thread/start enums, retrying with legacy names: %v\n", err)
+			err = client.call(ctx, "thread/start", codexBuildThreadStartRequest(workingDir, true), &threadResp)
+		}
+		if err != nil {
+			return "", false, codexAppServerCommandError(err, stderrText)
+		}
+	}
+	threadID := strings.TrimSpace(threadResp.Thread.ID)
+	if threadID == "" {
+		return "", false, codexAppServerCommandError(fmt.Errorf("codex app-server returned empty thread id"), stderrText)
+	}
+	return threadID, false, nil
+}
+
+func newCodexAppServerSession(ctx context.Context, _ *PostMessageRequest, spec codexAppServerSessionSpec, resumeThreadID string) (codexAppServerSessionRunner, error) {
+	cmd := exec.Command(spec.CmdName, spec.Args...)
+	if strings.TrimSpace(spec.WorkingDir) != "" {
+		cmd.Dir = spec.WorkingDir
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return "", fmt.Errorf("open codex app-server stdin: %w", err)
+		return nil, fmt.Errorf("open codex app-server stdin: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", fmt.Errorf("open codex app-server stdout: %w", err)
+		return nil, fmt.Errorf("open codex app-server stdout: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return "", fmt.Errorf("open codex app-server stderr: %w", err)
+		return nil, fmt.Errorf("open codex app-server stderr: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("start codex app-server: %w", err)
+		return nil, fmt.Errorf("start codex app-server: %w", err)
 	}
-	var stderrBuf bytes.Buffer
-	stderrDone := make(chan struct{})
-	shutdownDone := false
-	defer func() {
-		if !shutdownDone {
-			_ = codexShutdownAppServer(cmd, stdin, stderrDone)
-		}
-	}()
-	go func() {
-		_, _ = io.Copy(&stderrBuf, stderr)
-		close(stderrDone)
-	}()
 
+	session := &codexAppServerSession{
+		cmd:        cmd,
+		stdin:      stdin,
+		stderrDone: make(chan struct{}),
+	}
+	go func() {
+		_, _ = io.Copy(&session.stderrBuf, stderr)
+		close(session.stderrDone)
+	}()
 	client := newCodexAppServerClient(stdin, stdout)
 	client.start()
-	codexEmitPhase(onPhase, "codex_thinking", "Starting Codex app-server")
+	session.client = client
+
+	defer func() {
+		if err != nil {
+			_ = session.close()
+		}
+	}()
 
 	var initResp map[string]any
-	if err := client.call(runCtx, "initialize", map[string]any{
+	if err = client.call(ctx, "initialize", map[string]any{
 		"clientInfo": map[string]any{
 			"name":    "waveterm",
 			"title":   "Wave Terminal",
 			"version": wavebase.WaveVersion,
 		},
 	}, &initResp); err != nil {
-		return "", codexAppServerCommandError(err, stderrBuf.String())
+		return nil, codexAppServerCommandError(err, session.stderrBuf.String())
 	}
-	if err := client.notify(runCtx, "initialized", map[string]any{}); err != nil {
-		return "", codexAppServerCommandError(err, stderrBuf.String())
+	if err = client.notify(ctx, "initialized", map[string]any{}); err != nil {
+		return nil, codexAppServerCommandError(err, session.stderrBuf.String())
 	}
 
-	threadReq := map[string]any{
-		"approvalPolicy": "unlessTrusted",
-		"sandbox":        "workspaceWrite",
-		"serviceName":    "waveterm",
+	threadID, bootstrapped, err := codexStartOrResumeThread(
+		ctx,
+		client,
+		spec.WorkingDir,
+		resumeThreadID,
+		session.stderrBuf.String(),
+		codexUserAgentPrefersLegacyEnums(codexInitializeUserAgent(initResp)),
+	)
+	if err != nil {
+		return nil, err
 	}
-	if workingDir != "" {
-		threadReq["cwd"] = workingDir
+	session.stateMu.Lock()
+	session.threadIDVal = threadID
+	session.bootstrapped = bootstrapped
+	session.stateMu.Unlock()
+	return session, nil
+}
+
+func (s *codexAppServerSession) threadID() string {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	return s.threadIDVal
+}
+
+func (s *codexAppServerSession) connectionError() error {
+	if s == nil || s.client == nil {
+		return io.EOF
 	}
-	var threadResp struct {
-		Thread struct {
-			ID string `json:"id"`
-		} `json:"thread"`
+	return s.client.connectionError()
+}
+
+func (s *codexAppServerSession) close() error {
+	if s == nil {
+		return nil
 	}
-	if err := client.call(runCtx, "thread/start", threadReq, &threadResp); err != nil {
-		return "", codexAppServerCommandError(err, stderrBuf.String())
+	s.closeOnce.Do(func() {
+		s.closeErr = codexShutdownAppServer(s.cmd, s.stdin, s.stderrDone)
+	})
+	return s.closeErr
+}
+
+func (s *codexAppServerSession) isBootstrapped() bool {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	return s.bootstrapped
+}
+
+func (s *codexAppServerSession) setBootstrapped(bootstrapped bool) {
+	s.stateMu.Lock()
+	s.bootstrapped = bootstrapped
+	s.stateMu.Unlock()
+}
+
+func (s *codexAppServerSession) runTurn(ctx context.Context, input localAgentCodexTurnInputs, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+
+	if err := s.connectionError(); err != nil {
+		return "", codexAppServerCommandError(fmt.Errorf("codex app-server connection unavailable: %w", err), s.stderrBuf.String())
 	}
-	if strings.TrimSpace(threadResp.Thread.ID) == "" {
-		return "", codexAppServerCommandError(fmt.Errorf("codex app-server returned empty thread id"), stderrBuf.String())
+	threadID := strings.TrimSpace(s.threadID())
+	if threadID == "" {
+		return "", codexAppServerCommandError(fmt.Errorf("codex app-server thread is not initialized"), s.stderrBuf.String())
+	}
+	bootstrapped := s.isBootstrapped()
+	prompt := selectCodexTurnPrompt(input, bootstrapped)
+	if prompt == "" {
+		return "", fmt.Errorf("codex turn prompt is empty")
 	}
 
 	var turnResp struct {
@@ -716,36 +1069,41 @@ func runCodexAppServerCommand(ctx context.Context, req *PostMessageRequest, prom
 			ID string `json:"id"`
 		} `json:"turn"`
 	}
-	if err := client.call(runCtx, "turn/start", map[string]any{
-		"threadId": threadResp.Thread.ID,
+	if err := s.client.call(ctx, "turn/start", map[string]any{
+		"threadId": threadID,
 		"input": []map[string]any{{
 			"type": "text",
 			"text": prompt,
 		}},
 	}, &turnResp); err != nil {
-		return "", codexAppServerCommandError(err, stderrBuf.String())
+		return "", codexAppServerCommandError(err, s.stderrBuf.String())
+	}
+	if !bootstrapped {
+		s.setBootstrapped(true)
 	}
 
 	sseHandler := localAgentSSEHandlerFromContext(ctx)
 	state := newCodexAppServerTurnState(turnResp.Turn.ID)
 	for {
 		select {
-		case msg := <-client.notifyCh:
-			done, err := handleCodexAppServerNotification(runCtx, client, sseHandler, msg, state, onDelta, onPhase)
+		case msg := <-s.client.notifyCh:
+			done, err := handleCodexAppServerNotification(ctx, s.client, sseHandler, msg, state, onDelta, onPhase)
 			if err != nil {
-				return state.output.String(), codexAppServerCommandError(err, stderrBuf.String())
+				return state.output.String(), codexAppServerCommandError(err, s.stderrBuf.String())
 			}
 			if done {
-				shutdownErr := codexShutdownAppServer(cmd, stdin, stderrDone)
-				shutdownDone = true
-				return state.output.String(), shutdownErr
+				return state.output.String(), nil
 			}
-		case <-client.closedCh:
-			return state.output.String(), codexAppServerCommandError(fmt.Errorf("codex app-server closed before turn completed: %w", client.connectionError()), stderrBuf.String())
-		case <-runCtx.Done():
-			return state.output.String(), codexAppServerCommandError(runCtx.Err(), stderrBuf.String())
+		case <-s.client.closedCh:
+			return state.output.String(), codexAppServerCommandError(fmt.Errorf("codex app-server closed before turn completed: %w", s.connectionError()), s.stderrBuf.String())
+		case <-ctx.Done():
+			return state.output.String(), codexAppServerCommandError(ctx.Err(), s.stderrBuf.String())
 		}
 	}
+}
+
+func runCodexAppServerCommand(ctx context.Context, req *PostMessageRequest, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
+	return defaultCodexAppServerSessionManager.runTurn(ctx, req, prompt, onDelta, onPhase)
 }
 
 func codexShutdownAppServer(cmd *exec.Cmd, stdin io.Closer, stderrDone <-chan struct{}) error {

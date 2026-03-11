@@ -284,6 +284,7 @@ type AIChat struct {
 	APIType        string         `json:"apitype"`
 	Model          string         `json:"model"`
 	APIVersion     string         `json:"apiversion"`
+	CodexThreadId  string         `json:"codexthreadid,omitempty"`
 	NativeMessages []GenAIMessage `json:"nativemessages"`
 }
 

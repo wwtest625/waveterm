@@ -75,6 +75,33 @@
 - 支持 `thread/resume` / `thread/fork`
 - 增强 plan、diff、reasoning、tool item 的前端可视化
 
+## 兼容性与握手策略
+
+- 不要把 `codex --version` 当成 app-server 协议能力的唯一判断依据。
+- 对接时应以 `initialize` 的真实返回值和后续 RPC 行为为准。
+- `initialize` 返回的 `userAgent` 代表 app-server 运行时/通道身份，不一定等于外层 CLI 或 npm 包版本。
+- 实测中可能出现：
+  - `codex --version = 0.114.0`
+  - `initialize.result.userAgent = codex_vscode/0.108.0-alpha.12 (...)`
+  - 同时 `thread/start` 仍只接受旧枚举：
+    - `approvalPolicy = untrusted`
+    - `sandbox = workspace-write`
+- 因此 Wave 的 app-server 客户端应遵循“behavior-based compatibility”：
+  - 优先根据 `initialize.userAgent` 判断是否需要 legacy enum
+  - 若 `thread/start` 返回 `unknown variant unlessTrusted` / `workspaceWrite`，自动 fallback 到旧枚举并重试
+  - 不要因为一次新枚举失败就直接向前端抛 fatal error
+
+## 来自官方文档/文章的开发经验
+
+- app-server 的核心价值是把内部底层执行流，稳定地转换成 thread / turn / item 事件模型；Wave 保留现有 SSE/UI 外壳、底层接 app-server，是合理路线。
+- 协议设计目标是长期稳定、可恢复、可扩展，因此兼容层应该优先靠握手和实际行为探测，而不是靠硬编码版本假设。
+- `initialize` / `initialized` 不只是形式上的握手，也应该作为能力判断和兼容策略分流点。
+- 对老版本 app-server，建议把“兼容分支”集中在 provider client 层，不要把版本差异泄漏到 AI panel 或更外层 UI。
+
+参考：
+- OpenAI App Server 文档：<https://developers.openai.com/codex/app-server>
+- OpenAI 文章《Unlocking the Codex Harness》：<https://openai.com/zh-Hans-CN/index/unlocking-the-codex-harness/>
+
 ## 这次代码变更的意义
 
 - 它不是完整迁移完成。

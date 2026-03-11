@@ -35,6 +35,7 @@ func (cs *ChatStore) Get(chatId string) *uctypes.AIChat {
 		APIType:        chat.APIType,
 		Model:          chat.Model,
 		APIVersion:     chat.APIVersion,
+		CodexThreadId:  chat.CodexThreadId,
 		NativeMessages: make([]uctypes.GenAIMessage, len(chat.NativeMessages)),
 	}
 	copy(copyChat.NativeMessages, chat.NativeMessages)
@@ -65,6 +66,29 @@ func (cs *ChatStore) CountUserMessages(chatId string) int {
 		}
 	}
 	return count
+}
+
+func (cs *ChatStore) GetCodexThreadID(chatId string) string {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
+	chat := cs.chats[chatId]
+	if chat == nil {
+		return ""
+	}
+	return chat.CodexThreadId
+}
+
+func (cs *ChatStore) SetCodexThreadID(chatId string, threadID string) bool {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
+	chat := cs.chats[chatId]
+	if chat == nil {
+		return false
+	}
+	chat.CodexThreadId = threadID
+	return true
 }
 
 func (cs *ChatStore) PostMessage(chatId string, aiOpts *uctypes.AIOptsType, message uctypes.GenAIMessage) error {

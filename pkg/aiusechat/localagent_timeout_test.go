@@ -67,3 +67,14 @@ func TestGetLocalAgentIdleTimeout_InvalidEnvFallsBack(t *testing.T) {
 		t.Fatalf("expected claude idle timeout fallback %s, got %s", wantClaude, gotClaude)
 	}
 }
+
+func TestShouldUseCodexAppServer_DefaultsEnabled(t *testing.T) {
+	t.Setenv(localCodexUseAppServerEnvName, "")
+	if !shouldUseCodexAppServer() {
+		t.Fatalf("expected codex app-server to be enabled by default")
+	}
+	t.Setenv(localCodexUseAppServerEnvName, "0")
+	if shouldUseCodexAppServer() {
+		t.Fatalf("expected codex app-server env override to disable app-server")
+	}
+}

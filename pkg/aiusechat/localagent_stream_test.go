@@ -4,7 +4,9 @@
 package aiusechat
 
 import (
+	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -62,5 +64,27 @@ loop:
 	gotText := strings.Join(deltas, "")
 	if gotText != "first chunk\nsecond chunk\n" {
 		t.Fatalf("unexpected stream output: %q", gotText)
+	}
+}
+
+func TestIsExpectedPipeCloseError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "os err closed", err: os.ErrClosed, want: true},
+		{name: "io err closed pipe", err: io.ErrClosedPipe, want: true},
+		{name: "wrapped file already closed", err: fmt.Errorf("read stdout: %w", os.ErrClosed), want: true},
+		{name: "plain file already closed text", err: fmt.Errorf("read |0: file already closed"), want: true},
+		{name: "other error", err: fmt.Errorf("boom"), want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isExpectedPipeCloseError(tc.err); got != tc.want {
+				t.Fatalf("isExpectedPipeCloseError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
 	}
 }
