@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { getAncestorPaths, getArchiveExtractionPlan, getTreeRootPath, shouldIncludeDirectoryEntry } from "./preview-directory";
+import {
+    getAncestorPaths,
+    getArchiveExtractionPlan,
+    getTreeRootPath,
+    normalizeDirectoryEntries,
+    shouldIncludeDirectoryEntry,
+} from "./preview-directory";
 import { getPreviewIconInfo } from "./preview-directory-utils";
 
 describe("preview directory tree helpers", () => {
@@ -29,6 +35,14 @@ describe("preview directory tree helpers", () => {
         expect(shouldIncludeDirectoryEntry({ name: ".ssh" }, true)).toBe(true);
     });
 
+    it("normalizes missing directory entries to an empty list", () => {
+        expect(normalizeDirectoryEntries(undefined)).toEqual([]);
+        expect(normalizeDirectoryEntries(null)).toEqual([]);
+        expect(normalizeDirectoryEntries([{ name: "README.md", path: "/repo/README.md" } as FileInfo])).toEqual([
+            { name: "README.md", path: "/repo/README.md" },
+        ]);
+    });
+
     it("assigns special icons for well-known folders and files", () => {
         const fullConfig = { mimetypes: {} } as FullConfigType;
         expect(getPreviewIconInfo({ path: "/repo/.git", name: ".git", isdir: true, mimetype: "directory" }, fullConfig)).toMatchObject({
@@ -46,6 +60,20 @@ describe("preview directory tree helpers", () => {
         expect(getPreviewIconInfo({ path: "/repo/Dockerfile", name: "Dockerfile", isdir: false, mimetype: "text/plain" }, fullConfig)).toMatchObject({
             icon: "brands@docker",
             color: "#2496ed",
+        });
+    });
+
+    it("prefers extension icons over generic mimetype icons", () => {
+        const fullConfig = {
+            mimetypes: {
+                "text/markdown": { icon: "file", color: "#ffffff" },
+                "text/plain": { icon: "file", color: "#ffffff" },
+            },
+        } as unknown as FullConfigType;
+
+        expect(getPreviewIconInfo({ path: "/repo/Agent.md", name: "Agent.md", isdir: false, mimetype: "text/markdown" }, fullConfig)).toMatchObject({
+            icon: "book-open",
+            color: "#f59e0b",
         });
     });
 

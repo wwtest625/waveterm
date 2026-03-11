@@ -78,6 +78,10 @@ export function shouldIncludeDirectoryEntry(
     return true;
 }
 
+export function normalizeDirectoryEntries(entries: FileInfo[] | null | undefined): FileInfo[] {
+    return entries ?? [];
+}
+
 type ArchiveExtractionPlan = {
     command: string;
     cwd: string;
@@ -86,13 +90,49 @@ type ArchiveExtractionPlan = {
 };
 
 type UploadConfirmState = {
-    files: File[];
+    files: UploadCandidate[];
     targetDir: string;
+};
+
+type UploadCandidate = {
+    name: string;
+    size: number;
+    displayPath: string;
+    localPath?: string;
+    file?: File;
+    lastModified?: number;
 };
 
 function getLocalFileDisplayPath(file: File): string {
     const fileWithPath = file as File & { path?: string; webkitRelativePath?: string };
     return fileWithPath.path || fileWithPath.webkitRelativePath || file.name;
+}
+
+function getPathBaseName(filePath: string): string {
+    const normalizedPath = filePath.replace(/\\/g, "/");
+    const chunks = normalizedPath.split("/").filter(Boolean);
+    return chunks[chunks.length - 1] ?? filePath;
+}
+
+function fileToUploadCandidate(file: File): UploadCandidate {
+    const fileWithPath = file as File & { path?: string };
+    return {
+        name: file.name || getPathBaseName(fileWithPath.path ?? ""),
+        size: file.size,
+        displayPath: getLocalFileDisplayPath(file),
+        localPath: fileWithPath.path,
+        file,
+        lastModified: file.lastModified,
+    };
+}
+
+function localPathToUploadCandidate(filePath: string): UploadCandidate {
+    return {
+        name: getPathBaseName(filePath),
+        size: 0,
+        displayPath: filePath,
+        localPath: filePath,
+    };
 }
 
 function getParentDirectory(fileInfo: Pick<FileInfo, "path" | "dir">): string {
@@ -369,6 +409,8 @@ declare module "@tanstack/react-table" {
 interface DirectoryTableProps {
     model: PreviewModel;
     data: FileInfo[];
+    dirPath: string;
+    rootPath: string;
     search: string;
     focusIndex: number;
     setFocusIndex: (_: number) => void;
@@ -376,8 +418,9 @@ interface DirectoryTableProps {
     setSelectedPath: (_: string) => void;
     setRefreshVersion: React.Dispatch<React.SetStateAction<number>>;
     entryManagerOverlayPropsAtom: PrimitiveAtom<EntryManagerOverlayProps>;
-    newFile: () => void;
-    newDirectory: () => void;
+    newFile: (basePath?: string) => void;
+    newDirectory: (basePath?: string) => void;
+    openUploadFilePicker: (targetDir: string) => void;
 }
 
 const columnHelper = createColumnHelper<FileInfo>();
@@ -407,6 +450,8 @@ function openRenameEntryManager(
 function DirectoryTable({
     model,
     data,
+    dirPath,
+    rootPath,
     search,
     focusIndex,
     setFocusIndex,
@@ -416,6 +461,7 @@ function DirectoryTable({
     entryManagerOverlayPropsAtom,
     newFile,
     newDirectory,
+    openUploadFilePicker,
 }: DirectoryTableProps) {
     const searchActive = useAtomValue(model.directorySearchActive);
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
@@ -561,6 +607,8 @@ function DirectoryTable({
                 bodyRef={bodyRef}
                 model={model}
                 data={data}
+                dirPath={dirPath}
+                rootPath={rootPath}
                 table={table}
                 search={search}
                 focusIndex={focusIndex}
@@ -569,6 +617,9 @@ function DirectoryTable({
                 setSelectedPath={setSelectedPath}
                 setRefreshVersion={setRefreshVersion}
                 osRef={osRef.current}
+                newFile={newFile}
+                newDirectory={newDirectory}
+                openUploadFilePicker={openUploadFilePicker}
             />
         </OverlayScrollbarsComponent>
     );
@@ -578,6 +629,8 @@ interface TableBodyProps {
     bodyRef: React.RefObject<HTMLDivElement>;
     model: PreviewModel;
     data: Array<FileInfo>;
+    dirPath: string;
+    rootPath: string;
     table: Table<FileInfo>;
     search: string;
     focusIndex: number;
@@ -586,11 +639,16 @@ interface TableBodyProps {
     setSelectedPath: (_: string) => void;
     setRefreshVersion: React.Dispatch<React.SetStateAction<number>>;
     osRef: OverlayScrollbarsComponentRef;
+    newFile: (basePath?: string) => void;
+    newDirectory: (basePath?: string) => void;
+    openUploadFilePicker: (targetDir: string) => void;
 }
 
 function TableBody({
     bodyRef,
     model,
+    dirPath,
+    rootPath,
     table,
     search,
     focusIndex,
@@ -598,12 +656,19 @@ function TableBody({
     setSearch,
     setRefreshVersion,
     osRef,
+    newFile,
+    newDirectory,
+    openUploadFilePicker,
 }: TableBodyProps) {
     const searchActive = useAtomValue(model.directorySearchActive);
     const dummyLineRef = useRef<HTMLDivElement>(null);
     const warningBoxRef = useRef<HTMLDivElement>(null);
     const conn = useAtomValue(model.connection);
+    const finfo = useAtomValue(model.statFile);
     const setErrorMsg = useSetAtom(model.errorMsgAtom);
+    const rows = table.getRowModel().rows;
+    const dotdotRow = rows.find((row) => row.original.name === "..");
+    const otherRows = rows.filter((row) => row !== dotdotRow);
 
     useEffect(() => {
         if (focusIndex === null || !bodyRef.current || !osRef) {
@@ -638,9 +703,10 @@ function TableBody({
     }, [focusIndex]);
 
     const handleFileContextMenu = useCallback(
-        (e: any) => {
+        (e: any, targetFile?: FileInfo) => {
             e.preventDefault();
             e.stopPropagation();
+            const menuFile = targetFile ?? finfo;
             const menu: ContextMenuItem[] = [
                 {
                     label: "\u65b0\u5efa\u6587\u4ef6",
@@ -664,11 +730,25 @@ function TableBody({
                     type: "separator",
                 },
             ];
-            addOpenMenuItems(menu, conn, finfo, model.blockId);
+            if (menuFile) {
+                addOpenMenuItems(menu, conn, menuFile, model.blockId);
+                if (menuFile.path && menuFile.path !== rootPath) {
+                    menu.push(
+                        {
+                            type: "separator",
+                        },
+                        {
+                            label: "\u5220\u9664\uff08\u4e0d\u53ef\u6062\u590d\uff09",
+                            sublabel: "\u5371\u9669\u64cd\u4f5c",
+                            click: () => handleFileDelete(model, menuFile.path, false, setErrorMsg),
+                        }
+                    );
+                }
+            }
 
             ContextMenuModel.getInstance().showContextMenu(menu, e);
         },
-        [conn, dirPath, finfo, model.blockId, newDirectory, newFile, openUploadFilePicker, rootPath]
+        [conn, model, newDirectory, newFile, openUploadFilePicker, rootPath, setErrorMsg]
     );
 
     return (
@@ -733,7 +813,7 @@ type TableRowProps = {
     setFocusIndex: (_: number) => void;
     setSearch: (_: string) => void;
     idx: number;
-    handleFileContextMenu: (e: any, finfo: FileInfo) => Promise<void>;
+    handleFileContextMenu: (e: any, finfo: FileInfo) => void;
 };
 
 const TableRow = React.forwardRef(function ({
@@ -814,8 +894,8 @@ interface DirectoryTreeProps {
     setSelectedPath: (_: string) => void;
     setErrorMsg: (msg: ErrorMsg) => void;
     setEntryManagerProps: (props?: EntryManagerOverlayProps) => void;
-    newFile: () => void;
-    newDirectory: () => void;
+    newFile: (basePath?: string) => void;
+    newDirectory: (basePath?: string) => void;
     openUploadFilePicker: (targetDir: string) => void;
 }
 
@@ -924,7 +1004,8 @@ function DirectoryTree({
                         type: "separator",
                     },
                     {
-                        label: "\u5220\u9664",
+                        label: "\u5220\u9664\uff08\u4e0d\u53ef\u6062\u590d\uff09",
+                        sublabel: "\u5371\u9669\u64cd\u4f5c",
                         click: () => handleFileDelete(model, finfo.path, false, setErrorMsg),
                     }
                 );
@@ -937,7 +1018,8 @@ function DirectoryTree({
     const fetchDir = useCallback(
         async (id: string, limit: number) => {
             try {
-                const entries = await RpcApi.FileListCommand(
+                const entries = normalizeDirectoryEntries(
+                    await RpcApi.FileListCommand(
                     TabRpcClient,
                     {
                         path: await model.formatRemoteUri(id, globalStore.get),
@@ -946,6 +1028,7 @@ function DirectoryTree({
                         },
                     },
                     null
+                    )
                 );
                 return {
                     nodes: entries
@@ -1030,7 +1113,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                     setUnfilteredData([]);
                     return;
                 }
-                let entries: FileInfo[];
+                let entries: FileInfo[] = [];
                 try {
                     const file = await RpcApi.FileReadCommand(
                         TabRpcClient,
@@ -1041,7 +1124,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         },
                         null
                     );
-                    entries = file.entries ?? [];
+                    entries = normalizeDirectoryEntries(file.entries);
                     if (file?.info && file.info.dir && file.info?.path !== file.info?.dir) {
                         entries.unshift({
                             name: "..",
@@ -1216,7 +1299,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     );
 
     const uploadLocalFiles = useCallback(
-        async (targetDir: string, inputFiles: File[], overwrite = false) => {
+        async (targetDir: string, inputFiles: UploadCandidate[], overwrite = false) => {
             const files = inputFiles.filter((file) => file != null);
             if (files.length === 0) {
                 return;
@@ -1254,11 +1337,16 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 for (const file of files) {
                     const targetPath = `${targetDir}/${file.name}`;
                     await uploadFileWithTransfer({
-                        file,
+                        file: file.file,
+                        localPath: file.localPath,
+                        name: file.name,
+                        size: file.size,
                         connection: conn,
                         targetPath,
                         resolveRemotePath: (nextTargetPath) => model.formatRemoteUri(nextTargetPath, globalStore.get),
+                        onCompleted: () => model.refreshCallback?.(),
                     });
+                    model.refreshCallback?.();
                 }
                 model.refreshCallback();
             } catch (e) {
@@ -1272,7 +1360,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
         [conn, model, setErrorMsg]
     );
 
-    const beginUploadFlow = useCallback((targetDir: string, files: File[]) => {
+    const beginUploadFlow = useCallback((targetDir: string, files: UploadCandidate[]) => {
         const filteredFiles = files.filter((file) => file != null);
         if (filteredFiles.length === 0) {
             return;
@@ -1285,11 +1373,22 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
 
     const openUploadFilePicker = useCallback((targetDir: string) => {
         pendingUploadTargetDirRef.current = targetDir;
+        const api = getApi();
+        if (api?.pickUploadFiles) {
+            fireAndForget(async () => {
+                const filePaths = await api.pickUploadFiles();
+                beginUploadFlow(
+                    targetDir,
+                    (filePaths ?? []).filter((filePath) => filePath != null && filePath !== "").map((filePath) => localPathToUploadCandidate(filePath))
+                );
+            });
+            return;
+        }
         if (fileUploadInputRef.current) {
             fileUploadInputRef.current.value = "";
             fileUploadInputRef.current.click();
         }
-    }, []);
+    }, [beginUploadFlow]);
 
     const hasNativeFilesDragged = useCallback((dataTransfer: DataTransfer) => dataTransfer?.types?.includes("Files") ?? false, []);
 
@@ -1329,7 +1428,10 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
             e.preventDefault();
             e.stopPropagation();
             setIsNativeFileDragOver(false);
-            beginUploadFlow(dirPath ?? rootPath, Array.from(e.dataTransfer.files));
+            beginUploadFlow(
+                dirPath ?? rootPath,
+                Array.from(e.dataTransfer.files).map((file) => fileToUploadCandidate(file))
+            );
         },
         [beginUploadFlow, dirPath, rootPath]
     );
@@ -1475,7 +1577,10 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                     onChange={(e) => {
                         const targetDir = pendingUploadTargetDirRef.current || dirPath || rootPath;
                         const files = Array.from(e.target.files ?? []);
-                        beginUploadFlow(targetDir, files);
+                        beginUploadFlow(
+                            targetDir,
+                            files.map((file) => fileToUploadCandidate(file))
+                        );
                     }}
                 />
                 {isNativeFileDragOver && (
@@ -1483,7 +1588,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 )}
                 {directoryViewMode === "tree" && dirPath && finfo ? (
                     <DirectoryTree
-                        key={rootPath}
+                        key={`${rootPath}:${refreshVersion}`}
                         model={model}
                         rootPath={rootPath}
                         dirPath={dirPath}
@@ -1503,6 +1608,8 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                     <DirectoryTable
                         model={model}
                         data={filteredData}
+                        dirPath={dirPath}
+                        rootPath={rootPath}
                         search={searchText}
                         focusIndex={focusIndex}
                         setFocusIndex={setFocusIndex}
@@ -1512,6 +1619,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         entryManagerOverlayPropsAtom={entryManagerPropsAtom}
                         newFile={newFile}
                         newDirectory={newDirectory}
+                        openUploadFilePicker={openUploadFilePicker}
                     />
                 )}
             </div>
@@ -1534,16 +1642,16 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         void uploadLocalFiles(uploadConfirmState.targetDir, uploadConfirmState.files);
                         setUploadConfirmState(null);
                     }}
-                    cancelLabel="\u53d6\u6d88"
-                    okLabel="\u786e\u5b9a"
+                    cancelLabel="取消"
+                    okLabel="确定"
                     okDisabled={uploadConfirmState.targetDir.trim() === ""}
                 >
                     <div className="upload-confirm-content">
                         <div className="upload-confirm-title">{"\u5c06\u4e0b\u5217\u6587\u4ef6\u4e0a\u4f20\u5230\u6307\u5b9a\u6587\u4ef6\u5939"}</div>
                         <div className="upload-confirm-file-list">
                             {uploadConfirmState.files.map((file) => (
-                                <div key={`${file.name}-${file.size}-${file.lastModified}`} className="upload-confirm-file-item">
-                                    {getLocalFileDisplayPath(file)}
+                                <div key={`${file.name}-${file.displayPath}-${file.lastModified ?? "local"}`} className="upload-confirm-file-item">
+                                    {file.displayPath}
                                 </div>
                             ))}
                         </div>

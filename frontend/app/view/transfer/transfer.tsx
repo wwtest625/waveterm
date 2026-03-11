@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Button } from "@/app/element/button";
-import { clearTransferHistory, formatTransferBytes, removeTransferTask, transferTasksAtom, type TransferTask } from "@/app/transfer/transfer-store";
+import { clearTransferHistory, formatTransferBytes, getTransferFolderPath, removeTransferTask, transferTasksAtom, type TransferTask } from "@/app/transfer/transfer-store";
+import { getApi } from "@/app/store/global";
 import { makeIconClass } from "@/util/util";
 import clsx from "clsx";
 import { useAtomValue } from "jotai";
@@ -63,6 +64,14 @@ function getTaskIcon(task: TransferTask): string {
         return "ban";
     }
     return task.direction === "upload" ? "arrow-up-from-bracket" : "arrow-down-to-bracket";
+}
+
+function openTransferFolder(task: TransferTask): void {
+    const folderPath = getTransferFolderPath(task.targetPath);
+    if (folderPath == null) {
+        return;
+    }
+    getApi().openNativePath(folderPath);
 }
 
 function filterTasks(tasks: TransferTask[], filter: TransferFilter): TransferTask[] {
@@ -137,11 +146,22 @@ function TransferView({
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                    {task.direction === "download" && task.status === "completed" && task.targetPath && (
+                                        <button
+                                            type="button"
+                                            className="transfer-open-folder-button"
+                                            title="打开下载文件夹"
+                                            onClick={() => openTransferFolder(task)}
+                                        >
+                                            <i className={makeIconClass("folder-open", false)} />
+                                            <span>打开文件夹</span>
+                                        </button>
+                                    )}
                                     <div className="transfer-direction">{getTaskDirectionLabel(task)}</div>
                                     {(task.status === "completed" || task.status === "error" || task.status === "cancelled") && (
                                         <button
                                             type="button"
-                                            className="text-secondary hover:text-primary"
+                                            className="transfer-remove-button"
                                             title="\u79fb\u9664"
                                             onClick={() => removeTransferTask(task.id)}
                                         >

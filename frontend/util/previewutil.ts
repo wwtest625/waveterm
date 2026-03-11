@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { startDownloadTransfer } from "@/app/transfer/transfer-store";
-import { createBlock, createBlockSplitHorizontally, getApi } from "@/app/store/global";
-import { fireAndForget } from "./util";
+import { getActiveTabModel } from "@/app/store/tab-model";
+import { createBlock, createBlockSplitHorizontally, getApi, globalStore, refocusNode, WOS } from "@/app/store/global";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { quote as shellQuote } from "shell-quote";
+import { fireAndForget, stringToBase64 } from "./util";
 import { formatRemoteUri } from "./waveutil";
 
 export async function openPreviewInNewBlock(filePath: string, conn: string, currentBlockId?: string): Promise<string> {
@@ -43,6 +47,68 @@ export async function openCommandInNewBlock(
         return createBlockSplitHorizontally(blockDef, currentBlockId, "after");
     }
     return createBlock(blockDef);
+}
+
+function normalizeConnectionName(conn?: string): string {
+    return conn ?? "";
+}
+
+function findShellTerminalBlockId(conn?: string): string | null {
+    const tabModel = getActiveTabModel();
+    if (tabModel == null) {
+        return null;
+    }
+
+    const tabData = globalStore.get(tabModel.tabAtom);
+    const targetConnection = normalizeConnectionName(conn);
+
+    for (const blockId of tabData?.blockids ?? []) {
+        const blockAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId));
+        const blockData = globalStore.get(blockAtom);
+        if (blockData?.meta?.view !== "term") {
+            continue;
+        }
+        if (blockData?.meta?.controller === "cmd") {
+            continue;
+        }
+        const blockConnection = normalizeConnectionName(blockData?.meta?.connection as string);
+        if (blockConnection === targetConnection) {
+            return blockId;
+        }
+    }
+
+    return null;
+}
+
+export async function sendDirectoryToTerminal(
+    directoryPath: string,
+    conn: string,
+    currentBlockId?: string
+): Promise<string> {
+    const existingTerminalBlockId = findShellTerminalBlockId(conn);
+    if (existingTerminalBlockId != null) {
+        const inputdata64 = stringToBase64(`cd ${shellQuote([directoryPath])}\n`);
+        await RpcApi.ControllerInputCommand(TabRpcClient, {
+            blockid: existingTerminalBlockId,
+            inputdata64,
+        });
+        refocusNode(existingTerminalBlockId);
+        return existingTerminalBlockId;
+    }
+
+    const termBlockDef: BlockDef = {
+        meta: {
+            controller: "shell",
+            view: "term",
+            "cmd:cwd": directoryPath,
+            connection: conn,
+        },
+    };
+
+    if (currentBlockId) {
+        return createBlockSplitHorizontally(termBlockDef, currentBlockId, "after");
+    }
+    return createBlock(termBlockDef);
 }
 
 export function addOpenMenuItems(
@@ -103,17 +169,18 @@ export function addOpenMenuItems(
     menu.push({
         label: "\u5728\u6b64\u5904\u6253\u5f00\u7ec8\u7aef",
         click: () => {
-            const termBlockDef: BlockDef = {
-                meta: {
-                    controller: "shell",
-                    view: "term",
-                    "cmd:cwd": finfo.isdir ? finfo.path : finfo.dir,
-                    connection: conn,
-                },
-            };
-            fireAndForget(() => createBlock(termBlockDef));
+            fireAndForget(() => sendDirectoryToTerminal(finfo.isdir ? finfo.path : finfo.dir, conn, currentBlockId));
         },
     });
+
+    if (finfo.isdir) {
+        menu.push({
+            label: "执行 CD 到终端",
+            click: () => {
+                fireAndForget(() => sendDirectoryToTerminal(finfo.path, conn, currentBlockId));
+            },
+        });
+    }
 
     return menu;
 }

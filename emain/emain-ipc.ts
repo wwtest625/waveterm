@@ -31,12 +31,68 @@ const electronApp = electron.app;
 let webviewFocusId: number = null;
 let webviewKeys: string[] = [];
 const pendingDownloadRequests = new Map<number, Array<{ taskId: string; filePath: string }>>();
+const pendingDownloadTasks = new Map<string, { senderWebContentsId: number; filePath: string }>();
 const registeredDownloadSessions = new WeakSet<Electron.Session>();
+
+function parseDownloadRequestFromUrl(downloadUrl: string): { taskId: string; filePath: string } | null {
+    try {
+        const parsedUrl = new URL(downloadUrl);
+        const taskId = parsedUrl.searchParams.get("taskid") ?? "";
+        const filePath = parsedUrl.searchParams.get("path") ?? "";
+        if (taskId === "" || filePath === "") {
+            return null;
+        }
+        return { taskId, filePath };
+    } catch (error) {
+        console.warn("failed to parse download request from url", downloadUrl, error);
+        return null;
+    }
+}
+
+function sanitizePathSegment(name: string): string {
+    const trimmed = String(name ?? "").trim();
+    if (trimmed === "") {
+        return "download";
+    }
+    return trimmed.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
+}
+
+function getDownloadFolderName(remoteUri: string): string {
+    try {
+        const parsed = new URL(remoteUri);
+        if (parsed.protocol === "wsh:" && parsed.hostname) {
+            return sanitizePathSegment(parsed.hostname);
+        }
+        if (parsed.hostname) {
+            return sanitizePathSegment(parsed.hostname);
+        }
+    } catch (error) {
+        console.warn("failed to parse download uri for folder name", remoteUri, error);
+    }
+    return "download";
+}
+
+function getUniqueDownloadPath(targetDir: string, fileName: string): string {
+    const parsed = path.parse(fileName);
+    let candidate = path.join(targetDir, fileName);
+    let suffix = 1;
+    while (fs.existsSync(candidate)) {
+        candidate = path.join(targetDir, `${parsed.name} (${suffix})${parsed.ext}`);
+        suffix += 1;
+    }
+    return candidate;
+}
 
 function enqueueDownloadRequest(webContentsId: number, payload: { taskId: string; filePath: string }): void {
     const queue = pendingDownloadRequests.get(webContentsId) ?? [];
     queue.push(payload);
     pendingDownloadRequests.set(webContentsId, queue);
+    if (payload.taskId) {
+        pendingDownloadTasks.set(payload.taskId, {
+            senderWebContentsId: webContentsId,
+            filePath: payload.filePath,
+        });
+    }
 }
 
 function dequeueDownloadRequest(webContentsId: number): { taskId: string; filePath: string } | null {
@@ -60,17 +116,26 @@ function ensureDownloadProgressBridge(session: Electron.Session): void {
         if (webContents == null) {
             return;
         }
-        const request = dequeueDownloadRequest(webContents.id);
+        const request = parseDownloadRequestFromUrl(item.getURL()) ?? dequeueDownloadRequest(webContents.id);
         if (request?.taskId == null) {
             return;
         }
+        const pendingTask = pendingDownloadTasks.get(request.taskId);
+        const targetWebContents = electron.webContents.fromId(pendingTask?.senderWebContentsId ?? webContents.id) ?? webContents;
+        const effectiveFilePath = pendingTask?.filePath ?? request.filePath;
+        const downloadsDir = electronApp.getPath("downloads");
+        const hostFolder = getDownloadFolderName(effectiveFilePath);
+        const targetDir = path.join(downloadsDir, hostFolder);
+        fs.mkdirSync(targetDir, { recursive: true });
+        item.setSavePath(getUniqueDownloadPath(targetDir, item.getFilename()));
+
         const emitProgress = (status: "running" | "success" | "error" | "cancelled", phase: "progress" | "done", error?: string) => {
-            webContents.send("download-transfer-event", {
+            targetWebContents.send("download-transfer-event", {
                 taskId: request.taskId,
                 phase,
                 status,
                 name: item.getFilename(),
-                sourcePath: request.filePath,
+                sourcePath: effectiveFilePath,
                 targetPath: item.getSavePath(),
                 transferredBytes: item.getReceivedBytes(),
                 totalBytes: item.getTotalBytes(),
@@ -89,6 +154,7 @@ function ensureDownloadProgressBridge(session: Electron.Session): void {
         });
 
         item.once("done", (_doneEvent, state) => {
+            pendingDownloadTasks.delete(request.taskId);
             if (state === "completed") {
                 emitProgress("success", "done");
             } else if (state === "cancelled") {
@@ -295,7 +361,13 @@ export function initIpcHandlers() {
     electron.ipcMain.on("download", (event, payload) => {
         const baseName = encodeURIComponent(path.basename(payload.filePath));
         const streamingUrl =
-            getWebServerEndpoint() + "/wave/stream-file/" + baseName + "?path=" + encodeURIComponent(payload.filePath);
+            getWebServerEndpoint() +
+            "/wave/stream-file/" +
+            baseName +
+            "?path=" +
+            encodeURIComponent(payload.filePath) +
+            "&taskid=" +
+            encodeURIComponent(payload.taskId ?? "");
         const sender = event.sender;
         ensureDownloadProgressBridge(sender.session);
         if (payload.taskId) {
@@ -305,6 +377,18 @@ export function initIpcHandlers() {
             });
         }
         sender.downloadURL(streamingUrl);
+    });
+
+    electron.ipcMain.handle("pick-upload-files", async (event) => {
+        const waveWindow = getWaveWindowByWebContentsId(event.sender.id);
+        const result = await electron.dialog.showOpenDialog(waveWindow ?? focusedWaveWindow ?? null, {
+            title: "Select Files to Upload",
+            properties: ["openFile", "multiSelections"],
+        });
+        if (result.canceled) {
+            return [];
+        }
+        return result.filePaths ?? [];
     });
 
     electron.ipcMain.on("get-cursor-point", (event) => {

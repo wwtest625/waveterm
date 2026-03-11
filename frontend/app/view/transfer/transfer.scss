@@ -148,6 +148,35 @@
         white-space: nowrap;
     }
 
+    .transfer-open-folder-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid color-mix(in srgb, var(--border-color) 70%, #58a6ff 30%);
+        border-radius: 999px;
+        background: color-mix(in srgb, #58a6ff 10%, var(--app-background) 90%);
+        color: #8cc8ff;
+        padding: 4px 10px;
+        font-size: 12px;
+        line-height: 1;
+        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+
+        &:hover {
+            color: white;
+            border-color: #58a6ff;
+            background: color-mix(in srgb, #58a6ff 20%, var(--app-background) 80%);
+        }
+    }
+
+    .transfer-remove-button {
+        color: #ff7b72;
+        transition: color 120ms ease;
+
+        &:hover {
+            color: #ff4d4f;
+        }
+    }
+
     .transfer-status-row {
         display: flex;
         align-items: center;

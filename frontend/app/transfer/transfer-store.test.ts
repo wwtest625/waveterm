@@ -8,6 +8,7 @@ import {
     completeTransferTask,
     createTransferTask,
     failTransferTask,
+    getTransferFolderPath,
     transferTasksAtom,
     updateTransferProgress,
 } from "./transfer-store";
@@ -52,5 +53,10 @@ describe("transfer store", () => {
         const tasks = globalStore.get(transferTasksAtom);
         expect(tasks).toHaveLength(1);
         expect(tasks[0].id).toBe(runningId);
+    });
+
+    it("derives local folder paths for completed downloads", () => {
+        expect(getTransferFolderPath("C:\\Users\\demo\\Downloads\\file.txt")).toBe("C:\\Users\\demo\\Downloads");
+        expect(getTransferFolderPath("/home/demo/Downloads/file.txt")).toBe("/home/demo/Downloads");
     });
 });

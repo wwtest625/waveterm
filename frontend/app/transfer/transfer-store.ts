@@ -1,10 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { getActiveTabModel } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { callBackendService } from "@/app/store/wos";
-import { getApi, globalStore } from "@/app/store/global";
+import { createBlock, getApi, globalStore, refocusNode, WOS } from "@/app/store/global";
+import { fireAndForget } from "@/util/util";
 import base64 from "base64-js";
 import { atom } from "jotai";
 
@@ -50,10 +52,38 @@ type DownloadTransferInput = {
 };
 
 type UploadTransferInput = {
-    file: File;
+    file?: File;
+    localPath?: string;
+    name: string;
+    size?: number;
     connection?: string;
     targetPath: string;
     resolveRemotePath: (targetPath: string) => Promise<string>;
+    onCompleted?: () => void;
+};
+
+type FileWithPath = File & { path?: string; webkitRelativePath?: string };
+
+type LocalFileInfo = {
+    path?: string;
+    name?: string;
+    size?: number;
+};
+
+type LocalFileChunk = {
+    data64?: string;
+    size?: number;
+};
+
+type UploadSource = {
+    name: string;
+    sourcePath: string;
+    size: number;
+    readChunk: (offset: number, chunkSize: number) => Promise<LocalFileChunk>;
+};
+
+type BufferedUploadSource = UploadSource & {
+    bytes?: Uint8Array;
 };
 
 type DownloadTransferEvent = {
@@ -72,6 +102,7 @@ export const transferTasksAtom = atom<TransferTask[]>([]);
 
 let transferSeq = 0;
 let downloadListenerInstalled = false;
+let ensureTransferViewOpenPromise: Promise<void> | null = null;
 const UploadChunkSize = 256 * 1024;
 const SshUploadChunkSize = 1024 * 1024;
 const UploadRpcTimeoutMs = 60000;
@@ -96,6 +127,31 @@ function updateTransferTask(taskId: string, updater: (task: TransferTask) => Tra
     globalStore.set(transferTasksAtom, (tasks) => tasks.map((task) => (task.id === taskId ? updater(task) : task)));
 }
 
+function ensureTransferViewOpen(): void {
+    if (ensureTransferViewOpenPromise != null) {
+        return;
+    }
+    ensureTransferViewOpenPromise = (async () => {
+        const tabModel = getActiveTabModel();
+        if (tabModel == null) {
+            return;
+        }
+        const tabData = globalStore.get(tabModel.tabAtom);
+        for (const blockId of tabData?.blockids ?? []) {
+            const blockAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId));
+            const blockData = globalStore.get(blockAtom);
+            if (blockData?.meta?.view === "transfer") {
+                refocusNode(blockId);
+                return;
+            }
+        }
+        await createBlock({ meta: { view: "transfer" } }, false, true);
+    })().finally(() => {
+        ensureTransferViewOpenPromise = null;
+    });
+    fireAndForget(() => ensureTransferViewOpenPromise);
+}
+
 function applyProgressUpdate(task: TransferTask, transferredBytes: number, totalBytes?: number): TransferTask {
     const currentTime = nowMs();
     const elapsedMs = Math.max(currentTime - task.lastSampleTime, 1);
@@ -116,6 +172,7 @@ function applyProgressUpdate(task: TransferTask, transferredBytes: number, total
 }
 
 export function createTransferTask(input: CreateTransferTaskInput): string {
+    ensureTransferViewOpen();
     const currentTime = nowMs();
     const taskId = nextTransferId();
     const totalBytes = input.totalBytes;
@@ -218,6 +275,21 @@ export function formatTransferBytes(bytes?: number): string {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
 }
 
+export function getTransferFolderPath(targetPath?: string): string | null {
+    if (targetPath == null || targetPath.trim() === "") {
+        return null;
+    }
+    const normalizedPath = targetPath.replace(/[\\/]+$/, "");
+    const lastSeparatorIndex = Math.max(normalizedPath.lastIndexOf("/"), normalizedPath.lastIndexOf("\\"));
+    if (lastSeparatorIndex < 0) {
+        return null;
+    }
+    if (lastSeparatorIndex === 0) {
+        return normalizedPath.slice(0, 1);
+    }
+    return normalizedPath.slice(0, lastSeparatorIndex);
+}
+
 function handleDownloadTransferEvent(event: DownloadTransferEvent): void {
     if (event.taskId == null) {
         return;
@@ -283,6 +355,63 @@ async function blobToBase64(blob: Blob): Promise<string> {
     return base64.fromByteArray(new Uint8Array(arrayBuffer));
 }
 
+function getFileSourcePath(file: FileWithPath): string {
+    return file.path || file.webkitRelativePath || file.name;
+}
+
+async function createUploadSource(input: UploadTransferInput): Promise<UploadSource> {
+    const fileWithPath = input.file as FileWithPath | undefined;
+    const localPath = input.localPath ?? fileWithPath?.path;
+    if (localPath != null && localPath !== "") {
+        const localInfo = (await callBackendService("client", "StatLocalFile", [localPath])) as LocalFileInfo;
+        const localSize = Number(localInfo?.size ?? input.size ?? 0);
+        return {
+            name: localInfo?.name || input.name,
+            sourcePath: localInfo?.path || localPath,
+            size: localSize,
+            readChunk: async (offset: number, chunkSize: number) =>
+                ((await callBackendService("client", "ReadLocalFileChunk", [localPath, offset, chunkSize])) as LocalFileChunk) ?? {
+                    data64: "",
+                    size: 0,
+                },
+        };
+    }
+    if (input.file == null) {
+        throw new Error("upload file source is missing");
+    }
+    if (input.file.size === 0) {
+        const bytes = new Uint8Array(await input.file.arrayBuffer());
+        if (bytes.length > 0) {
+            const bufferedSource: BufferedUploadSource = {
+                name: input.name,
+                sourcePath: getFileSourcePath(fileWithPath ?? input.file),
+                size: bytes.length,
+                bytes,
+                readChunk: async (offset: number, chunkSize: number) => {
+                    const chunk = bytes.slice(offset, offset + chunkSize);
+                    return {
+                        data64: base64.fromByteArray(chunk),
+                        size: chunk.length,
+                    };
+                },
+            };
+            return bufferedSource;
+        }
+    }
+    return {
+        name: input.name,
+        sourcePath: getFileSourcePath(fileWithPath ?? input.file),
+        size: input.file.size,
+        readChunk: async (offset: number, chunkSize: number) => {
+            const chunk = input.file.slice(offset, offset + chunkSize);
+            return {
+                data64: await blobToBase64(chunk),
+                size: chunk.size,
+            };
+        },
+    };
+}
+
 function canUseSshUpload(connection?: string): boolean {
     if (connection == null || connection.trim() === "") {
         return false;
@@ -296,7 +425,7 @@ function canUseSshUpload(connection?: string): boolean {
     return true;
 }
 
-async function uploadViaSshService(input: UploadTransferInput, transferId: string): Promise<void> {
+async function uploadViaSshService(input: UploadTransferInput, transferId: string, source: UploadSource): Promise<void> {
     const uploadIdRaw = await callBackendService("client", "StartSSHUpload", [input.connection, input.targetPath, true]);
     const uploadId = String(uploadIdRaw ?? "");
     if (uploadId === "") {
@@ -305,12 +434,16 @@ async function uploadViaSshService(input: UploadTransferInput, transferId: strin
 
     try {
         let offset = 0;
-        while (offset < input.file.size) {
-            const chunk = input.file.slice(offset, offset + SshUploadChunkSize);
-            const data64 = await blobToBase64(chunk);
+        while (offset < source.size) {
+            const chunk = await source.readChunk(offset, SshUploadChunkSize);
+            const chunkSize = Number(chunk.size ?? 0);
+            const data64 = String(chunk.data64 ?? "");
+            if (chunkSize <= 0) {
+                throw new Error(`local upload source ended early at ${offset} / ${source.size} bytes`);
+            }
             await callBackendService("client", "AppendSSHUpload", [uploadId, data64]);
-            offset += chunk.size;
-            updateTransferProgress(transferId, offset, input.file.size);
+            offset += chunkSize;
+            updateTransferProgress(transferId, offset, source.size);
         }
         await callBackendService("client", "FinishSSHUpload", [uploadId, false]);
     } catch (error) {
@@ -324,27 +457,29 @@ async function uploadViaSshService(input: UploadTransferInput, transferId: strin
 }
 
 export async function uploadFileWithTransfer(input: UploadTransferInput): Promise<string> {
+    const source = await createUploadSource(input);
     const transferId = createTransferTask({
-        name: input.file.name,
+        name: source.name,
         direction: "upload",
         connection: input.connection,
-        sourcePath: (input.file as File & { path?: string; webkitRelativePath?: string }).path || input.file.name,
+        sourcePath: source.sourcePath,
         targetPath: input.targetPath,
-        totalBytes: input.file.size,
+        totalBytes: source.size,
         status: "running",
     });
 
     try {
         if (canUseSshUpload(input.connection)) {
-            await uploadViaSshService(input, transferId);
-            completeTransferTask(transferId, input.file.size, input.file.size);
+            await uploadViaSshService(input, transferId, source);
+            completeTransferTask(transferId, source.size, source.size);
+            input.onCompleted?.();
             return transferId;
         }
 
         const remotePath = await input.resolveRemotePath(input.targetPath);
         await RpcApi.FileWriteCommand(TabRpcClient, { info: { path: remotePath }, data64: "" }, { timeout: UploadRpcTimeoutMs });
 
-        if (input.file.size === 0) {
+        if (source.size === 0) {
             completeTransferTask(transferId, 0, 0);
             return transferId;
         }
@@ -352,15 +487,20 @@ export async function uploadFileWithTransfer(input: UploadTransferInput): Promis
         const chunkSize = UploadChunkSize;
         let offset = 0;
 
-        while (offset < input.file.size) {
-            const chunk = input.file.slice(offset, offset + chunkSize);
-            const data64 = await blobToBase64(chunk);
+        while (offset < source.size) {
+            const chunk = await source.readChunk(offset, chunkSize);
+            const bytesRead = Number(chunk.size ?? 0);
+            const data64 = String(chunk.data64 ?? "");
+            if (bytesRead <= 0) {
+                throw new Error(`local upload source ended early at ${offset} / ${source.size} bytes`);
+            }
             await RpcApi.FileAppendCommand(TabRpcClient, { info: { path: remotePath }, data64 }, { timeout: UploadRpcTimeoutMs });
-            offset += chunk.size;
-            updateTransferProgress(transferId, offset, input.file.size);
+            offset += bytesRead;
+            updateTransferProgress(transferId, offset, source.size);
         }
 
-        completeTransferTask(transferId, input.file.size, input.file.size);
+        completeTransferTask(transferId, source.size, source.size);
+        input.onCompleted?.();
         return transferId;
     } catch (error) {
         failTransferTask(transferId, error instanceof Error ? error.message : String(error));

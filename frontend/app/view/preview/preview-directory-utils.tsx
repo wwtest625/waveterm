@@ -256,14 +256,14 @@ export function getPreviewIconInfo(
         return exactIcon;
     }
 
-    const mimeIcon = getMimeTypeIconInfo(fullConfig, entry.mimetype ?? "");
-    if (mimeIcon) {
-        return mimeIcon;
-    }
-
     const extensionIcon = getIconByExtension(fileName);
     if (extensionIcon) {
         return extensionIcon;
+    }
+
+    const mimeIcon = getMimeTypeIconInfo(fullConfig, entry.mimetype ?? "");
+    if (mimeIcon) {
+        return mimeIcon;
     }
 
     if ((entry.mimetype ?? "").startsWith("image/")) {

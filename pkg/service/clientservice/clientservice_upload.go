@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 
@@ -31,6 +32,17 @@ type sshUploadSession struct {
 
 	lock   sync.Mutex
 	closed bool
+}
+
+type LocalFileInfo struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+type LocalFileChunk struct {
+	Data64 string `json:"data64"`
+	Size   int    `json:"size"`
 }
 
 var (
@@ -85,6 +97,59 @@ func buildSSHUploadCommand(targetPath string, overwrite bool) string {
 		quotedPath,
 		overwriteCheck,
 	)
+}
+
+func (cs *ClientService) StatLocalFile(ctx context.Context, path string) (*LocalFileInfo, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, fmt.Errorf("local file path is required")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot stat local file %q: %w", path, err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("local path is a directory: %q", path)
+	}
+	return &LocalFileInfo{
+		Path: path,
+		Name: info.Name(),
+		Size: info.Size(),
+	}, nil
+}
+
+func (cs *ClientService) ReadLocalFileChunk(ctx context.Context, path string, offset int64, size int) (*LocalFileChunk, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, fmt.Errorf("local file path is required")
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must be >= 0")
+	}
+	if size <= 0 {
+		return nil, fmt.Errorf("chunk size must be > 0")
+	}
+	if size > SSHUploadMaxChunkSize {
+		return nil, fmt.Errorf("chunk size exceeds max size (%d bytes)", SSHUploadMaxChunkSize)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open local file %q: %w", path, err)
+	}
+	defer file.Close()
+
+	buf := make([]byte, size)
+	n, err := file.ReadAt(buf, offset)
+	if err != nil && err != io.EOF {
+		return nil, fmt.Errorf("cannot read local file %q at offset %d: %w", path, offset, err)
+	}
+	if n <= 0 {
+		return &LocalFileChunk{Data64: "", Size: 0}, nil
+	}
+	return &LocalFileChunk{
+		Data64: base64.StdEncoding.EncodeToString(buf[:n]),
+		Size:   n,
+	}, nil
 }
 
 func (cs *ClientService) StartSSHUpload(ctx context.Context, connName string, targetPath string, overwrite bool) (string, error) {

@@ -95,6 +95,7 @@ declare global {
         onContextMenuClick: (callback: (id: string | null) => void) => void; // contextmenu-click
         onNavigate: (callback: (url: string) => void) => void;
         onIframeNavigate: (callback: (url: string) => void) => void;
+        pickUploadFiles: () => Promise<string[]>; // pick-upload-files
         downloadFile: (path: string, taskId?: string) => void; // download
         onDownloadTransferEvent: (callback: (event: DownloadTransferEvent) => void) => void; // download-transfer-event
         openExternal: (url: string) => void; // open-external
