@@ -86,10 +86,20 @@ const KeyCap = memo(({ children, className }: { children: React.ReactNode; class
 
 KeyCap.displayName = "KeyCap";
 
-const AIWelcomeMessage = memo(() => {
+const AIWelcomeMessage = memo(({ isLocalAgent, localAgentProvider }: { isLocalAgent: boolean; localAgentProvider: string }) => {
     const modKey = isMacOS() ? "⌘" : "Alt";
     const aiModeConfigs = jotai.useAtomValue(atoms.waveaiModeConfigAtom);
     const hasCustomModes = Object.keys(aiModeConfigs).some((key) => !key.startsWith("waveai@"));
+    if (isLocalAgent && localAgentProvider === "codex") {
+        return (
+            <div className="text-secondary py-8">
+                <div className="text-center">
+                    <i className="fa fa-sparkles text-4xl text-accent mb-2 block"></i>
+                    <p className="text-lg font-bold text-primary">Welcome to Codex</p>
+                </div>
+            </div>
+        );
+    }
     return (
         <div className="text-secondary py-8">
             <div className="text-center">
@@ -606,7 +616,11 @@ const AIPanelComponentInner = memo(() => {
                                 <div className="absolute top-2 left-2 z-10">
                                     <AIModeDropdown />
                                 </div>
-                                {model.inBuilder ? <AIBuilderWelcomeMessage /> : <AIWelcomeMessage />}
+                                {model.inBuilder ? (
+                                    <AIBuilderWelcomeMessage />
+                                ) : (
+                                    <AIWelcomeMessage isLocalAgent={isLocalAgent} localAgentProvider={localAgentProvider} />
+                                )}
                             </div>
                         ) : (
                             <AIPanelMessages

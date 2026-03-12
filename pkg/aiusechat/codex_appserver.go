@@ -14,6 +14,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -198,14 +199,16 @@ func (c *codexAppServerClient) call(ctx context.Context, method string, params a
 }
 
 type codexAppServerTurnState struct {
-	output strings.Builder
-	turnID string
-	items  map[string]*codexAppServerItemState
+	output              strings.Builder
+	turnID              string
+	items               map[string]*codexAppServerItemState
+	startedItemLogCount int
 }
 
 type codexAppServerItemState struct {
 	ItemID      string
 	ItemType    string
+	ToolName    string
 	Command     string
 	Cwd         string
 	Paths       []string
@@ -401,6 +404,13 @@ func codexRecordStartedItem(state *codexAppServerTurnState, params map[string]an
 		return nil
 	}
 	itemState.ItemType = itemType
+	itemState.ToolName = codexJSONString(
+		params,
+		[]string{"item", "toolName"},
+		[]string{"item", "tool", "name"},
+		[]string{"item", "server", "toolName"},
+		[]string{"item", "name"},
+	)
 	switch itemType {
 	case "commandExecution":
 		itemState.Command = strings.Join(codexJSONStringSlice(params, "item", "command"), " ")
@@ -433,6 +443,32 @@ func codexUpdateCompletedToolUse(itemState *codexAppServerItemState, params map[
 		return false
 	}
 	return true
+}
+
+var codexWaveToolNamePattern = regexp.MustCompile(`wave_[a-z0-9_]+`)
+
+func codexExtractStartedToolName(itemState *codexAppServerItemState, params map[string]any, rawParams []byte) string {
+	if itemState != nil && strings.TrimSpace(itemState.ToolName) != "" {
+		return strings.TrimSpace(itemState.ToolName)
+	}
+	toolName := codexJSONString(
+		params,
+		[]string{"item", "toolName"},
+		[]string{"item", "tool", "name"},
+		[]string{"item", "server", "toolName"},
+		[]string{"item", "name"},
+		[]string{"toolName"},
+		[]string{"name"},
+	)
+	if strings.TrimSpace(toolName) != "" {
+		return strings.TrimSpace(toolName)
+	}
+	if len(rawParams) > 0 {
+		if match := codexWaveToolNamePattern.FindString(strings.ToLower(string(rawParams))); match != "" {
+			return match
+		}
+	}
+	return ""
 }
 
 func handleCodexAppServerApprovalRequest(ctx context.Context, client *codexAppServerClient, sseHandler *sse.SSEHandlerCh, msg codexAppServerRPCMessage, state *codexAppServerTurnState, params map[string]any, onPhase func(localAgentLoopPhase)) error {
@@ -474,6 +510,24 @@ func handleCodexAppServerApprovalRequest(ctx context.Context, client *codexAppSe
 		Status:     uctypes.ToolUseStatusPending,
 		Approval:   uctypes.ApprovalNeedsApproval,
 	}
+	mode, _ := localAgentAgentModeFromContext(ctx)
+	if err := validateCodexApprovalRequestForAgentMode(mode, msg.Method); err != nil {
+		itemState.ToolUseData.Status = uctypes.ToolUseStatusError
+		itemState.ToolUseData.Approval = uctypes.ApprovalUserDenied
+		itemState.ToolUseData.ErrorMessage = err.Error()
+		emitLocalAgentToolUse(sseHandler, *itemState.ToolUseData)
+		codexEmitPhase(onPhase, "codex_waiting_approval", err.Error())
+		return client.respond(ctx, msg.ID, map[string]any{"decision": codexDecisionForApproval(uctypes.ApprovalUserDenied)})
+	}
+
+	itemState.ToolUseData.Approval = applyAgentModeApprovalPolicyForCodexRequest(mode, msg.Method, itemState.ToolUseData.Approval)
+	if itemState.ToolUseData.Approval == uctypes.ApprovalAutoApproved {
+		itemState.ToolUseData.RunTs = time.Now().UnixMilli()
+		emitLocalAgentToolUse(sseHandler, *itemState.ToolUseData)
+		codexEmitPhase(onPhase, "codex_waiting_approval", "Auto-approved by agent mode")
+		return client.respond(ctx, msg.ID, map[string]any{"decision": codexDecisionForApproval(itemState.ToolUseData.Approval)})
+	}
+
 	emitLocalAgentToolUse(sseHandler, *itemState.ToolUseData)
 	RegisterToolApproval(itemState.ToolUseData.ToolCallId, sseHandler)
 	defer UnregisterToolApproval(itemState.ToolUseData.ToolCallId)
@@ -558,6 +612,17 @@ func handleCodexAppServerNotification(ctx context.Context, client *codexAppServe
 	case "item/started":
 		itemState := codexRecordStartedItem(state, params)
 		itemType := codexJSONString(params, []string{"item", "type"})
+		startedToolName := codexExtractStartedToolName(itemState, params, msg.Params)
+		if state != nil && state.startedItemLogCount < 6 {
+			state.startedItemLogCount++
+			log.Printf(
+				"local-agent: codex app-server item/started #%d type=%q itemid=%q tool=%q\n",
+				state.startedItemLogCount,
+				itemType,
+				codexJSONString(params, []string{"item", "id"}),
+				startedToolName,
+			)
+		}
 		switch itemType {
 		case "commandExecution":
 			command := strings.Join(codexJSONStringSlice(params, "item", "command"), " ")
@@ -578,11 +643,16 @@ func handleCodexAppServerNotification(ctx context.Context, client *codexAppServe
 			}
 			codexEmitPhase(onPhase, "codex_file_change", path)
 		case "mcpToolCall":
-			toolName := codexJSONString(params, []string{"item", "toolName"}, []string{"item", "server", "name"})
+			toolName := startedToolName
 			if toolName == "" {
 				toolName = "mcp tool"
 			}
 			codexEmitPhase(onPhase, "codex_mcp_tool", toolName)
+			if strings.EqualFold(strings.TrimSpace(toolName), "wave_read_current_terminal_context") {
+				codexEmitPhase(onPhase, "codex_wave_terminal_context_ok", "连接当前终端获取上下文：已成功")
+			} else if strings.HasPrefix(strings.ToLower(strings.TrimSpace(toolName)), "wave_") {
+				codexEmitPhase(onPhase, "codex_wave_terminal_tool", "已连接 Wave 终端工具，正在执行 "+toolName)
+			}
 		case "dynamicToolCall":
 			toolName := codexJSONString(params, []string{"item", "toolName"}, []string{"item", "tool", "name"})
 			if toolName == "" {
@@ -624,11 +694,14 @@ func handleCodexAppServerNotification(ctx context.Context, client *codexAppServe
 }
 
 type codexAppServerSessionSpec struct {
-	ChatID     string
-	CmdName    string
-	Args       []string
-	WorkingDir string
-	SessionKey string
+	ChatID                    string
+	CmdName                   string
+	Args                      []string
+	WorkingDir                string
+	BypassApprovalsAndSandbox bool
+	MCPEnabled                bool
+	MCPInjected               bool
+	SessionKey                string
 }
 
 type codexAppServerSessionRunner interface {
@@ -787,6 +860,11 @@ func (m *codexAppServerSessionManager) runTurn(ctx context.Context, req *PostMes
 	}
 	if created {
 		codexEmitPhase(onPhase, "codex_thinking", "Starting Codex app-server")
+		if spec.MCPInjected {
+			codexEmitPhase(onPhase, "codex_wave_mcp_ready", "Wave 终端工具已连接，可开始执行查询")
+		} else if spec.MCPEnabled {
+			codexEmitPhase(onPhase, "codex_wave_mcp_unavailable", "Wave 终端工具注入失败，当前回合可能无法读取终端上下文")
+		}
 	}
 	inputs, ok := localAgentCodexTurnInputsFromContext(runCtx)
 	if !ok {
@@ -808,31 +886,116 @@ func (m *codexAppServerSessionManager) runTurn(ctx context.Context, req *PostMes
 	return output, nil
 }
 
+func codexSummarizeSessionArgsForLog(args []string) string {
+	if len(args) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, 7)
+	for i := 0; i < len(args) && len(parts) < 6; i++ {
+		arg := strings.TrimSpace(args[i])
+		if arg == "" {
+			continue
+		}
+		if arg == "-c" {
+			if i+1 >= len(args) {
+				parts = append(parts, "-c")
+				continue
+			}
+			cfg := strings.TrimSpace(args[i+1])
+			switch {
+			case strings.HasPrefix(cfg, "mcp_servers.wave.command="):
+				parts = append(parts, "-c mcp_servers.wave.command=<set>")
+			case strings.HasPrefix(cfg, "mcp_servers.wave.args="):
+				parts = append(parts, "-c mcp_servers.wave.args=<set>")
+			default:
+				parts = append(parts, "-c <config>")
+			}
+			i++
+			continue
+		}
+		if len(arg) > 64 {
+			arg = arg[:61] + "..."
+		}
+		parts = append(parts, arg)
+	}
+	if len(args) > 6 {
+		parts = append(parts, fmt.Sprintf("...(%d args total)", len(args)))
+	}
+	return strings.Join(parts, " ")
+}
+
+func codexAppServerBypassApprovalsAndSandboxEnabled() bool {
+	return envEnabledByDefault(localCodexAppServerBypassEnv, true)
+}
+
+func codexAppServerReasoningEffortOverride() string {
+	effort := strings.TrimSpace(strings.ToLower(os.Getenv(localCodexAppServerEffortEnv)))
+	switch effort {
+	case "":
+		return ""
+	case "minimal", "low", "medium", "high":
+		return effort
+	default:
+		log.Printf("local-agent: ignoring invalid %s=%q (expected minimal|low|medium|high)\n", localCodexAppServerEffortEnv, effort)
+		return ""
+	}
+}
+
 func buildCodexAppServerSessionSpec(req *PostMessageRequest) (codexAppServerSessionSpec, error) {
 	cmdName, args, err := resolveCodexAppServerCommand()
 	if err != nil {
 		return codexAppServerSessionSpec{}, err
 	}
 	args = append([]string{}, args...)
-	if envEnabledByDefault(localCodexEnableMcpEnvName, true) {
+	bypassApprovalsAndSandbox := codexAppServerBypassApprovalsAndSandboxEnabled()
+	reasoningEffort := codexAppServerReasoningEffortOverride()
+	if reasoningEffort != "" {
+		args = append([]string{
+			"-c",
+			fmt.Sprintf("model_reasoning_effort=%s", toTOMLString(reasoningEffort)),
+		}, args...)
+	}
+	mcpEnabled := envEnabledByDefault(localCodexEnableMcpEnvName, true)
+	mcpInjected := false
+	if mcpEnabled {
 		codexMCPArgs, mcpErr := createCodexMCPConfigArgs(req)
 		if mcpErr != nil {
 			log.Printf("local-agent: wave mcp disabled for codex app-server, config build failed: %v\n", mcpErr)
 		} else {
 			args = append(codexMCPArgs, args...)
+			mcpInjected = true
 		}
 	}
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
 		workingDir = ""
 	}
-	keyParts := append([]string{cmdName, workingDir}, args...)
+	chatID := ""
+	if req != nil {
+		chatID = strings.TrimSpace(req.ChatID)
+	}
+	keyParts := append([]string{cmdName, workingDir, fmt.Sprintf("bypass=%t", bypassApprovalsAndSandbox)}, args...)
+	log.Printf(
+		"local-agent: codex app-server session spec chatid=%q cmd=%q cwd=%q arg_count=%d args=%s mcp_enabled=%v mcp_injected=%v bypass=%v reasoning_effort=%q\n",
+		chatID,
+		cmdName,
+		workingDir,
+		len(args),
+		codexSummarizeSessionArgsForLog(args),
+		mcpEnabled,
+		mcpInjected,
+		bypassApprovalsAndSandbox,
+		reasoningEffort,
+	)
 	return codexAppServerSessionSpec{
-		ChatID:     strings.TrimSpace(req.ChatID),
-		CmdName:    cmdName,
-		Args:       args,
-		WorkingDir: workingDir,
-		SessionKey: strings.Join(keyParts, "\x00"),
+		ChatID:                    chatID,
+		CmdName:                   cmdName,
+		Args:                      args,
+		WorkingDir:                workingDir,
+		BypassApprovalsAndSandbox: bypassApprovalsAndSandbox,
+		MCPEnabled:                mcpEnabled,
+		MCPInjected:               mcpInjected,
+		SessionKey:                strings.Join(keyParts, "\x00"),
 	}, nil
 }
 
@@ -851,12 +1014,20 @@ func selectCodexTurnPrompt(input localAgentCodexTurnInputs, bootstrapped bool) s
 	return ""
 }
 
-func codexBuildThreadStartRequest(workingDir string, legacyEnums bool) map[string]any {
+func codexBuildThreadStartRequest(workingDir string, legacyEnums bool, bypassApprovalsAndSandbox bool) map[string]any {
 	approvalPolicy := "unlessTrusted"
 	sandbox := "workspaceWrite"
 	if legacyEnums {
 		approvalPolicy = "untrusted"
 		sandbox = "workspace-write"
+	}
+	if bypassApprovalsAndSandbox {
+		approvalPolicy = "never"
+		if legacyEnums {
+			sandbox = "danger-full-access"
+		} else {
+			sandbox = "dangerFullAccess"
+		}
 	}
 	threadReq := map[string]any{
 		"approvalPolicy": approvalPolicy,
@@ -895,12 +1066,29 @@ func codexShouldRetryThreadStartWithLegacyEnums(err error) bool {
 	if !strings.Contains(msg, "invalid request") {
 		return false
 	}
-	return strings.Contains(msg, "unknown variant unlesstrusted") || strings.Contains(msg, "unknown variant workspacewrite")
+	return strings.Contains(msg, "unknown variant unlesstrusted") ||
+		strings.Contains(msg, "unknown variant workspacewrite") ||
+		strings.Contains(msg, "unknown variant dangerfullaccess")
 }
 
-func codexStartOrResumeThread(ctx context.Context, client *codexAppServerClient, workingDir string, resumeThreadID string, stderrText string, preferLegacyEnums bool) (string, bool, error) {
+func codexThreadStartEnumModeLabel(legacy bool) string {
+	if legacy {
+		return "legacy"
+	}
+	return "modern"
+}
+
+func codexStartOrResumeThread(ctx context.Context, client *codexAppServerClient, workingDir string, resumeThreadID string, stderrText string, preferLegacyEnums bool, bypassApprovalsAndSandbox bool) (string, bool, error) {
 	resumeThreadID = strings.TrimSpace(resumeThreadID)
+	log.Printf(
+		"local-agent: codex app-server thread handshake resume_thread=%q start_mode=%s bypass=%v cwd=%q\n",
+		resumeThreadID,
+		codexThreadStartEnumModeLabel(preferLegacyEnums),
+		bypassApprovalsAndSandbox,
+		strings.TrimSpace(workingDir),
+	)
 	if resumeThreadID != "" {
+		log.Printf("local-agent: codex app-server attempting thread/resume threadid=%q\n", resumeThreadID)
 		var resumeResp struct {
 			Thread struct {
 				ID string `json:"id"`
@@ -912,10 +1100,11 @@ func codexStartOrResumeThread(ctx context.Context, client *codexAppServerClient,
 				threadID = resumeThreadID
 			}
 			if threadID != "" {
+				log.Printf("local-agent: codex app-server thread/resume succeeded threadid=%q\n", threadID)
 				return threadID, true, nil
 			}
 		} else {
-			log.Printf("local-agent: codex app-server thread/resume failed for %s: %v\n", resumeThreadID, err)
+			log.Printf("local-agent: codex app-server thread/resume failed for %s: %v (falling back to thread/start)\n", resumeThreadID, err)
 		}
 	}
 
@@ -924,10 +1113,13 @@ func codexStartOrResumeThread(ctx context.Context, client *codexAppServerClient,
 			ID string `json:"id"`
 		} `json:"thread"`
 	}
-	if err := client.call(ctx, "thread/start", codexBuildThreadStartRequest(workingDir, preferLegacyEnums), &threadResp); err != nil {
+	startWithLegacy := preferLegacyEnums
+	log.Printf("local-agent: codex app-server calling thread/start mode=%s\n", codexThreadStartEnumModeLabel(startWithLegacy))
+	if err := client.call(ctx, "thread/start", codexBuildThreadStartRequest(workingDir, startWithLegacy, bypassApprovalsAndSandbox), &threadResp); err != nil {
 		if codexShouldRetryThreadStartWithLegacyEnums(err) {
 			log.Printf("local-agent: codex app-server rejected modern thread/start enums, retrying with legacy names: %v\n", err)
-			err = client.call(ctx, "thread/start", codexBuildThreadStartRequest(workingDir, true), &threadResp)
+			startWithLegacy = true
+			err = client.call(ctx, "thread/start", codexBuildThreadStartRequest(workingDir, true, bypassApprovalsAndSandbox), &threadResp)
 		}
 		if err != nil {
 			return "", false, codexAppServerCommandError(err, stderrText)
@@ -937,6 +1129,7 @@ func codexStartOrResumeThread(ctx context.Context, client *codexAppServerClient,
 	if threadID == "" {
 		return "", false, codexAppServerCommandError(fmt.Errorf("codex app-server returned empty thread id"), stderrText)
 	}
+	log.Printf("local-agent: codex app-server thread/start succeeded threadid=%q mode=%s\n", threadID, codexThreadStartEnumModeLabel(startWithLegacy))
 	return threadID, false, nil
 }
 
@@ -945,6 +1138,15 @@ func newCodexAppServerSession(ctx context.Context, _ *PostMessageRequest, spec c
 	if strings.TrimSpace(spec.WorkingDir) != "" {
 		cmd.Dir = spec.WorkingDir
 	}
+	log.Printf(
+		"local-agent: launching codex app-server cmd=%q cwd=%q arg_count=%d args=%s resume_thread=%q bypass=%v\n",
+		spec.CmdName,
+		strings.TrimSpace(spec.WorkingDir),
+		len(spec.Args),
+		codexSummarizeSessionArgsForLog(spec.Args),
+		strings.TrimSpace(resumeThreadID),
+		spec.BypassApprovalsAndSandbox,
+	)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("open codex app-server stdin: %w", err)
@@ -990,6 +1192,9 @@ func newCodexAppServerSession(ctx context.Context, _ *PostMessageRequest, spec c
 	}, &initResp); err != nil {
 		return nil, codexAppServerCommandError(err, session.stderrBuf.String())
 	}
+	userAgent := codexInitializeUserAgent(initResp)
+	preferLegacyEnums := codexUserAgentPrefersLegacyEnums(userAgent)
+	log.Printf("local-agent: codex app-server initialize userAgent=%q prefer_legacy_enums=%v\n", userAgent, preferLegacyEnums)
 	if err = client.notify(ctx, "initialized", map[string]any{}); err != nil {
 		return nil, codexAppServerCommandError(err, session.stderrBuf.String())
 	}
@@ -1000,11 +1205,13 @@ func newCodexAppServerSession(ctx context.Context, _ *PostMessageRequest, spec c
 		spec.WorkingDir,
 		resumeThreadID,
 		session.stderrBuf.String(),
-		codexUserAgentPrefersLegacyEnums(codexInitializeUserAgent(initResp)),
+		preferLegacyEnums,
+		spec.BypassApprovalsAndSandbox,
 	)
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("local-agent: codex app-server thread ready threadid=%q resumed=%v\n", threadID, bootstrapped)
 	session.stateMu.Lock()
 	session.threadIDVal = threadID
 	session.bootstrapped = bootstrapped

@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,6 +44,8 @@ const (
 	localCodexCmdEnvName          = "WAVETERM_LOCAL_AGENT_CODEX_CMD"
 	localCodexAppServerCmdEnvName = "WAVETERM_LOCAL_AGENT_CODEX_APP_SERVER_CMD"
 	localCodexUseAppServerEnvName = "WAVETERM_LOCAL_AGENT_CODEX_USE_APP_SERVER"
+	localCodexAppServerBypassEnv  = "WAVETERM_LOCAL_AGENT_CODEX_APP_SERVER_BYPASS_APPROVALS_AND_SANDBOX"
+	localCodexAppServerEffortEnv  = "WAVETERM_LOCAL_AGENT_CODEX_APP_SERVER_REASONING_EFFORT"
 	localClaudeCmdEnvName         = "WAVETERM_LOCAL_AGENT_CLAUDE_CMD"
 	localWaveMcpCmdEnvName        = "WAVETERM_LOCAL_AGENT_WAVE_MCP_CMD"
 	localCodexEnableMcpEnvName    = "WAVETERM_LOCAL_AGENT_CODEX_ENABLE_MCP"
@@ -158,15 +161,37 @@ func defaultWshBinary() string {
 	if runtime.GOOS == "windows" {
 		exeName = "wsh.exe"
 	}
+	findCandidate := func(dir string) string {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			return ""
+		}
+		exact := filepath.Join(dir, exeName)
+		if _, err := os.Stat(exact); err == nil {
+			return exact
+		}
+		matches, err := filepath.Glob(filepath.Join(dir, "wsh*"))
+		if err != nil {
+			return ""
+		}
+		for _, match := range matches {
+			base := strings.ToLower(filepath.Base(match))
+			if runtime.GOOS == "windows" && !strings.HasSuffix(base, ".exe") {
+				continue
+			}
+			if info, err := os.Stat(match); err == nil && !info.IsDir() {
+				return match
+			}
+		}
+		return ""
+	}
 	if dataDir := strings.TrimSpace(wavebase.GetWaveDataDir()); dataDir != "" {
-		candidate := filepath.Join(dataDir, "bin", exeName)
-		if _, err := os.Stat(candidate); err == nil {
+		if candidate := findCandidate(filepath.Join(dataDir, "bin")); candidate != "" {
 			return candidate
 		}
 	}
 	if appBin := strings.TrimSpace(wavebase.GetWaveAppBinPath()); appBin != "" {
-		candidate := filepath.Join(appBin, exeName)
-		if _, err := os.Stat(candidate); err == nil {
+		if candidate := findCandidate(appBin); candidate != "" {
 			return candidate
 		}
 	}
@@ -178,6 +203,30 @@ func resolveWaveMCPCommand() (string, []string, error) {
 		return cmd, args, nil
 	}
 	return defaultWshBinary(), []string{"mcpserve"}, nil
+}
+
+func redactSecretForLog(secret string) string {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return "<empty>"
+	}
+	return fmt.Sprintf("<redacted:%d chars>", len(secret))
+}
+
+func summarizeEndpointForLog(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "<empty>"
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || strings.TrimSpace(parsed.Host) == "" {
+		return raw
+	}
+	scheme := strings.TrimSpace(parsed.Scheme)
+	if scheme == "" {
+		return parsed.Host
+	}
+	return scheme + "://" + parsed.Host
 }
 
 func resolveWaveMCPInvocation(req *PostMessageRequest) (string, []string, error) {
@@ -205,7 +254,17 @@ func resolveWaveMCPInvocation(req *PostMessageRequest) (string, []string, error)
 	if strings.TrimSpace(req.BlockId) != "" {
 		args = append(args, "--blockid", strings.TrimSpace(req.BlockId))
 	}
-	args = append(args, "--agentmode", string(resolveAgentMode(req.AgentMode)))
+	agentMode := resolveAgentMode(req.AgentMode)
+	args = append(args, "--agentmode", string(agentMode))
+	log.Printf(
+		"local-agent: wave mcp invocation resolved cmd=%q endpoint=%q tabid=%q blockid=%q agentmode=%q authkey=%s\n",
+		resolvedMcpCmd,
+		summarizeEndpointForLog(endpoint),
+		strings.TrimSpace(req.TabId),
+		strings.TrimSpace(req.BlockId),
+		string(agentMode),
+		redactSecretForLog(authKeyVal),
+	)
 	return resolvedMcpCmd, args, nil
 }
 
@@ -429,26 +488,32 @@ func buildLocalAgentPromptWithModeAndBudget(userText string, tabState string, hi
 		"\n" +
 		"CRITICAL TERMINAL QUERY RULES:\n" +
 		"When the user asks about system information (CPU, memory, disk, processes, network, files, etc.), you MUST:\n" +
-		"1. Call wave_inject_terminal_command with the appropriate shell command\n" +
-		"2. Call wave_wait_terminal_idle to wait for completion\n" +
-		"3. Call wave_get_terminal_command_result to read the output\n" +
-		"4. Format and present the result to the user\n" +
+		"1. Call wave_read_current_terminal_context if the request depends on the currently open Wave terminal or remote session\n" +
+		"2. Call wave_inject_terminal_command with the appropriate shell command\n" +
+		"3. Call wave_wait_terminal_idle to wait for completion\n" +
+		"4. Call wave_get_terminal_command_result to read the output\n" +
+		"5. Format and present the result to the user\n" +
 		"\n" +
 		"DO NOT:\n" +
 		"- Reply with text before calling the tools\n" +
 		"- Claim \"host policy blocked\" or \"no MCP available\" without actually calling the tools\n" +
+		"- Call list_mcp_resources, list_mcp_resource_templates, or read_mcp_resource to decide whether Wave terminal tools exist\n" +
+		"- Use generic codex command execution, shell execution, or CreateProcess as a substitute for Wave terminal tools\n" +
 		"- Ask the user to run commands manually\n" +
 		"- Output shell code blocks when you should be executing commands\n" +
+		"- Dump internal MCP debugging details unless the user explicitly asked for debugging\n" +
 		"\n" +
 		"Example workflow:\n" +
 		"User: 帮我查询 CPU 型号\n" +
-		"Assistant: [calls wave_inject_terminal_command with \"lscpu | grep 'Model name' || sysctl -n machdep.cpu.brand_string\"]\n" +
+		"Assistant: [calls wave_read_current_terminal_context]\n" +
+		"[calls wave_inject_terminal_command with \"lscpu | grep 'Model name' || sysctl -n machdep.cpu.brand_string\"]\n" +
 		"[calls wave_wait_terminal_idle]\n" +
 		"[calls wave_get_terminal_command_result]\n" +
 		"CPU 型号: Intel Core i7-9700K\n" +
 		"\n" +
 		"After you inject a terminal command, wait for it to finish and then call wave_get_terminal_command_result before deciding what happened.\n" +
 		"Prefer wave_get_terminal_command_result over broad scrollback reads when checking command output.\n" +
+		"If a direct wave_* tool call fails, summarize the failure in one short sentence instead of narrating your internal debugging process.\n" +
 		getModeAwareSystemPromptText(true, "", mode) + "\n"
 	tabBlock := ""
 	if strings.TrimSpace(tabState) != "" {
@@ -562,6 +627,8 @@ type localAgentLoopPhase struct {
 type localAgentSSEHandlerContextKey struct{}
 
 type localAgentCodexTurnInputsContextKey struct{}
+
+type localAgentAgentModeContextKey struct{}
 
 type localAgentCodexTurnInputs struct {
 	BootstrapPrompt   string
@@ -891,6 +958,24 @@ func localAgentCodexTurnInputsFromContext(ctx context.Context) (localAgentCodexT
 	return inputs, true
 }
 
+func localAgentContextWithAgentMode(ctx context.Context, mode AgentMode) context.Context {
+	if ctx == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, localAgentAgentModeContextKey{}, resolveAgentMode(string(mode)))
+}
+
+func localAgentAgentModeFromContext(ctx context.Context) (AgentMode, bool) {
+	if ctx == nil {
+		return AgentModeDefault, false
+	}
+	mode, ok := ctx.Value(localAgentAgentModeContextKey{}).(AgentMode)
+	if !ok {
+		return AgentModeDefault, false
+	}
+	return resolveAgentMode(string(mode)), true
+}
+
 func emitAssistantTextMessage(sseHandler *sse.SSEHandlerCh, msgID string, text string) {
 	textID := uuid.New().String()
 	_ = sseHandler.AiMsgStart(msgID)
@@ -964,6 +1049,47 @@ func localAgentClaimsTerminalBlock(output string) bool {
 	return false
 }
 
+func localAgentLooksLikeInternalToolDebug(output string) bool {
+	text := strings.ToLower(strings.TrimSpace(output))
+	if text == "" {
+		return false
+	}
+	phrases := []string{
+		"list_mcp_resources",
+		"list_mcp_resource_templates",
+		"read_mcp_resource",
+		"unknown mcp server",
+		"mcp startup failed",
+		"initialize response",
+		"createprocess",
+		"wave mcp",
+		"当前会话里没有暴露",
+		"没有暴露可调用的",
+	}
+	for _, phrase := range phrases {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildLocalAgentTerminalFailureSummary(userText string) string {
+	if strings.ContainsAny(userText, "帮我查询查看读取终端远程温度频率型号系统信息主机表格") {
+		return "未能通过 Wave 终端工具完成这次查询。当前会话没有成功使用 `wave_*` 终端工具，或者 Wave MCP/终端连接仍有异常；请稍后重试。"
+	}
+	return "I couldn't complete this query through Wave terminal tools. The session did not successfully use the required `wave_*` tools, or the Wave MCP/terminal connection is still unhealthy. Please retry."
+}
+
+func localAgentHasTerminalToolPhase(observedPhases []localAgentLoopPhase) bool {
+	for _, phase := range observedPhases {
+		if isTerminalToolPhase(phase.ToolName) {
+			return true
+		}
+	}
+	return false
+}
+
 func shouldRetryLocalAgentTerminalAttempt(mode AgentMode, prompt string, userText string, output string, observedPhases []localAgentLoopPhase) bool {
 	if mode == AgentModePlanning {
 		return false
@@ -1001,9 +1127,13 @@ func buildLocalAgentTerminalRetryPrompt(prompt string) string {
 		"RETRY INSTRUCTION:\n" +
 		localAgentTerminalRetrySentinel + "\n" +
 		"Your previous response did NOT call any wave_ terminal tools.\n" +
+		"You MUST call wave_read_current_terminal_context before command injection when the request depends on the active Wave terminal or remote session.\n" +
 		"You MUST call wave_inject_terminal_command, wave_wait_terminal_idle, and wave_get_terminal_command_result.\n" +
+		"Do NOT call list_mcp_resources, list_mcp_resource_templates, or read_mcp_resource for this task.\n" +
+		"Do NOT use codex command execution, shell execution, or CreateProcess for this task.\n" +
 		"Do NOT claim \"host policy blocked\" or \"no MCP\" without actually calling the tools first.\n" +
-		"If a tool call fails, report the actual error message from the tool.\n")
+		"Your final response will be rejected unless at least one required wave_* terminal tool call is observed.\n" +
+		"If a direct wave_* tool call fails, report one short user-facing sentence with the actual tool error.\n")
 }
 
 func WaveAILocalAgentPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, req *PostMessageRequest, chatOpts uctypes.WaveChatOpts) error {
@@ -1032,6 +1162,7 @@ func WaveAILocalAgentPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHan
 		BootstrapPrompt:   prompt,
 		IncrementalPrompt: userText,
 	})
+	ctx = localAgentContextWithAgentMode(ctx, resolveAgentMode(chatOpts.AgentMode))
 
 	msgID := uuid.New().String()
 	textID := uuid.New().String()
@@ -1068,6 +1199,15 @@ func WaveAILocalAgentPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHan
 			observedPhases = append(observedPhases, phase)
 			emitLocalAgentLoopPhase(sseHandler, phase)
 		})
+	}
+	hasTerminalToolCall := localAgentHasTerminalToolPhase(observedPhases)
+	if isTerminalQueryRequest(userText) && !hasTerminalToolCall {
+		log.Printf("local-agent: terminal query completed without any wave_* tool phases; replacing response with failure summary\n")
+		if localAgentLooksLikeInternalToolDebug(runOutput) {
+			runOutput = buildLocalAgentTerminalFailureSummary(userText)
+		} else {
+			runOutput = buildLocalAgentTerminalFailureSummary(userText)
+		}
 	}
 	output := runOutput
 	if runErr != nil {

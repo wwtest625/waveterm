@@ -142,6 +142,14 @@ const AIMessagePart = memo(({ part, role, isStreaming }: AIMessagePartProps) => 
 
 AIMessagePart.displayName = "AIMessagePart";
 
+const isLocalAgentSyntheticProgressPart = (part: WaveUIMessagePart): boolean => {
+    if (part.type !== "data-toolprogress") {
+        return false;
+    }
+    const toolCallId = part.data?.toolcallid;
+    return typeof toolCallId === "string" && toolCallId.startsWith("localagent:");
+};
+
 interface AIMessageProps {
     message: WaveUIMessage;
     isStreaming: boolean;
@@ -151,7 +159,7 @@ const isDisplayPart = (part: WaveUIMessagePart): boolean => {
     return (
         part.type === "text" ||
         part.type === "data-tooluse" ||
-        part.type === "data-toolprogress" ||
+        (part.type === "data-toolprogress" && !isLocalAgentSyntheticProgressPart(part)) ||
         (part.type.startsWith("tool-") && "state" in part && part.state === "input-available")
     );
 };

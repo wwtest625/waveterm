@@ -12,11 +12,11 @@ func TestLocalAgentPrompt_UsesRecentTurnsWithinBudget(t *testing.T) {
 	history := []localPromptTurn{
 		{
 			Role:    "user",
-			Content: "OLD-TURN-1 " + strings.Repeat("old ", 120),
+			Content: "OLD-TURN-1 " + strings.Repeat("old ", 260),
 		},
 		{
 			Role:    "assistant",
-			Content: "OLD-TURN-2 " + strings.Repeat("older ", 120),
+			Content: "OLD-TURN-2 " + strings.Repeat("older ", 260),
 		},
 		{
 			Role:    "user",
@@ -32,7 +32,7 @@ func TestLocalAgentPrompt_UsesRecentTurnsWithinBudget(t *testing.T) {
 		"CURRENT-REQUEST please run tests and summarize result",
 		"cwd=/repo",
 		history,
-		400,
+		700,
 	)
 
 	if !strings.Contains(prompt, "CURRENT-REQUEST") {
@@ -62,6 +62,15 @@ func TestLocalAgentPrompt_IncludesCommandExecutionGuidance(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "wave_inject_terminal_command") {
 		t.Fatalf("expected prompt to mention wave_inject_terminal_command, got prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "wave_read_current_terminal_context") {
+		t.Fatalf("expected prompt to mention wave_read_current_terminal_context, got prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Call list_mcp_resources, list_mcp_resource_templates, or read_mcp_resource") {
+		t.Fatalf("expected prompt to forbid MCP discovery detours, got prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Use generic codex command execution, shell execution, or CreateProcess") {
+		t.Fatalf("expected prompt to forbid generic codex command fallback, got prompt:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "Example workflow:") {
 		t.Fatalf("expected prompt to include example workflow, got prompt:\n%s", prompt)

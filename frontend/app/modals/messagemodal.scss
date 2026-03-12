@@ -2,7 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 .message-modal {
-    min-width: 400px;
+    min-width: min(400px, calc(100vw - 24px));
+    max-width: min(90vw, 760px);
+    max-height: min(80vh, 760px);
+
+    .content-wrapper {
+        .modal-content {
+            overflow-wrap: anywhere;
+            max-height: min(66vh, 640px);
+            overflow-y: auto;
+            padding-top: 16px;
+        }
+    }
 
     footer {
         padding: 10px;

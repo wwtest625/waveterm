@@ -189,3 +189,52 @@ func TestLocalAgentLoop_DoesNotRetryWhenTerminalToolWasActuallyUsed(t *testing.T
 		t.Fatalf("expected no retry once a terminal tool was observed, got %d calls", callCount)
 	}
 }
+
+func TestLocalAgentLoop_CompressesInternalMCPDebugWithoutTerminalToolUse(t *testing.T) {
+	origRunner := runLocalAgentCommandFn
+	t.Cleanup(func() {
+		runLocalAgentCommandFn = origRunner
+	})
+
+	callCount := 0
+	runLocalAgentCommandFn = func(ctx context.Context, req *PostMessageRequest, provider string, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
+		callCount++
+		return "我刚刚实际检查了当前会话的 MCP 能力：list_mcp_resources 返回空。wave_get_terminal_command_result unknown MCP server。CreateProcess failed.", nil
+	}
+
+	recorder := &testSSERecorder{ResponseRecorder: httptest.NewRecorder()}
+	sseHandler := sse.MakeSSEHandlerCh(recorder, context.Background())
+	req := &PostMessageRequest{
+		ChatID:        "test-localagent-compress-debug",
+		LocalProvider: LocalProviderCodex,
+		Msg: uctypes.AIMessage{
+			MessageId: "msg-localagent-compress-debug",
+			Parts: []uctypes.AIMessagePart{
+				{Type: uctypes.AIMessagePartTypeText, Text: "帮我查询远程终端 cpu 型号 频率 温度 整理成表格给我"},
+			},
+		},
+	}
+	chatOpts := uctypes.WaveChatOpts{
+		AgentMode: "default",
+		Config: uctypes.AIOptsType{
+			APIType: "openai-chat",
+			Model:   "local-codex",
+		},
+	}
+
+	if err := WaveAILocalAgentPostMessageWrap(context.Background(), sseHandler, req, chatOpts); err != nil {
+		t.Fatalf("WaveAILocalAgentPostMessageWrap() error: %v", err)
+	}
+	sseHandler.Close()
+
+	body := recorder.Body.String()
+	if callCount != 2 {
+		t.Fatalf("expected one retry before summary compression, got %d calls", callCount)
+	}
+	if strings.Contains(body, "list_mcp_resources") || strings.Contains(body, "CreateProcess failed") {
+		t.Fatalf("expected internal MCP debug text to be compressed, got:\n%s", body)
+	}
+	if !strings.Contains(body, "未能通过 Wave 终端工具完成这次查询") {
+		t.Fatalf("expected concise terminal failure summary, got:\n%s", body)
+	}
+}

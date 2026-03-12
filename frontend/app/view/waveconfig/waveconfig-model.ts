@@ -8,6 +8,11 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { SecretsContent } from "@/app/view/waveconfig/secretscontent";
+import { SettingsVisualContent } from "@/app/view/waveconfig/settingsvisualcontent";
+import { ConnectionsVisualContent } from "@/app/view/waveconfig/connectionsvisualcontent";
+import { WidgetsVisualContent } from "@/app/view/waveconfig/widgetsvisualcontent";
+import { WaveAIVisualContent } from "@/app/view/waveconfig/waveaivisualcontent";
+import { BackgroundPresetsVisualContent } from "@/app/view/waveconfig/bgpresetsvisualcontent";
 import { WaveConfigView } from "@/app/view/waveconfig/waveconfig";
 import { isWindows } from "@/util/platformutil";
 import { base64ToString, stringToBase64 } from "@/util/util";
@@ -73,6 +78,7 @@ const configFiles: ConfigFile[] = [
         language: "json",
         docsUrl: "https://docs.waveterm.dev/config",
         hasJsonView: true,
+        visualComponent: SettingsVisualContent,
     },
     {
         name: "Connections",
@@ -81,6 +87,7 @@ const configFiles: ConfigFile[] = [
         docsUrl: "https://docs.waveterm.dev/connections",
         description: isWindows() ? "SSH hosts and WSL distros" : "SSH hosts",
         hasJsonView: true,
+        visualComponent: ConnectionsVisualContent,
     },
     {
         name: "Sidebar Widgets",
@@ -88,6 +95,7 @@ const configFiles: ConfigFile[] = [
         language: "json",
         docsUrl: "https://docs.waveterm.dev/customwidgets",
         hasJsonView: true,
+        visualComponent: WidgetsVisualContent,
     },
     {
         name: "Wave AI Modes",
@@ -97,7 +105,7 @@ const configFiles: ConfigFile[] = [
         docsUrl: "https://docs.waveterm.dev/waveai-modes",
         validator: validateWaveAiJson,
         hasJsonView: true,
-        // visualComponent: WaveAIVisualContent,
+        visualComponent: WaveAIVisualContent,
     },
     {
         name: "Tab Backgrounds",
@@ -106,6 +114,7 @@ const configFiles: ConfigFile[] = [
         docsUrl: "https://docs.waveterm.dev/presets#background-configurations",
         validator: validateBgJson,
         hasJsonView: true,
+        visualComponent: BackgroundPresetsVisualContent,
     },
     {
         name: "Secrets",
@@ -116,24 +125,7 @@ const configFiles: ConfigFile[] = [
     },
 ];
 
-const deprecatedConfigFiles: ConfigFile[] = [
-    {
-        name: "Presets",
-        path: "presets.json",
-        language: "json",
-        deprecated: true,
-        hasJsonView: true,
-    },
-    {
-        name: "AI Presets",
-        path: "presets/ai.json",
-        language: "json",
-        deprecated: true,
-        docsUrl: "https://docs.waveterm.dev/ai-presets",
-        validator: validateAiJson,
-        hasJsonView: true,
-    },
-];
+const deprecatedConfigFiles: ConfigFile[] = [];
 
 export class WaveConfigViewModel implements ViewModel {
     blockId: string;

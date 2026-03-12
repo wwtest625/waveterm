@@ -38,6 +38,8 @@ type AgentRuntimeStatusInput = {
     localAgentHealth?: LocalAgentHealth | null;
 };
 
+type AgentPhaseMapping = Pick<AgentRuntimeStatusSnapshot, "phase" | "phaseLabel" | "blockedReason">;
+
 function formatProviderLabel(provider: string): string {
     return provider === "claude-code" ? "Claude Code" : "Codex";
 }
@@ -68,6 +70,35 @@ function getToolUsePhase(toolName: string | undefined): Pick<AgentRuntimeStatusS
         default:
             return null;
     }
+}
+
+function getToolProgressPhase(toolName: string | undefined, statusLine: string | undefined): AgentPhaseMapping | null {
+    switch (toolName) {
+        case "codex_wave_mcp_ready":
+            return { phase: "ready", phaseLabel: "终端工具已连接" };
+        case "codex_wave_terminal_context_ok":
+            return { phase: "ready", phaseLabel: "终端上下文已就绪" };
+        case "codex_wave_mcp_unavailable":
+            return {
+                phase: "error",
+                phaseLabel: "终端工具不可用",
+                blockedReason: statusLine || "Wave terminal MCP injection failed.",
+            };
+        default:
+            return null;
+    }
+}
+
+function isObservedTerminalToolName(toolName: unknown): boolean {
+    if (typeof toolName !== "string" || toolName.trim() === "") {
+        return false;
+    }
+    return (
+        toolName.startsWith("wave_") ||
+        toolName === "codex_wave_terminal_context_ok" ||
+        toolName === "codex_wave_terminal_tool" ||
+        toolName === "codex_wave_mcp_ready"
+    );
 }
 
 function messageTextIncludesLocalAgentCapabilityDenial(message: WaveUIMessage | undefined): boolean {
@@ -130,15 +161,29 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             message.parts?.some(
                 (part) =>
                     (part.type === "data-tooluse" || part.type === "data-toolprogress") &&
-                    typeof part.data?.toolname === "string" &&
-                    part.data.toolname.startsWith("wave_")
+                    isObservedTerminalToolName(part.data?.toolname)
             )
         ) ?? false;
     const lastToolUse = [...(lastAssistantMessage?.parts ?? [])]
         .reverse()
         .find((part) => part.type === "data-tooluse");
+    const lastToolProgress = [...(lastAssistantMessage?.parts ?? [])]
+        .reverse()
+        .find((part) => part.type === "data-toolprogress");
     const toolPhase =
         lastToolUse?.type === "data-tooluse" ? getToolUsePhase(lastToolUse.data?.toolname as string | undefined) : null;
+    const progressStatusLine =
+        lastToolProgress?.type === "data-toolprogress" &&
+        Array.isArray(lastToolProgress.data?.statuslines) &&
+        lastToolProgress.data.statuslines.length > 0
+            ? (lastToolProgress.data.statuslines.find((line: unknown) => typeof line === "string" && line.trim()) as
+                  | string
+                  | undefined)
+            : undefined;
+    const progressPhase =
+        lastToolProgress?.type === "data-toolprogress"
+            ? getToolProgressPhase(lastToolProgress.data?.toolname as string | undefined, progressStatusLine)
+            : null;
     const hasAssistantText =
         lastAssistantMessage?.parts?.some((part) => part.type === "text" && Boolean(part.text?.trim())) ?? false;
 
@@ -194,6 +239,17 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
                 blockedReason: "Waiting for tool approval",
             };
         }
+        if (progressPhase != null) {
+            return {
+                visible: true,
+                providerLabel: formatProviderLabel(input.provider),
+                modeLabel: formatModeLabel(input.mode),
+                phase: progressPhase.phase,
+                phaseLabel: progressPhase.phaseLabel,
+                lastCommand,
+                blockedReason: progressPhase.blockedReason,
+            };
+        }
         if (toolPhase != null) {
             return {
                 visible: true,
@@ -211,6 +267,18 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             phase: hasAssistantText ? "responding" : "thinking",
             phaseLabel: hasAssistantText ? "Responding" : "Thinking",
             lastCommand,
+        };
+    }
+
+    if (progressPhase != null) {
+        return {
+            visible: true,
+            providerLabel: formatProviderLabel(input.provider),
+            modeLabel: formatModeLabel(input.mode),
+            phase: progressPhase.phase,
+            phaseLabel: progressPhase.phaseLabel,
+            lastCommand,
+            blockedReason: progressPhase.blockedReason,
         };
     }
 

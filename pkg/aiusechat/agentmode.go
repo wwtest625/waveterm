@@ -117,3 +117,30 @@ func applyAgentModeApprovalPolicy(mode AgentMode, toolName string, approval stri
 	}
 	return approval
 }
+
+func validateCodexApprovalRequestForAgentMode(mode AgentMode, requestMethod string) error {
+	if resolveAgentMode(string(mode)) != AgentModePlanning {
+		return nil
+	}
+	switch requestMethod {
+	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
+		return fmt.Errorf("codex action %q is not allowed in planning mode", requestMethod)
+	default:
+		return nil
+	}
+}
+
+func applyAgentModeApprovalPolicyForCodexRequest(mode AgentMode, requestMethod string, approval string) string {
+	if resolveAgentMode(string(mode)) != AgentModeAutoApprove {
+		return approval
+	}
+	if approval != uctypes.ApprovalNeedsApproval {
+		return approval
+	}
+	switch requestMethod {
+	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
+		return uctypes.ApprovalAutoApproved
+	default:
+		return approval
+	}
+}

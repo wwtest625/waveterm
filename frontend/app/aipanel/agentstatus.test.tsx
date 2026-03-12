@@ -2,6 +2,66 @@ import { describe, expect, it } from "vitest";
 import { deriveAgentRuntimeStatus } from "./agentstatus";
 
 describe("agent runtime status mapping", () => {
+    it("maps codex mcp-ready progress into a visible ready status", () => {
+        const snapshot = deriveAgentRuntimeStatus({
+            isLocalAgent: true,
+            provider: "codex",
+            mode: "auto-approve",
+            chatStatus: "streaming",
+            messages: [
+                {
+                    id: "m-progress",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-toolprogress",
+                            data: {
+                                toolcallid: "localagent:codex_wave_mcp_ready",
+                                toolname: "codex_wave_mcp_ready",
+                                statuslines: ["Wave 终端工具已连接，可开始执行查询"],
+                            },
+                        },
+                    ],
+                } as any,
+            ],
+            errorMessage: null,
+            localAgentHealth: { ok: true, provider: "codex", available: true, message: "ok" },
+        });
+
+        expect(snapshot.phase).toBe("ready");
+        expect(snapshot.phaseLabel).toBe("终端工具已连接");
+    });
+
+    it("maps codex terminal context progress into a visible ready status", () => {
+        const snapshot = deriveAgentRuntimeStatus({
+            isLocalAgent: true,
+            provider: "codex",
+            mode: "auto-approve",
+            chatStatus: "streaming",
+            messages: [
+                {
+                    id: "m-context",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-toolprogress",
+                            data: {
+                                toolcallid: "localagent:codex_wave_terminal_context_ok",
+                                toolname: "codex_wave_terminal_context_ok",
+                                statuslines: ["连接当前终端获取上下文：已成功"],
+                            },
+                        },
+                    ],
+                } as any,
+            ],
+            errorMessage: null,
+            localAgentHealth: { ok: true, provider: "codex", available: true, message: "ok" },
+        });
+
+        expect(snapshot.phase).toBe("ready");
+        expect(snapshot.phaseLabel).toBe("终端上下文已就绪");
+    });
+
     it("maps terminal read tool use into a reading phase", () => {
         const snapshot = deriveAgentRuntimeStatus({
             isLocalAgent: true,

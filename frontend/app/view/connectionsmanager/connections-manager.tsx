@@ -208,6 +208,97 @@ function WshStatusBadge({ host }: { host: string }) {
     );
 }
 
+function getConnectionFailureGuidance(errorText: string): { summary: string; hints: string[] } {
+    const lowerError = errorText.toLowerCase();
+    if (lowerError.includes("unable to authenticate") || lowerError.includes("no supported methods remain")) {
+        return {
+            summary: "The server rejected the authentication methods offered by this connection.",
+            hints: [
+                "Verify SSH User and credentials.",
+                "If password auth is disabled on the server, use Public Key or Keyboard Interactive.",
+                "If using root, confirm server policy allows root SSH login.",
+            ],
+        };
+    }
+    if (lowerError.includes("connection refused")) {
+        return {
+            summary: "The server host was reached, but the SSH port refused the connection.",
+            hints: [
+                "Confirm SSH is running on the target host.",
+                "Check the SSH port in this connection profile.",
+            ],
+        };
+    }
+    if (lowerError.includes("timed out") || lowerError.includes("timeout")) {
+        return {
+            summary: "The SSH test timed out before the server completed the handshake.",
+            hints: [
+                "Verify the host IP and port are correct.",
+                "Check firewall, security group, and network ACL rules.",
+            ],
+        };
+    }
+    if (lowerError.includes("no route to host") || lowerError.includes("network is unreachable")) {
+        return {
+            summary: "WaveTerm could not reach the target network endpoint.",
+            hints: ["Check routing/VPN settings and whether the host is reachable from this machine."],
+        };
+    }
+    return {
+        summary: "WaveTerm could not complete the requested operation for this connection.",
+        hints: ["Review the technical details below for the exact server response."],
+    };
+}
+
+function ConnectionFailureModalContent({
+    title,
+    error,
+    attemptedHost,
+}: {
+    title: string;
+    error: unknown;
+    attemptedHost?: string | null;
+}) {
+    const rawError = String(error ?? "Unknown error");
+    const guidance = getConnectionFailureGuidance(rawError);
+
+    return (
+        <div className="w-[84vw] max-w-[720px] max-h-[68vh] overflow-y-auto">
+            <div className="overflow-hidden rounded-xl border border-red-500/30 bg-gradient-to-b from-red-500/10 to-black/10">
+                <div className="border-b border-red-500/20 px-4 py-3">
+                    <div className="flex items-center gap-2">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-red-500/40 bg-red-500/15 text-red-300">
+                            <i className="fa-solid fa-triangle-exclamation text-xs" />
+                        </div>
+                        <div className="text-[15px] font-semibold tracking-[0.01em] text-primary">{title}</div>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-secondary">{guidance.summary}</p>
+                    {attemptedHost && (
+                        <div className="mt-2 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-panel px-2 py-1 text-xs text-secondary">
+                            <span className="uppercase tracking-wide text-[10px] text-secondary">Target</span>
+                            <span className="truncate font-mono text-primary">{attemptedHost}</span>
+                        </div>
+                    )}
+                </div>
+                <div className="px-4 py-3">
+                    <div className="text-[11px] uppercase tracking-wide text-secondary">Suggested checks</div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-secondary">
+                        {guidance.hints.map((hint) => (
+                            <li key={hint}>{hint}</li>
+                        ))}
+                    </ul>
+                </div>
+                <div className="px-4 pb-4">
+                    <div className="rounded-lg border border-border bg-black/30 p-3">
+                        <div className="mb-1 text-[11px] uppercase tracking-wide text-secondary">Technical details</div>
+                        <pre className="m-0 whitespace-pre-wrap break-words text-xs leading-5 text-primary">{rawError}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManagerViewModel>) {
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
     const [query, setQuery] = useState("");
@@ -220,6 +311,12 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     const [connectionsState, setConnectionsState] = useState<{[key: string]: ConnKeywords}>({});
     const [latencyMap, setLatencyMap] = useState<Record<string, number | null>>({});
     const selectedConnStatus = useAtomValue(getConnStatusAtom(selectedHost));
+
+    function showConnectionFailureModal(title: string, error: unknown, attemptedHost?: string | null) {
+        modalsModel.pushModal("MessageModal", {
+            children: <ConnectionFailureModalContent title={title} error={error} attemptedHost={attemptedHost} />,
+        });
+    }
 
     useEffect(() => {
         setConnectionsState(fullConfig?.connections ?? {});
@@ -343,7 +440,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 { timeout: 60000 }
             );
         } catch (e) {
-            modalsModel.pushModal("MessageModal", { children: `Connect failed: ${String(e)}` });
+            showConnectionFailureModal("Connect failed", e, host);
         }
     }
 
@@ -388,7 +485,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 setForm(makeBlankForm());
             }
         } catch (e) {
-            modalsModel.pushModal("MessageModal", { children: `Delete failed: ${String(e)}` });
+            showConnectionFailureModal("Delete failed", e, host);
         }
     }
 
@@ -424,19 +521,21 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         try {
             await persistForm();
         } catch (e) {
-            modalsModel.pushModal("MessageModal", { children: `Save failed: ${String(e)}` });
+            showConnectionFailureModal("Save failed", e);
         } finally {
             setSaving(false);
         }
     }
 
     async function handleTestConnection() {
+        let attemptedHost: string | null = null;
         setTesting(true);
         try {
             const host = await persistForm();
             if (!host) {
                 return;
             }
+            attemptedHost = host;
             await RpcApi.ConnEnsureCommand(
                 TabRpcClient,
                 {
@@ -446,19 +545,21 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 { timeout: 60000 }
             );
         } catch (e) {
-            modalsModel.pushModal("MessageModal", { children: `Connection test failed: ${String(e)}` });
+            showConnectionFailureModal("Connection test failed", e, attemptedHost);
         } finally {
             setTesting(false);
         }
     }
 
     async function handleEnsureWsh() {
+        let attemptedHost: string | null = null;
         setEnsuringWsh(true);
         try {
             const host = await persistForm();
             if (!host) {
                 return;
             }
+            attemptedHost = host;
             const connStatus = globalStore.get(getConnStatusAtom(host));
             if (shouldReinstallWsh(connStatus)) {
                 await RpcApi.ConnReinstallWshCommand(
@@ -480,7 +581,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 { timeout: 60000 }
             );
         } catch (e) {
-            modalsModel.pushModal("MessageModal", { children: `WSH setup failed: ${String(e)}` });
+            showConnectionFailureModal("WSH setup failed", e, attemptedHost);
         } finally {
             setEnsuringWsh(false);
         }

@@ -1,5 +1,7 @@
 # Codex App Server Migration Plan
 
+> 2026-03-12 troubleshooting addendum: `docs/plans/2026-03-12-codex-app-server-troubleshooting.md`
+
 > 日期：2026-03-10
 >
 > 目标：把 Wave 当前基于 `codex exec` 的本地 agent 执行内核，迁移到 `codex app-server` 的 thread/turn/event 模型，同时尽量保留现有前端 SSE/UI 契约。

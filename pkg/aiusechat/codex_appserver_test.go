@@ -63,7 +63,7 @@ func TestHandleCodexAppServerNotification_AgentMessageDelta(t *testing.T) {
 }
 
 func TestCodexBuildThreadStartRequest_UsesModernAndLegacyEnumVariants(t *testing.T) {
-	modern := codexBuildThreadStartRequest("/repo", false)
+	modern := codexBuildThreadStartRequest("/repo", false, false)
 	if got := modern["approvalPolicy"]; got != "unlessTrusted" {
 		t.Fatalf("modern approvalPolicy = %v, want unlessTrusted", got)
 	}
@@ -71,12 +71,28 @@ func TestCodexBuildThreadStartRequest_UsesModernAndLegacyEnumVariants(t *testing
 		t.Fatalf("modern sandbox = %v, want workspaceWrite", got)
 	}
 
-	legacy := codexBuildThreadStartRequest("/repo", true)
+	legacy := codexBuildThreadStartRequest("/repo", true, false)
 	if got := legacy["approvalPolicy"]; got != "untrusted" {
 		t.Fatalf("legacy approvalPolicy = %v, want untrusted", got)
 	}
 	if got := legacy["sandbox"]; got != "workspace-write" {
 		t.Fatalf("legacy sandbox = %v, want workspace-write", got)
+	}
+
+	modernBypass := codexBuildThreadStartRequest("/repo", false, true)
+	if got := modernBypass["approvalPolicy"]; got != "never" {
+		t.Fatalf("modern bypass approvalPolicy = %v, want never", got)
+	}
+	if got := modernBypass["sandbox"]; got != "dangerFullAccess" {
+		t.Fatalf("modern bypass sandbox = %v, want dangerFullAccess", got)
+	}
+
+	legacyBypass := codexBuildThreadStartRequest("/repo", true, true)
+	if got := legacyBypass["approvalPolicy"]; got != "never" {
+		t.Fatalf("legacy bypass approvalPolicy = %v, want never", got)
+	}
+	if got := legacyBypass["sandbox"]; got != "danger-full-access" {
+		t.Fatalf("legacy bypass sandbox = %v, want danger-full-access", got)
 	}
 }
 
@@ -116,6 +132,33 @@ func TestCodexShouldRetryThreadStartWithLegacyEnums(t *testing.T) {
 	err = errors.New("codex app-server thread/start failed (-32600): Invalid request: unknown variant workspaceWrite, expected one of read-only, workspace-write, danger-full-access")
 	if !codexShouldRetryThreadStartWithLegacyEnums(err) {
 		t.Fatalf("expected retry for legacy sandbox mismatch")
+	}
+
+	err = errors.New("codex app-server thread/start failed (-32600): Invalid request: unknown variant dangerFullAccess, expected one of read-only, workspace-write, danger-full-access")
+	if !codexShouldRetryThreadStartWithLegacyEnums(err) {
+		t.Fatalf("expected retry for danger-full-access sandbox mismatch")
+	}
+}
+
+func TestBuildCodexAppServerSessionSpec_BypassAndReasoningOverrides(t *testing.T) {
+	t.Setenv(localCodexEnableMcpEnvName, "0")
+	t.Setenv(localCodexAppServerBypassEnv, "1")
+	t.Setenv(localCodexAppServerEffortEnv, "medium")
+	spec, err := buildCodexAppServerSessionSpec(&PostMessageRequest{
+		ChatID:        "chat-bypass",
+		LocalProvider: LocalProviderCodex,
+	})
+	if err != nil {
+		t.Fatalf("buildCodexAppServerSessionSpec() error: %v", err)
+	}
+	if !spec.BypassApprovalsAndSandbox {
+		t.Fatalf("expected bypass flag to be enabled in session spec")
+	}
+	if len(spec.Args) < 2 || spec.Args[0] != "-c" || !strings.Contains(spec.Args[1], `model_reasoning_effort="medium"`) {
+		t.Fatalf("expected medium reasoning override in args, got %#v", spec.Args)
+	}
+	if !strings.Contains(spec.SessionKey, "bypass=true") {
+		t.Fatalf("expected session key to encode bypass flag, got %q", spec.SessionKey)
 	}
 }
 
@@ -246,6 +289,43 @@ func TestHandleCodexAppServerNotification_CommandExecutionPhaseAndTurnComplete(t
 	}
 }
 
+func TestHandleCodexAppServerNotification_MCPWaveContextPhase(t *testing.T) {
+	state := newCodexAppServerTurnState("")
+	var phases []localAgentLoopPhase
+	done, err := handleCodexAppServerNotification(
+		context.Background(),
+		nil,
+		nil,
+		codexAppServerRPCMessage{
+			Method: "item/started",
+			Params: []byte(`{"item":{"id":"item-1","type":"mcpToolCall","toolName":"wave_read_current_terminal_context"}}`),
+		},
+		state,
+		nil,
+		func(phase localAgentLoopPhase) { phases = append(phases, phase) },
+	)
+	if err != nil || done {
+		t.Fatalf("unexpected item/started result: done=%v err=%v", done, err)
+	}
+	if len(phases) < 2 {
+		t.Fatalf("expected mcp and context phases, got %+v", phases)
+	}
+	if phases[0].ToolName != "codex_mcp_tool" || phases[0].StatusLine != "wave_read_current_terminal_context" {
+		t.Fatalf("unexpected mcp phase: %+v", phases[0])
+	}
+	if phases[1].ToolName != "codex_wave_terminal_context_ok" || !strings.Contains(phases[1].StatusLine, "已成功") {
+		t.Fatalf("unexpected context success phase: %+v", phases[1])
+	}
+}
+
+func TestCodexExtractStartedToolName_FromRawParamsFallback(t *testing.T) {
+	raw := []byte(`{"item":{"id":"item-1","type":"mcpToolCall","meta":{"tool":"wave_wait_terminal_idle"}}}`)
+	got := codexExtractStartedToolName(nil, map[string]any{}, raw)
+	if got != "wave_wait_terminal_idle" {
+		t.Fatalf("expected raw fallback wave tool name, got %q", got)
+	}
+}
+
 func TestCodexAppServerClientReadLoop_RoutesServerRequestsToNotifyChannel(t *testing.T) {
 	stdoutReader, stdoutWriter := io.Pipe()
 	client := newCodexAppServerClient(testWriteCloser{Writer: io.Discard}, stdoutReader)
@@ -327,6 +407,53 @@ func TestHandleCodexAppServerNotification_RequestApprovalBridge(t *testing.T) {
 	}
 	if !strings.Contains(body, `"approval":"needs-approval"`) || !strings.Contains(body, `"approval":"user-approved"`) || !strings.Contains(body, `"status":"completed"`) {
 		t.Fatalf("expected approval lifecycle SSE updates, got:\n%s", body)
+	}
+	lines := strings.Split(strings.TrimSpace(outbound.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected one approval response line, got %d (%q)", len(lines), outbound.String())
+	}
+	var resp struct {
+		ID     string `json:"id"`
+		Result struct {
+			Decision string `json:"decision"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &resp); err != nil {
+		t.Fatalf("failed to decode approval response: %v", err)
+	}
+	if resp.ID != "req-1" || resp.Result.Decision != "accept" {
+		t.Fatalf("unexpected approval response payload: %+v", resp)
+	}
+}
+
+func TestHandleCodexAppServerNotification_RequestApprovalBridgeAutoApprove(t *testing.T) {
+	recorder := &testSSERecorder{ResponseRecorder: httptest.NewRecorder()}
+	sseHandler := sse.MakeSSEHandlerCh(recorder, context.Background())
+	if err := sseHandler.SetupSSE(); err != nil {
+		t.Fatalf("SetupSSE() error: %v", err)
+	}
+	defer sseHandler.Close()
+	var outbound bytes.Buffer
+	client := newCodexAppServerClient(testWriteCloser{Writer: &outbound}, io.NopCloser(strings.NewReader("")))
+	state := newCodexAppServerTurnState("turn-1")
+	if _, err := handleCodexAppServerNotification(context.Background(), client, sseHandler, codexAppServerRPCMessage{Method: "item/started", Params: []byte(`{"item":{"id":"item-1","type":"commandExecution","command":["uname","-a"],"cwd":"/repo"}}`)}, state, nil, nil); err != nil {
+		t.Fatalf("item/started error: %v", err)
+	}
+	ctx := localAgentContextWithAgentMode(context.Background(), AgentModeAutoApprove)
+	if _, err := handleCodexAppServerNotification(ctx, client, sseHandler, codexAppServerRPCMessage{ID: json.RawMessage(`"req-1"`), Method: "item/commandExecution/requestApproval", Params: []byte(`{"threadId":"thr-1","turnId":"turn-1","itemId":"item-1","reason":"Need approval"}`)}, state, nil, nil); err != nil {
+		t.Fatalf("approval bridge returned error: %v", err)
+	}
+	if _, exists := getToolApprovalRequest(codexToolUseCallID("req-1")); exists {
+		t.Fatalf("expected auto-approve flow to avoid manual approval registration")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	body := recorder.Body.String()
+	for time.Now().Before(deadline) && !strings.Contains(body, `"approval":"auto-approved"`) {
+		time.Sleep(10 * time.Millisecond)
+		body = recorder.Body.String()
+	}
+	if !strings.Contains(body, `"approval":"auto-approved"`) {
+		t.Fatalf("expected auto-approved SSE payload, got:\n%s", body)
 	}
 	lines := strings.Split(strings.TrimSpace(outbound.String()), "\n")
 	if len(lines) != 1 {
