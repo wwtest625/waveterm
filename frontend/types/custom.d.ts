@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import type { WaveEnv } from "@/app/waveenv/waveenv";
 import { type Placement } from "@floating-ui/react";
 import type * as jotai from "jotai";
 import type * as rxjs from "rxjs";
@@ -289,6 +290,7 @@ declare global {
         resultsIndex: PrimitiveAtom<number>;
         resultsCount: PrimitiveAtom<number>;
         isOpen: PrimitiveAtom<boolean>;
+        focusInput: PrimitiveAtom<number>;
         regex?: PrimitiveAtom<boolean>;
         caseSensitive?: PrimitiveAtom<boolean>;
         wholeWord?: PrimitiveAtom<boolean>;
