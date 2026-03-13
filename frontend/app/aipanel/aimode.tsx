@@ -22,6 +22,7 @@ interface AIModeMenuItemProps {
 }
 
 const AIModeMenuItem = memo(({ config, isSelected, isDisabled, isPremiumDisabled, onClick, isFirst, isLast }: AIModeMenuItemProps) => {
+    const modelName = config["ai:model"];
     return (
         <button
             key={config.mode}
@@ -41,14 +42,22 @@ const AIModeMenuItem = memo(({ config, isSelected, isDisabled, isPremiumDisabled
                 </span>
                 {isSelected && <i className="fa fa-check ml-auto"></i>}
             </div>
-            {config["display:description"] && (
-                <div
-                    className={cn("text-xs pl-5", isDisabled ? "text-gray-500" : "text-muted")}
-                    style={{ whiteSpace: "pre-line" }}
-                >
-                    {config["display:description"]}
-                </div>
-            )}
+            <div className="flex items-center gap-2 pl-5">
+                {config["display:description"] && (
+                    <div
+                        className={cn("text-xs", isDisabled ? "text-gray-500" : "text-muted")}
+                        style={{ whiteSpace: "pre-line" }}
+                    >
+                        {config["display:description"]}
+                    </div>
+                )}
+                {modelName && (
+                    <div className="text-xs text-accent-400/70">
+                        <i className="fa-solid fa-robot text-[10px] mr-1" />
+                        {modelName}
+                    </div>
+                )}
+            </div>
         </button>
     );
 });

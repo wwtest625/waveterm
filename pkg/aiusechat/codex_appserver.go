@@ -1286,10 +1286,11 @@ func (s *codexAppServerSession) runTurn(ctx context.Context, input localAgentCod
 			"text": prompt,
 		}},
 	}
+	instructions := buildTerminalQuerySettingsInstructions(input.BlockId)
 	turnStartParams["settings"] = map[string]any{
-		"developer_instructions": buildTerminalQuerySettingsInstructions(input.BlockId),
+		"developer_instructions": instructions,
 	}
-	log.Printf("local-agent: codex app-server adding wsh instructions\n")
+	log.Printf("local-agent: codex app-server adding wsh instructions blockid=%q len=%d\n", strings.TrimSpace(input.BlockId), len(instructions))
 	if err := s.client.call(ctx, "turn/start", turnStartParams, &turnResp); err != nil {
 		return "", codexAppServerCommandError(err, s.stderrBuf.String())
 	}

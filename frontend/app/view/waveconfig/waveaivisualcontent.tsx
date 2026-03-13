@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { WaveConfigViewModel } from "@/app/view/waveconfig/waveconfig-model";
+import { ModelSelector } from "@/app/aipanel/modelselector";
 import { cn } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { memo, useCallback, useMemo, useState } from "react";
@@ -137,6 +138,7 @@ export const WaveAIVisualContent = memo(({ model }: WaveAIVisualContentProps) =>
     const [selectedMode, setSelectedMode] = useState<string | null>(null);
     const [isCreating, setIsCreating] = useState(false);
     const [newModeName, setNewModeName] = useState("");
+    const [showModelSelector, setShowModelSelector] = useState(false);
 
     const aiModes: WaveAIModesData = useMemo(() => {
         try {
@@ -278,8 +280,14 @@ export const WaveAIVisualContent = memo(({ model }: WaveAIVisualContentProps) =>
                                 <div className="text-sm font-medium text-zinc-200 truncate">
                                     {aiModes[name]?.["display:name"] || name}
                                 </div>
-                                <div className="text-xs text-zinc-500 truncate">
-                                    {aiModes[name]?.["ai:provider"]} - {aiModes[name]?.["ai:model"]}
+                                <div className="flex items-center gap-2 text-xs text-zinc-500">
+                                    <span className="truncate">{aiModes[name]?.["ai:provider"]}</span>
+                                    {aiModes[name]?.["ai:model"] && (
+                                        <>
+                                            <span>•</span>
+                                            <span className="text-accent-400/70 truncate">{aiModes[name]?.["ai:model"]}</span>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                             {isBuiltInMode(name) && (
@@ -390,11 +398,31 @@ export const WaveAIVisualContent = memo(({ model }: WaveAIVisualContentProps) =>
                             />
                         </FormField>
                         <FormField label="模型">
-                            <TextInput
-                                value={currentMode?.["ai:model"] || ""}
-                                onChange={(v) => updateMode(selectedMode, "ai:model", v || undefined)}
-                                placeholder="gpt-4, gpt-4o, claude-3-opus..."
-                            />
+                            <div className="flex flex-col gap-2">
+                                <div className="flex gap-2">
+                                    <TextInput
+                                        value={currentMode?.["ai:model"] || ""}
+                                        onChange={(v) => updateMode(selectedMode, "ai:model", v || undefined)}
+                                        placeholder="gpt-4, gpt-4o, claude-3-opus..."
+                                    />
+                                    <button
+                                        onClick={() => setShowModelSelector(true)}
+                                        className="px-3 py-2 bg-zinc-700 hover:bg-zinc-600 border border-zinc-600 rounded text-sm text-zinc-300 transition-colors whitespace-nowrap"
+                                        title="获取模型列表"
+                                    >
+                                        <i className="fa-solid fa-download mr-1" />
+                                        获取
+                                    </button>
+                                </div>
+                                {currentMode?.["ai:model"] && (
+                                    <div className="flex flex-wrap gap-1">
+                                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-accent-600/20 border border-accent-500/30 rounded text-xs text-zinc-300">
+                                            <i className="fa-solid fa-robot text-[10px]" />
+                                            {currentMode["ai:model"]}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
                         </FormField>
                         <FormField label="API 端点">
                             <TextInput
@@ -412,8 +440,8 @@ export const WaveAIVisualContent = memo(({ model }: WaveAIVisualContentProps) =>
                         </FormField>
                     </SettingSection>
 
-                    <SettingSection title="模型参数" icon="fa-sliders">
-                        <FormField label="思考级别">
+                    <SettingSection title="模型选项" icon="fa-sliders">
+                        <FormField label="思考深度">
                             <SelectInput
                                 value={currentMode?.["ai:thinkinglevel"] || "low"}
                                 onChange={(v) => updateMode(selectedMode, "ai:thinkinglevel", v)}
@@ -424,52 +452,34 @@ export const WaveAIVisualContent = memo(({ model }: WaveAIVisualContentProps) =>
                                 ]}
                             />
                         </FormField>
-                        <FormField label="详细程度">
-                            <SelectInput
-                                value={currentMode?.["ai:verbosity"] || "low"}
-                                onChange={(v) => updateMode(selectedMode, "ai:verbosity", v)}
-                                options={[
-                                    { value: "low", label: "低" },
-                                    { value: "medium", label: "中" },
-                                    { value: "high", label: "高" },
-                                ]}
-                            />
-                        </FormField>
-                        <FormField label="最大令牌数">
-                            <TextInput
-                                value={currentMode?.["ai:maxtokens"]?.toString() || ""}
-                                onChange={(v) => updateMode(selectedMode, "ai:maxtokens", parseInt(v) || undefined)}
-                                placeholder="4000"
-                            />
-                        </FormField>
-                        <FormField label="超时时间 (毫秒)">
-                            <TextInput
-                                value={currentMode?.["ai:timeoutms"]?.toString() || ""}
-                                onChange={(v) => updateMode(selectedMode, "ai:timeoutms", parseInt(v) || undefined)}
-                                placeholder="60000"
-                            />
-                        </FormField>
                     </SettingSection>
 
                     <SettingSection title="能力" icon="fa-rocket">
+                        <p className="text-xs text-zinc-500 mb-2">选择 AI 模式支持的功能，默认启用工具</p>
                         <div className="grid grid-cols-3 gap-3">
-                            {["tools", "images", "pdfs"].map((cap) => (
-                                <label key={cap} className="flex items-center gap-2 cursor-pointer">
+                            {[
+                                { key: "tools", label: "工具", desc: "文件读写、终端命令" },
+                                { key: "images", label: "图片", desc: "分析上传的图片" },
+                                { key: "pdfs", label: "PDF", desc: "读取 PDF 文件" }
+                            ].map((cap) => (
+                                <label key={cap.key} className="flex items-start gap-2 cursor-pointer p-2 rounded hover:bg-zinc-800/50 border border-transparent hover:border-zinc-700">
                                     <input
                                         type="checkbox"
-                                        checked={currentMode?.["ai:capabilities"]?.includes(cap) || false}
+                                        checked={currentMode?.["ai:capabilities"]?.includes(cap.key) || (cap.key === "tools" && !currentMode?.["ai:capabilities"])}
                                         onChange={(e) => {
-                                            const current = currentMode?.["ai:capabilities"] || [];
+                                            const current = currentMode?.["ai:capabilities"] || ["tools"];
                                             const newCaps = e.target.checked
-                                                ? [...current, cap]
-                                                : current.filter((c: string) => c !== cap);
-                                            updateMode(selectedMode, "ai:capabilities", newCaps);
+                                                ? [...current, cap.key]
+                                                : current.filter((c: string) => c !== cap.key);
+                                            const capsToSave = newCaps.length > 0 ? [...new Set(newCaps)] : undefined;
+                                            updateMode(selectedMode, "ai:capabilities", capsToSave);
                                         }}
-                                        className="w-4 h-4 rounded bg-zinc-800 border-zinc-600 text-accent-500 focus:ring-accent-500"
+                                        className="w-4 h-4 mt-0.5 rounded bg-zinc-800 border-zinc-600 text-accent-500 focus:ring-accent-500"
                                     />
-                                    <span className="text-sm text-zinc-300">
-                                        {cap === "tools" ? "工具" : cap === "images" ? "图片" : "PDF"}
-                                    </span>
+                                    <div>
+                                        <span className="text-sm text-zinc-300">{cap.label}</span>
+                                        <div className="text-xs text-zinc-500">{cap.desc}</div>
+                                    </div>
                                 </label>
                             ))}
                         </div>
@@ -483,6 +493,21 @@ export const WaveAIVisualContent = memo(({ model }: WaveAIVisualContentProps) =>
         <div className="flex h-full bg-zinc-900">
             <div className="w-72 border-r border-zinc-700 flex-shrink-0">{renderModeList()}</div>
             <div className="flex-1 min-w-0">{renderModeForm()}</div>
+            {showModelSelector && currentMode && (
+                <ModelSelector
+                    provider={currentMode?.["ai:provider"] || "openai"}
+                    endpoint={currentMode?.["ai:endpoint"]}
+                    secretName={currentMode?.["ai:apitokensecretname"]}
+                    modeKey={selectedMode || undefined}
+                    selectedModel={currentMode?.["ai:model"] || ""}
+                    onModelSelected={(model) => {
+                        if (model) {
+                            updateMode(selectedMode, "ai:model", model);
+                        }
+                    }}
+                    onClose={() => setShowModelSelector(false)}
+                />
+            )}
         </div>
     );
 });

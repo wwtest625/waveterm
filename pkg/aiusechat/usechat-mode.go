@@ -102,6 +102,9 @@ func applyProviderDefaults(config *wconfig.AIModeConfigType) {
 		if config.APITokenSecretName == "" {
 			config.APITokenSecretName = OpenRouterAPITokenSecretName
 		}
+		if len(config.Capabilities) == 0 {
+			config.Capabilities = []string{uctypes.AICapabilityTools}
+		}
 	}
 	if config.Provider == uctypes.AIProvider_NanoGPT {
 		if config.APIType == "" {
@@ -113,6 +116,9 @@ func applyProviderDefaults(config *wconfig.AIModeConfigType) {
 		if config.APITokenSecretName == "" {
 			config.APITokenSecretName = NanoGPTAPITokenSecretName
 		}
+		if len(config.Capabilities) == 0 {
+			config.Capabilities = []string{uctypes.AICapabilityTools}
+		}
 	}
 	if config.Provider == uctypes.AIProvider_Groq {
 		if config.APIType == "" {
@@ -123,6 +129,9 @@ func applyProviderDefaults(config *wconfig.AIModeConfigType) {
 		}
 		if config.APITokenSecretName == "" {
 			config.APITokenSecretName = GroqAPITokenSecretName
+		}
+		if len(config.Capabilities) == 0 {
+			config.Capabilities = []string{uctypes.AICapabilityTools}
 		}
 	}
 	if config.Provider == uctypes.AIProvider_AzureLegacy {
@@ -138,6 +147,9 @@ func applyProviderDefaults(config *wconfig.AIModeConfigType) {
 		}
 		if config.APITokenSecretName == "" {
 			config.APITokenSecretName = AzureOpenAIAPITokenSecretName
+		}
+		if len(config.Capabilities) == 0 {
+			config.Capabilities = []string{uctypes.AICapabilityTools}
 		}
 	}
 	if config.Provider == uctypes.AIProvider_Azure {
@@ -157,6 +169,9 @@ func applyProviderDefaults(config *wconfig.AIModeConfigType) {
 		}
 		if config.APITokenSecretName == "" {
 			config.APITokenSecretName = AzureOpenAIAPITokenSecretName
+		}
+		if len(config.Capabilities) == 0 {
+			config.Capabilities = []string{uctypes.AICapabilityTools}
 		}
 	}
 	if config.Provider == uctypes.AIProvider_Google {

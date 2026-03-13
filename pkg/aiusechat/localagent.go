@@ -984,7 +984,7 @@ func WaveAILocalAgentPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHan
 	history := buildLocalPromptHistoryTurns(req.ChatID, req.Msg.MessageId)
 	prompt := buildLocalAgentPromptWithModeAndBudget(userText, chatOpts.TabState, history, getLocalPromptTokenBudget(), resolveAgentMode(chatOpts.AgentMode))
 	provider := normalizeLocalProvider(req.LocalProvider)
-	log.Printf("local-agent provider=%s chatid=%s widgetaccess=%v\n", provider, req.ChatID, req.WidgetAccess)
+	log.Printf("local-agent provider=%s chatid=%s widgetaccess=%v blockid=%q\n", provider, req.ChatID, req.WidgetAccess, strings.TrimSpace(req.BlockId))
 	ctx = localAgentContextWithSSEHandler(ctx, sseHandler)
 	isTerminalQuery := isTerminalQueryRequest(userText)
 	ctx = localAgentContextWithCodexTurnInputs(ctx, localAgentCodexTurnInputs{

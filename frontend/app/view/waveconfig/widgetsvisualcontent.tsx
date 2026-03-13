@@ -120,7 +120,7 @@ export const WidgetsVisualContent = memo(({ model }: WidgetsVisualContentProps) 
                 setFileContent(JSON.stringify(newWidgets, null, 2));
             } else {
                 const newWidgets = { ...widgets };
-                delete newWidgets[widgetKey];
+                newWidgets[widgetKey] = null;
                 setFileContent(JSON.stringify(newWidgets, null, 2));
             }
             model.markAsEdited();
@@ -157,6 +157,8 @@ export const WidgetsVisualContent = memo(({ model }: WidgetsVisualContentProps) 
                 <div className="border border-zinc-700/50 rounded-lg overflow-hidden">
                     {widgetNames.map((widgetKey, index) => {
                         const isEnabled = widgets[widgetKey] !== undefined;
+                        const isExplicitlyDisabled = widgets[widgetKey] === null;
+                        const shouldShowEnabled = !isExplicitlyDisabled;
                         const defaultWidget = defaultWidgets[widgetKey];
                         const label = widgetLabels[widgetKey] || defaultWidget?.label || widgetKey;
 
@@ -165,7 +167,7 @@ export const WidgetsVisualContent = memo(({ model }: WidgetsVisualContentProps) 
                                 key={widgetKey}
                                 className={cn(
                                     "flex items-center gap-4 px-4 py-3 border-b border-zinc-700/50 last:border-b-0",
-                                    isEnabled ? "bg-zinc-800/30" : "bg-zinc-900/50 opacity-60"
+                                    shouldShowEnabled ? "bg-zinc-800/30" : "bg-zinc-900/50 opacity-60"
                                 )}
                             >
                                 <div className="flex-1 min-w-0">
@@ -178,7 +180,7 @@ export const WidgetsVisualContent = memo(({ model }: WidgetsVisualContentProps) 
                                 <div className="flex items-center gap-2 shrink-0">
                                     <button
                                         onClick={() => moveWidget(widgetKey, "up")}
-                                        disabled={index === 0}
+                                        disabled={index === 0 || !shouldShowEnabled}
                                         className="p-1.5 hover:bg-zinc-700 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                         title="上移"
                                     >
@@ -186,14 +188,14 @@ export const WidgetsVisualContent = memo(({ model }: WidgetsVisualContentProps) 
                                     </button>
                                     <button
                                         onClick={() => moveWidget(widgetKey, "down")}
-                                        disabled={index === widgetNames.length - 1}
+                                        disabled={index === widgetNames.length - 1 || !shouldShowEnabled}
                                         className="p-1.5 hover:bg-zinc-700 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                         title="下移"
                                     >
                                         <i className="fa-sharp fa-solid fa-chevron-down text-zinc-400 text-xs" />
                                     </button>
                                     <ToggleSwitch
-                                        checked={isEnabled}
+                                        checked={shouldShowEnabled}
                                         onChange={(enabled) => updateWidget(widgetKey, enabled)}
                                     />
                                 </div>
