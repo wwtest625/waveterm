@@ -108,6 +108,19 @@ func TestCodexUserAgentPrefersLegacyEnums(t *testing.T) {
 	}
 }
 
+func TestBuildTerminalQuerySettingsInstructions_UsesPureWSHCommands(t *testing.T) {
+	instructions := buildTerminalQuerySettingsInstructions("block-123")
+	if !strings.Contains(instructions, "wsh termscrollback -b block-123 --lastcommand") {
+		t.Fatalf("expected termscrollback command guidance, got:\n%s", instructions)
+	}
+	if !strings.Contains(instructions, "echo \"content\" | wsh file write <path-or-uri>") {
+		t.Fatalf("expected stdin-based wsh file write guidance, got:\n%s", instructions)
+	}
+	if strings.Contains(instructions, "wsh blocks scrollback") {
+		t.Fatalf("did not expect deprecated blocks scrollback guidance, got:\n%s", instructions)
+	}
+}
+
 func TestCodexShouldRetryThreadStartWithLegacyEnums(t *testing.T) {
 	err := io.EOF
 	if codexShouldRetryThreadStartWithLegacyEnums(err) {
@@ -140,8 +153,22 @@ func TestCodexShouldRetryThreadStartWithLegacyEnums(t *testing.T) {
 	}
 }
 
+func TestBuildCodexAppServerSessionSpec_DoesNotInjectLegacyToolConfig(t *testing.T) {
+	spec, err := buildCodexAppServerSessionSpec(&PostMessageRequest{
+		ChatID:        "chat-pure-wsh",
+		LocalProvider: LocalProviderCodex,
+	})
+	if err != nil {
+		t.Fatalf("buildCodexAppServerSessionSpec() error: %v", err)
+	}
+	for _, arg := range spec.Args {
+		if strings.Contains(arg, "mcp_servers.") {
+			t.Fatalf("did not expect legacy MCP config args in pure wsh mode, got %#v", spec.Args)
+		}
+	}
+}
+
 func TestBuildCodexAppServerSessionSpec_BypassAndReasoningOverrides(t *testing.T) {
-	t.Setenv(localCodexEnableMcpEnvName, "0")
 	t.Setenv(localCodexAppServerBypassEnv, "1")
 	t.Setenv(localCodexAppServerEffortEnv, "medium")
 	spec, err := buildCodexAppServerSessionSpec(&PostMessageRequest{
@@ -163,7 +190,6 @@ func TestBuildCodexAppServerSessionSpec_BypassAndReasoningOverrides(t *testing.T
 }
 
 func TestCodexAppServerSessionManager_ReusesSessionAndUsesIncrementalPrompt(t *testing.T) {
-	t.Setenv(localCodexEnableMcpEnvName, "0")
 	manager := newCodexAppServerSessionManager()
 	origFactory := newCodexAppServerSessionRunnerFn
 	t.Cleanup(func() {
@@ -204,7 +230,6 @@ func TestCodexAppServerSessionManager_ReusesSessionAndUsesIncrementalPrompt(t *t
 }
 
 func TestCodexAppServerSessionManager_RecreatesSessionAndResumesThread(t *testing.T) {
-	t.Setenv(localCodexEnableMcpEnvName, "0")
 	chatstore.DefaultChatStore.Delete("chat-resume")
 	t.Cleanup(func() {
 		chatstore.DefaultChatStore.Delete("chat-resume")
@@ -286,43 +311,6 @@ func TestHandleCodexAppServerNotification_CommandExecutionPhaseAndTurnComplete(t
 	done, err = handleCodexAppServerNotification(context.Background(), nil, nil, codexAppServerRPCMessage{Method: "turn/completed", Params: []byte(`{"turn":{"status":"completed"}}`)}, state, nil, nil)
 	if err != nil || !done {
 		t.Fatalf("unexpected turn completion: done=%v err=%v", done, err)
-	}
-}
-
-func TestHandleCodexAppServerNotification_MCPWaveContextPhase(t *testing.T) {
-	state := newCodexAppServerTurnState("")
-	var phases []localAgentLoopPhase
-	done, err := handleCodexAppServerNotification(
-		context.Background(),
-		nil,
-		nil,
-		codexAppServerRPCMessage{
-			Method: "item/started",
-			Params: []byte(`{"item":{"id":"item-1","type":"mcpToolCall","toolName":"wave_read_current_terminal_context"}}`),
-		},
-		state,
-		nil,
-		func(phase localAgentLoopPhase) { phases = append(phases, phase) },
-	)
-	if err != nil || done {
-		t.Fatalf("unexpected item/started result: done=%v err=%v", done, err)
-	}
-	if len(phases) < 2 {
-		t.Fatalf("expected mcp and context phases, got %+v", phases)
-	}
-	if phases[0].ToolName != "codex_mcp_tool" || phases[0].StatusLine != "wave_read_current_terminal_context" {
-		t.Fatalf("unexpected mcp phase: %+v", phases[0])
-	}
-	if phases[1].ToolName != "codex_wave_terminal_context_ok" || !strings.Contains(phases[1].StatusLine, "已成功") {
-		t.Fatalf("unexpected context success phase: %+v", phases[1])
-	}
-}
-
-func TestCodexExtractStartedToolName_FromRawParamsFallback(t *testing.T) {
-	raw := []byte(`{"item":{"id":"item-1","type":"mcpToolCall","meta":{"tool":"wave_wait_terminal_idle"}}}`)
-	got := codexExtractStartedToolName(nil, map[string]any{}, raw)
-	if got != "wave_wait_terminal_idle" {
-		t.Fatalf("expected raw fallback wave tool name, got %q", got)
 	}
 }
 

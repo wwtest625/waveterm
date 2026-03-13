@@ -22,17 +22,14 @@ func (r *testSSERecorder) SetWriteDeadline(time.Time) error {
 	return nil
 }
 
-func TestLocalAgentLoop_ReadInjectWaitRead(t *testing.T) {
+func TestLocalAgentLoop_EmitsCommandExecutionProgress(t *testing.T) {
 	origRunner := runLocalAgentCommandFn
 	t.Cleanup(func() {
 		runLocalAgentCommandFn = origRunner
 	})
 
 	runLocalAgentCommandFn = func(ctx context.Context, req *PostMessageRequest, provider string, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
-		onPhase(localAgentLoopPhase{ToolName: "wave_read_current_terminal_context", StatusLine: "Reading terminal context"})
-		onPhase(localAgentLoopPhase{ToolName: "wave_inject_terminal_command", StatusLine: "Injecting command"})
-		onPhase(localAgentLoopPhase{ToolName: "wave_wait_terminal_idle", StatusLine: "Waiting for terminal idle"})
-		onPhase(localAgentLoopPhase{ToolName: "wave_get_terminal_command_result", StatusLine: "Reading terminal command result"})
+		onPhase(localAgentLoopPhase{ToolName: "codex_command_execution", StatusLine: "lscpu"})
 		onDelta("loop complete")
 		return "loop complete", nil
 	}
@@ -64,10 +61,7 @@ func TestLocalAgentLoop_ReadInjectWaitRead(t *testing.T) {
 
 	body := recorder.Body.String()
 	expectedOrder := []string{
-		`"toolname":"wave_read_current_terminal_context"`,
-		`"toolname":"wave_inject_terminal_command"`,
-		`"toolname":"wave_wait_terminal_idle"`,
-		`"toolname":"wave_get_terminal_command_result"`,
+		`"toolname":"codex_command_execution"`,
 	}
 	lastIdx := -1
 	for _, marker := range expectedOrder {
@@ -100,12 +94,10 @@ func TestLocalAgentLoop_RetriesWhenAgentClaimsHostPolicyButNoTerminalToolWasUsed
 		if callCount == 1 {
 			return "当前我这边对终端的系统查询命令被宿主策略直接拦了。", nil
 		}
-		if !strings.Contains(prompt, "You must use the available wave_ terminal MCP tools on this retry") {
-			t.Fatalf("expected retry prompt to require terminal MCP tool usage, got:\n%s", prompt)
+		if !strings.Contains(prompt, "You must execute real terminal commands (prefer wsh) on this retry") {
+			t.Fatalf("expected retry prompt to require real command execution, got:\n%s", prompt)
 		}
-		onPhase(localAgentLoopPhase{ToolName: "wave_inject_terminal_command", StatusLine: "Injecting command"})
-		onPhase(localAgentLoopPhase{ToolName: "wave_wait_terminal_idle", StatusLine: "Waiting for terminal idle"})
-		onPhase(localAgentLoopPhase{ToolName: "wave_get_terminal_command_result", StatusLine: "Reading terminal command result"})
+		onPhase(localAgentLoopPhase{ToolName: "codex_command_execution", StatusLine: "lscpu"})
 		onDelta("CPU result")
 		return "CPU result", nil
 	}
@@ -139,8 +131,8 @@ func TestLocalAgentLoop_RetriesWhenAgentClaimsHostPolicyButNoTerminalToolWasUsed
 	if callCount != 2 {
 		t.Fatalf("expected local agent retry, got %d calls", callCount)
 	}
-	if !strings.Contains(body, `"toolname":"wave_inject_terminal_command"`) {
-		t.Fatalf("expected retry path to emit terminal tool usage, got:\n%s", body)
+	if !strings.Contains(body, `"toolname":"codex_command_execution"`) {
+		t.Fatalf("expected retry path to emit command execution usage, got:\n%s", body)
 	}
 	if strings.Contains(body, "宿主策略直接拦了") && !strings.Contains(body, "CPU result") {
 		t.Fatalf("expected retry result to replace first bogus refusal, got:\n%s", body)
@@ -156,7 +148,7 @@ func TestLocalAgentLoop_DoesNotRetryWhenTerminalToolWasActuallyUsed(t *testing.T
 	callCount := 0
 	runLocalAgentCommandFn = func(ctx context.Context, req *PostMessageRequest, provider string, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
 		callCount++
-		onPhase(localAgentLoopPhase{ToolName: "wave_inject_terminal_command", StatusLine: "Injecting command"})
+		onPhase(localAgentLoopPhase{ToolName: "codex_command_execution", StatusLine: "lscpu"})
 		return "当前我这边对终端的系统查询命令被宿主策略直接拦了。", nil
 	}
 
@@ -190,7 +182,7 @@ func TestLocalAgentLoop_DoesNotRetryWhenTerminalToolWasActuallyUsed(t *testing.T
 	}
 }
 
-func TestLocalAgentLoop_CompressesInternalMCPDebugWithoutTerminalToolUse(t *testing.T) {
+func TestLocalAgentLoop_CompressesInternalDebugWithoutTerminalToolUse(t *testing.T) {
 	origRunner := runLocalAgentCommandFn
 	t.Cleanup(func() {
 		runLocalAgentCommandFn = origRunner
@@ -199,7 +191,7 @@ func TestLocalAgentLoop_CompressesInternalMCPDebugWithoutTerminalToolUse(t *test
 	callCount := 0
 	runLocalAgentCommandFn = func(ctx context.Context, req *PostMessageRequest, provider string, prompt string, onDelta func(string), onPhase func(localAgentLoopPhase)) (string, error) {
 		callCount++
-		return "我刚刚实际检查了当前会话的 MCP 能力：list_mcp_resources 返回空。wave_get_terminal_command_result unknown MCP server。CreateProcess failed.", nil
+		return "我刚刚尝试执行查询，但命令链路异常：CreateProcess failed.", nil
 	}
 
 	recorder := &testSSERecorder{ResponseRecorder: httptest.NewRecorder()}
@@ -231,10 +223,10 @@ func TestLocalAgentLoop_CompressesInternalMCPDebugWithoutTerminalToolUse(t *test
 	if callCount != 2 {
 		t.Fatalf("expected one retry before summary compression, got %d calls", callCount)
 	}
-	if strings.Contains(body, "list_mcp_resources") || strings.Contains(body, "CreateProcess failed") {
-		t.Fatalf("expected internal MCP debug text to be compressed, got:\n%s", body)
+	if strings.Contains(body, "CreateProcess failed") {
+		t.Fatalf("expected internal debug text to be compressed, got:\n%s", body)
 	}
-	if !strings.Contains(body, "未能通过 Wave 终端工具完成这次查询") {
+	if !strings.Contains(body, "未能通过当前终端执行命令完成这次查询") {
 		t.Fatalf("expected concise terminal failure summary, got:\n%s", body)
 	}
 }

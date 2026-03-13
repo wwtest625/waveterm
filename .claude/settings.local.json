@@ -6,7 +6,7 @@
       "Bash(xargs grep:*)",
       "Bash(npm run:*)",
       "Bash(go build:*)",
-      "Bash(wsh mcpserve:*)",
+      "Bash(wsh:*)",
       "Bash(echo:*)"
     ]
   }

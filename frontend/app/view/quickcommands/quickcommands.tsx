@@ -9,7 +9,7 @@ import { getLayoutModelForStaticTab } from "@/layout/index";
 import { getApi, getBlockComponentModel, globalStore } from "@/store/global";
 import { RpcApi } from "@/store/wshclientapi";
 import { TabRpcClient } from "@/store/wshrpcutil";
-import { base64ToString } from "@/util/util";
+import { base64ToString, stringToBase64 } from "@/util/util";
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type MouseEvent } from "react";
 import {

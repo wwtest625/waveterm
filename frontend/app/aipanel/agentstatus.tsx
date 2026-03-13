@@ -57,16 +57,12 @@ function formatModeLabel(mode: AgentMode): string {
 
 function getToolUsePhase(toolName: string | undefined): Pick<AgentRuntimeStatusSnapshot, "phase" | "phaseLabel"> | null {
     switch (toolName) {
-        case "wave_read_current_terminal_context":
-        case "wave_read_terminal_scrollback":
-        case "wave_get_terminal_command_result":
         case "term_get_scrollback":
         case "term_command_output":
             return { phase: "reading-terminal", phaseLabel: "Reading Terminal" };
-        case "wave_inject_terminal_command":
+        case "codex_command_execution":
+        case "codex_dynamic_tool":
             return { phase: "executing-command", phaseLabel: "Executing Command" };
-        case "wave_wait_terminal_idle":
-            return { phase: "waiting-terminal", phaseLabel: "Waiting for Command" };
         default:
             return null;
     }
@@ -74,16 +70,25 @@ function getToolUsePhase(toolName: string | undefined): Pick<AgentRuntimeStatusS
 
 function getToolProgressPhase(toolName: string | undefined, statusLine: string | undefined): AgentPhaseMapping | null {
     switch (toolName) {
-        case "codex_wave_mcp_ready":
-            return { phase: "ready", phaseLabel: "终端工具已连接" };
         case "codex_wave_terminal_context_ok":
-            return { phase: "ready", phaseLabel: "终端上下文已就绪" };
-        case "codex_wave_mcp_unavailable":
-            return {
-                phase: "error",
-                phaseLabel: "终端工具不可用",
-                blockedReason: statusLine || "Wave terminal MCP injection failed.",
-            };
+            return { phase: "ready", phaseLabel: "Terminal Context Ready" };
+        case "codex_thinking":
+        case "codex_reasoning":
+        case "codex_plan":
+            return { phase: "thinking", phaseLabel: "Thinking" };
+        case "codex_command_execution":
+            return { phase: "executing-command", phaseLabel: "Executing Command", blockedReason: statusLine };
+        case "codex_dynamic_tool":
+            return { phase: "executing-command", phaseLabel: "Running Tool", blockedReason: statusLine };
+        case "codex_file_change":
+            return { phase: "executing-command", phaseLabel: "Applying Changes", blockedReason: statusLine };
+        case "term_get_scrollback":
+        case "term_command_output":
+            return { phase: "reading-terminal", phaseLabel: "Reading Terminal", blockedReason: statusLine };
+        case "codex_waiting_approval":
+            return { phase: "waiting-approval", phaseLabel: "Waiting Approval", blockedReason: statusLine || "Waiting for tool approval" };
+        case "codex_responding":
+            return { phase: "responding", phaseLabel: "Responding" };
         default:
             return null;
     }
@@ -94,10 +99,10 @@ function isObservedTerminalToolName(toolName: unknown): boolean {
         return false;
     }
     return (
-        toolName.startsWith("wave_") ||
         toolName === "codex_wave_terminal_context_ok" ||
-        toolName === "codex_wave_terminal_tool" ||
-        toolName === "codex_wave_mcp_ready"
+        toolName === "codex_command_execution" ||
+        toolName === "term_get_scrollback" ||
+        toolName === "term_command_output"
     );
 }
 
@@ -122,18 +127,18 @@ function messageTextIncludesLocalAgentCapabilityDenial(message: WaveUIMessage | 
         "host policy blocked",
         "blocked by host policy",
         "refused to execute",
-        "no wave terminal mcp",
-        "no available wave terminal mcp",
-        "没有可用的 wave 终端 mcp",
+        "unable to execute",
         "无法实际读取",
         "不能真实读取",
         "无法访问终端",
         "不能访问终端",
         "宿主策略直接拦了",
+        "宿主策略拦截",
         "被宿主策略拦了",
-        "被主策略直接拦了",
         "被拒绝执行",
         "拒绝执行",
+        "沙箱",
+        "超时",
     ];
     return denialPhrases.some((phrase) => combinedText.includes(phrase));
 }

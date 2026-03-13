@@ -14,11 +14,11 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"text/template"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
@@ -445,9 +445,7 @@ func codexUpdateCompletedToolUse(itemState *codexAppServerItemState, params map[
 	return true
 }
 
-var codexWaveToolNamePattern = regexp.MustCompile(`wave_[a-z0-9_]+`)
-
-func codexExtractStartedToolName(itemState *codexAppServerItemState, params map[string]any, rawParams []byte) string {
+func codexExtractStartedToolName(itemState *codexAppServerItemState, params map[string]any) string {
 	if itemState != nil && strings.TrimSpace(itemState.ToolName) != "" {
 		return strings.TrimSpace(itemState.ToolName)
 	}
@@ -462,11 +460,6 @@ func codexExtractStartedToolName(itemState *codexAppServerItemState, params map[
 	)
 	if strings.TrimSpace(toolName) != "" {
 		return strings.TrimSpace(toolName)
-	}
-	if len(rawParams) > 0 {
-		if match := codexWaveToolNamePattern.FindString(strings.ToLower(string(rawParams))); match != "" {
-			return match
-		}
 	}
 	return ""
 }
@@ -612,7 +605,7 @@ func handleCodexAppServerNotification(ctx context.Context, client *codexAppServe
 	case "item/started":
 		itemState := codexRecordStartedItem(state, params)
 		itemType := codexJSONString(params, []string{"item", "type"})
-		startedToolName := codexExtractStartedToolName(itemState, params, msg.Params)
+		startedToolName := codexExtractStartedToolName(itemState, params)
 		if state != nil && state.startedItemLogCount < 6 {
 			state.startedItemLogCount++
 			log.Printf(
@@ -642,17 +635,6 @@ func handleCodexAppServerNotification(ctx context.Context, client *codexAppServe
 				path = "Preparing file changes"
 			}
 			codexEmitPhase(onPhase, "codex_file_change", path)
-		case "mcpToolCall":
-			toolName := startedToolName
-			if toolName == "" {
-				toolName = "mcp tool"
-			}
-			codexEmitPhase(onPhase, "codex_mcp_tool", toolName)
-			if strings.EqualFold(strings.TrimSpace(toolName), "wave_read_current_terminal_context") {
-				codexEmitPhase(onPhase, "codex_wave_terminal_context_ok", "连接当前终端获取上下文：已成功")
-			} else if strings.HasPrefix(strings.ToLower(strings.TrimSpace(toolName)), "wave_") {
-				codexEmitPhase(onPhase, "codex_wave_terminal_tool", "已连接 Wave 终端工具，正在执行 "+toolName)
-			}
 		case "dynamicToolCall":
 			toolName := codexJSONString(params, []string{"item", "toolName"}, []string{"item", "tool", "name"})
 			if toolName == "" {
@@ -699,8 +681,6 @@ type codexAppServerSessionSpec struct {
 	Args                      []string
 	WorkingDir                string
 	BypassApprovalsAndSandbox bool
-	MCPEnabled                bool
-	MCPInjected               bool
 	SessionKey                string
 }
 
@@ -860,11 +840,7 @@ func (m *codexAppServerSessionManager) runTurn(ctx context.Context, req *PostMes
 	}
 	if created {
 		codexEmitPhase(onPhase, "codex_thinking", "Starting Codex app-server")
-		if spec.MCPInjected {
-			codexEmitPhase(onPhase, "codex_wave_mcp_ready", "Wave 终端工具已连接，可开始执行查询")
-		} else if spec.MCPEnabled {
-			codexEmitPhase(onPhase, "codex_wave_mcp_unavailable", "Wave 终端工具注入失败，当前回合可能无法读取终端上下文")
-		}
+		codexEmitPhase(onPhase, "codex_wave_terminal_context_ok", "Connected terminal context (pure wsh mode)")
 	}
 	inputs, ok := localAgentCodexTurnInputsFromContext(runCtx)
 	if !ok {
@@ -901,15 +877,7 @@ func codexSummarizeSessionArgsForLog(args []string) string {
 				parts = append(parts, "-c")
 				continue
 			}
-			cfg := strings.TrimSpace(args[i+1])
-			switch {
-			case strings.HasPrefix(cfg, "mcp_servers.wave.command="):
-				parts = append(parts, "-c mcp_servers.wave.command=<set>")
-			case strings.HasPrefix(cfg, "mcp_servers.wave.args="):
-				parts = append(parts, "-c mcp_servers.wave.args=<set>")
-			default:
-				parts = append(parts, "-c <config>")
-			}
+			parts = append(parts, "-c <config>")
 			i++
 			continue
 		}
@@ -955,17 +923,6 @@ func buildCodexAppServerSessionSpec(req *PostMessageRequest) (codexAppServerSess
 			fmt.Sprintf("model_reasoning_effort=%s", toTOMLString(reasoningEffort)),
 		}, args...)
 	}
-	mcpEnabled := envEnabledByDefault(localCodexEnableMcpEnvName, true)
-	mcpInjected := false
-	if mcpEnabled {
-		codexMCPArgs, mcpErr := createCodexMCPConfigArgs(req)
-		if mcpErr != nil {
-			log.Printf("local-agent: wave mcp disabled for codex app-server, config build failed: %v\n", mcpErr)
-		} else {
-			args = append(codexMCPArgs, args...)
-			mcpInjected = true
-		}
-	}
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
 		workingDir = ""
@@ -976,14 +933,12 @@ func buildCodexAppServerSessionSpec(req *PostMessageRequest) (codexAppServerSess
 	}
 	keyParts := append([]string{cmdName, workingDir, fmt.Sprintf("bypass=%t", bypassApprovalsAndSandbox)}, args...)
 	log.Printf(
-		"local-agent: codex app-server session spec chatid=%q cmd=%q cwd=%q arg_count=%d args=%s mcp_enabled=%v mcp_injected=%v bypass=%v reasoning_effort=%q\n",
+		"local-agent: codex app-server session spec chatid=%q cmd=%q cwd=%q arg_count=%d args=%s bypass=%v reasoning_effort=%q\n",
 		chatID,
 		cmdName,
 		workingDir,
 		len(args),
 		codexSummarizeSessionArgsForLog(args),
-		mcpEnabled,
-		mcpInjected,
 		bypassApprovalsAndSandbox,
 		reasoningEffort,
 	)
@@ -993,8 +948,6 @@ func buildCodexAppServerSessionSpec(req *PostMessageRequest) (codexAppServerSess
 		Args:                      args,
 		WorkingDir:                workingDir,
 		BypassApprovalsAndSandbox: bypassApprovalsAndSandbox,
-		MCPEnabled:                mcpEnabled,
-		MCPInjected:               mcpInjected,
 		SessionKey:                strings.Join(keyParts, "\x00"),
 	}, nil
 }
@@ -1012,6 +965,56 @@ func selectCodexTurnPrompt(input localAgentCodexTurnInputs, bootstrapped bool) s
 		return sanitizePromptForStdin(bootstrap)
 	}
 	return ""
+}
+
+func buildTerminalQuerySettingsInstructions(blockId string) string {
+	templateStr := `You are running in Wave Terminal.
+Current terminal block ID: {{.BlockID}}
+
+## Available Tools
+Use command execution to run real terminal commands. Prefer wsh commands for Wave-aware operations.
+
+### Core Commands
+- Read latest terminal output: wsh termscrollback -b {{.BlockID}} --lastcommand
+- Get block metadata: wsh getmeta -b {{.BlockID}}
+- Read file (local/remote): wsh file cat <path-or-uri>
+- Write file from stdin: echo "content" | wsh file write <path-or-uri>
+- Send to AI analysis: echo "content" | wsh ai -s -m "analyze this"
+- Persistent variables: wsh setvar KEY=VALUE / wsh getvar KEY
+- Run direct shell commands for diagnostics: lscpu, uname, ps, cat, top, etc.
+- Create a new command block only when needed: wsh run -- <command>
+
+### Current Block
+Use "-b {{.BlockID}}" where supported.
+For ordinary shell commands, execute directly in the current terminal session.
+
+### Constraints
+- File operations: max 10MB per operation
+- wsh only works inside Wave Terminal
+- Permissions handled automatically by Wave
+
+### Important
+- Prefer wsh + real command output over invented tools
+- Do NOT rely on legacy tool names; execute real commands instead
+- Do NOT run direct ssh/scp from the local host for terminal-query tasks
+- Do NOT answer terminal-query requests before executing commands
+- If a command fails, report the real error briefly and try a fallback`
+	data := struct {
+		BlockID string
+	}{
+		BlockID: blockId,
+	}
+	var buf bytes.Buffer
+	tmpl, err := template.New("codex-instructions").Parse(templateStr)
+	if err != nil {
+		log.Printf("local-agent: failed to parse codex instructions template: %v", err)
+		return templateStr
+	}
+	if err := tmpl.Execute(&buf, data); err != nil {
+		log.Printf("local-agent: failed to execute codex instructions template: %v", err)
+		return templateStr
+	}
+	return buf.String()
 }
 
 func codexBuildThreadStartRequest(workingDir string, legacyEnums bool, bypassApprovalsAndSandbox bool) map[string]any {
@@ -1276,13 +1279,18 @@ func (s *codexAppServerSession) runTurn(ctx context.Context, input localAgentCod
 			ID string `json:"id"`
 		} `json:"turn"`
 	}
-	if err := s.client.call(ctx, "turn/start", map[string]any{
+	turnStartParams := map[string]any{
 		"threadId": threadID,
 		"input": []map[string]any{{
 			"type": "text",
 			"text": prompt,
 		}},
-	}, &turnResp); err != nil {
+	}
+	turnStartParams["settings"] = map[string]any{
+		"developer_instructions": buildTerminalQuerySettingsInstructions(input.BlockId),
+	}
+	log.Printf("local-agent: codex app-server adding wsh instructions\n")
+	if err := s.client.call(ctx, "turn/start", turnStartParams, &turnResp); err != nil {
 		return "", codexAppServerCommandError(err, s.stderrBuf.String())
 	}
 	if !bootstrapped {

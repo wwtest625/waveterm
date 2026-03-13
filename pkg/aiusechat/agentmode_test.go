@@ -15,9 +15,9 @@ func TestAgentMode_PlanningBlocksWriteActions(t *testing.T) {
 		t.Fatalf("expected planning mode to block write_text_file")
 	}
 
-	err = validateToolForAgentMode(AgentModePlanning, "wave_inject_terminal_command")
+	err = validateToolForAgentMode(AgentModePlanning, "term_inject_command")
 	if err == nil {
-		t.Fatalf("expected planning mode to block wave_inject_terminal_command")
+		t.Fatalf("expected planning mode to block term_inject_command")
 	}
 
 	if err := validateToolForAgentMode(AgentModePlanning, "read_dir"); err != nil {
@@ -51,7 +51,7 @@ func TestAgentMode_DefaultAndAutoApprovePolicies(t *testing.T) {
 		t.Fatalf("expected auto-approve mode to auto approve write_text_file, got %q", autoApproval)
 	}
 
-	highRiskApproval := applyAgentModeApprovalPolicy(AgentModeAutoApprove, "wave_inject_terminal_command", uctypes.ApprovalNeedsApproval)
+	highRiskApproval := applyAgentModeApprovalPolicy(AgentModeAutoApprove, "term_inject_command", uctypes.ApprovalNeedsApproval)
 	if highRiskApproval != uctypes.ApprovalNeedsApproval {
 		t.Fatalf("expected high-risk actions to still require approval, got %q", highRiskApproval)
 	}

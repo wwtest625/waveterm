@@ -2,36 +2,6 @@ import { describe, expect, it } from "vitest";
 import { deriveAgentRuntimeStatus } from "./agentstatus";
 
 describe("agent runtime status mapping", () => {
-    it("maps codex mcp-ready progress into a visible ready status", () => {
-        const snapshot = deriveAgentRuntimeStatus({
-            isLocalAgent: true,
-            provider: "codex",
-            mode: "auto-approve",
-            chatStatus: "streaming",
-            messages: [
-                {
-                    id: "m-progress",
-                    role: "assistant",
-                    parts: [
-                        {
-                            type: "data-toolprogress",
-                            data: {
-                                toolcallid: "localagent:codex_wave_mcp_ready",
-                                toolname: "codex_wave_mcp_ready",
-                                statuslines: ["Wave 终端工具已连接，可开始执行查询"],
-                            },
-                        },
-                    ],
-                } as any,
-            ],
-            errorMessage: null,
-            localAgentHealth: { ok: true, provider: "codex", available: true, message: "ok" },
-        });
-
-        expect(snapshot.phase).toBe("ready");
-        expect(snapshot.phaseLabel).toBe("终端工具已连接");
-    });
-
     it("maps codex terminal context progress into a visible ready status", () => {
         const snapshot = deriveAgentRuntimeStatus({
             isLocalAgent: true,
@@ -48,7 +18,7 @@ describe("agent runtime status mapping", () => {
                             data: {
                                 toolcallid: "localagent:codex_wave_terminal_context_ok",
                                 toolname: "codex_wave_terminal_context_ok",
-                                statuslines: ["连接当前终端获取上下文：已成功"],
+                                statuslines: ["Connected terminal context (pure wsh mode)"],
                             },
                         },
                     ],
@@ -59,7 +29,38 @@ describe("agent runtime status mapping", () => {
         });
 
         expect(snapshot.phase).toBe("ready");
-        expect(snapshot.phaseLabel).toBe("终端上下文已就绪");
+        expect(snapshot.phaseLabel).toBe("Terminal Context Ready");
+    });
+
+    it("maps codex command execution progress into executing phase", () => {
+        const snapshot = deriveAgentRuntimeStatus({
+            isLocalAgent: true,
+            provider: "codex",
+            mode: "default",
+            chatStatus: "streaming",
+            messages: [
+                {
+                    id: "m-exec",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-toolprogress",
+                            data: {
+                                toolcallid: "localagent:codex_command_execution",
+                                toolname: "codex_command_execution",
+                                statuslines: ["lscpu"],
+                            },
+                        },
+                    ],
+                } as any,
+            ],
+            errorMessage: null,
+            localAgentHealth: { ok: true, provider: "codex", available: true, message: "ok" },
+        });
+
+        expect(snapshot.phase).toBe("executing-command");
+        expect(snapshot.phaseLabel).toBe("Executing Command");
+        expect(snapshot.blockedReason).toBe("lscpu");
     });
 
     it("maps terminal read tool use into a reading phase", () => {
@@ -77,7 +78,7 @@ describe("agent runtime status mapping", () => {
                             type: "data-tooluse",
                             data: {
                                 toolcallid: "tool-read",
-                                toolname: "wave_read_terminal_scrollback",
+                                toolname: "term_command_output",
                                 tooldesc: "reading terminal",
                                 status: "pending",
                             },
@@ -93,94 +94,6 @@ describe("agent runtime status mapping", () => {
         expect(snapshot.phase).toBe("reading-terminal");
         expect(snapshot.providerLabel).toBe("Codex");
         expect(snapshot.modeLabel).toBe("Default");
-    });
-
-    it("maps terminal command result reads into a reading phase", () => {
-        const snapshot = deriveAgentRuntimeStatus({
-            isLocalAgent: true,
-            provider: "codex",
-            mode: "default",
-            chatStatus: "streaming",
-            messages: [
-                {
-                    id: "m-result",
-                    role: "assistant",
-                    parts: [
-                        {
-                            type: "data-tooluse",
-                            data: {
-                                toolcallid: "tool-result",
-                                toolname: "wave_get_terminal_command_result",
-                                tooldesc: "reading command result",
-                                status: "pending",
-                            },
-                        },
-                    ],
-                } as any,
-            ],
-            errorMessage: null,
-            localAgentHealth: { ok: true, provider: "codex", available: true, message: "ok" },
-        });
-
-        expect(snapshot.phase).toBe("reading-terminal");
-    });
-
-    it("maps terminal execution and waiting states from tool use", () => {
-        const executing = deriveAgentRuntimeStatus({
-            isLocalAgent: true,
-            provider: "codex",
-            mode: "default",
-            chatStatus: "streaming",
-            messages: [
-                {
-                    id: "m-exec",
-                    role: "assistant",
-                    parts: [
-                        {
-                            type: "data-tooluse",
-                            data: {
-                                toolcallid: "tool-exec",
-                                toolname: "wave_inject_terminal_command",
-                                tooldesc: "running command",
-                                status: "pending",
-                            },
-                        },
-                    ],
-                } as any,
-            ],
-            errorMessage: null,
-            localAgentHealth: { ok: true, provider: "codex", available: true, message: "ok" },
-        });
-
-        expect(executing.phase).toBe("executing-command");
-
-        const waiting = deriveAgentRuntimeStatus({
-            isLocalAgent: true,
-            provider: "codex",
-            mode: "default",
-            chatStatus: "streaming",
-            messages: [
-                {
-                    id: "m-wait",
-                    role: "assistant",
-                    parts: [
-                        {
-                            type: "data-tooluse",
-                            data: {
-                                toolcallid: "tool-wait",
-                                toolname: "wave_wait_terminal_idle",
-                                tooldesc: "waiting for idle",
-                                status: "pending",
-                            },
-                        },
-                    ],
-                } as any,
-            ],
-            errorMessage: null,
-            localAgentHealth: { ok: true, provider: "codex", available: true, message: "ok" },
-        });
-
-        expect(waiting.phase).toBe("waiting-terminal");
     });
 
     it("maps approval waits and extracts the last command", () => {
@@ -246,7 +159,7 @@ describe("agent runtime status mapping", () => {
                     parts: [
                         {
                             type: "text",
-                            text: "我无法实际读取你机器的硬件传感器数据，也没有可用的 Wave 终端 MCP 接口直接读取结果。",
+                            text: "我无法实际读取你机器的硬件传感器数据，也没有可用的终端接口直接读取结果。",
                         },
                     ],
                 } as any,
@@ -272,7 +185,7 @@ describe("agent runtime status mapping", () => {
                     parts: [
                         {
                             type: "text",
-                            text: "当前我这边对终端的系统查询命令被宿主策略直接拦了，我已经尝试过本机查询方式，但都被拒绝执行。",
+                            text: "当前这边命令执行被宿主策略拦截，无法继续执行。",
                         },
                     ],
                 } as any,
