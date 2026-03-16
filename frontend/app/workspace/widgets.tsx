@@ -4,7 +4,7 @@
 import { Tooltip } from "@/app/element/tooltip";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { uxCloseBlock } from "@/app/store/keymodel";
-import { getActiveTabModel } from "@/app/store/tab-model";
+import { getActiveTabModel, getTabModelByTabId } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { shouldIncludeWidgetForWorkspace } from "@/app/workspace/widgetfilter";
@@ -24,7 +24,7 @@ import clsx from "clsx";
 import { useAtomValue } from "jotai";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { buildWidgetBlockDef } from "./widgetblockdef";
-import { getWidgetToggleAction } from "./widgettoggle";
+import { getWidgetToggleAction, isWidgetOpen } from "./widgettoggle";
 
 type WidgetListEntry = {
     key: string;
@@ -108,10 +108,12 @@ const Widget = memo(
         widget,
         widgetKey,
         mode,
+        isOpen,
     }: {
         widget: WidgetConfigType;
         widgetKey: string;
         mode: "normal" | "compact" | "supercompact";
+        isOpen: boolean;
     }) => {
         const [isTruncated, setIsTruncated] = useState(false);
         const labelRef = useRef<HTMLDivElement>(null);
@@ -136,8 +138,16 @@ const Widget = memo(
                     widget["display:hidden"] && "hidden"
                 )}
                 divOnClick={() => fireAndForget(async () => handleWidgetSelect(widgetKey, widget))}
+                divStyle={
+                    isOpen
+                        ? {
+                              color: "var(--accent-color)",
+                              backgroundColor: "rgba(88, 193, 66, 0.12)",
+                          }
+                        : undefined
+                }
             >
-                <div style={{ color: widget.color }}>
+                <div style={{ color: isOpen ? "var(--accent-color)" : widget.color }}>
                     <i className={makeIconClass(widget.icon, true, { defaultIcon: "browser" })}></i>
                 </div>
                 {mode === "normal" && !isBlank(widget.label) ? (
@@ -392,6 +402,9 @@ SettingsFloatingWindow.displayName = "SettingsFloatingWindow";
 const Widgets = memo(() => {
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
     const workspace = useAtomValue(atoms.workspace);
+    const tabId = useAtomValue(atoms.staticTabId);
+    const tabModel = getTabModelByTabId(tabId);
+    const tabData = useAtomValue(tabModel.tabAtom);
     const hasCustomAIPresets = useAtomValue(atoms.hasCustomAIPresetsAtom);
     const [mode, setMode] = useState<"normal" | "compact" | "supercompact">("normal");
     const containerRef = useRef<HTMLDivElement>(null);
@@ -408,6 +421,8 @@ const Widgets = memo(() => {
         })
     );
     const widgetEntries = sortByDisplayOrder(filteredWidgets);
+    const activeBlockIds = tabData?.blockids ?? [];
+    const trackedBlockIds = getTrackedWidgetBlockIds(tabId);
 
     const [isAppsOpen, setIsAppsOpen] = useState(false);
     const appsButtonRef = useRef<HTMLDivElement>(null);
@@ -491,7 +506,13 @@ const Widgets = memo(() => {
                     <>
                         <div className="grid grid-cols-2 gap-0 w-full">
                             {widgetEntries.map(({ key, widget }) => (
-                                <Widget key={key} widgetKey={key} widget={widget} mode={mode} />
+                                <Widget
+                                    key={key}
+                                    widgetKey={key}
+                                    widget={widget}
+                                    mode={mode}
+                                    isOpen={isWidgetOpen(trackedBlockIds[key], activeBlockIds)}
+                                />
                             ))}
                         </div>
                         <div className="flex-grow" />
@@ -525,7 +546,13 @@ const Widgets = memo(() => {
                 ) : (
                     <>
                         {widgetEntries.map(({ key, widget }) => (
-                            <Widget key={key} widgetKey={key} widget={widget} mode={mode} />
+                            <Widget
+                                key={key}
+                                widgetKey={key}
+                                widget={widget}
+                                mode={mode}
+                                isOpen={isWidgetOpen(trackedBlockIds[key], activeBlockIds)}
+                            />
                         ))}
                         <div className="flex-grow" />
                         {isDev() || featureWaveAppBuilder ? (
@@ -590,7 +617,13 @@ const Widgets = memo(() => {
                 className="flex flex-col w-12 py-1 -ml-1 select-none absolute -z-10 opacity-0 pointer-events-none"
             >
                 {widgetEntries.map(({ key, widget }) => (
-                    <Widget key={`measurement-${key}`} widgetKey={key} widget={widget} mode="normal" />
+                    <Widget
+                        key={`measurement-${key}`}
+                        widgetKey={key}
+                        widget={widget}
+                        mode="normal"
+                        isOpen={isWidgetOpen(trackedBlockIds[key], activeBlockIds)}
+                    />
                 ))}
                 <div className="flex-grow" />
                 <div className="flex flex-col justify-center items-center w-full py-1.5 pr-0.5 text-lg">

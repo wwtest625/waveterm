@@ -1021,6 +1021,19 @@ declare global {
         blockid: string;
     };
 
+    // clientservice.LocalFileChunk
+    type LocalFileChunk = {
+        data64: string;
+        size: number;
+    };
+
+    // clientservice.LocalFileInfo
+    type LocalFileInfo = {
+        path: string;
+        name: string;
+        size: number;
+    };
+
     // waveobj.MetaTSType
     type MetaType = {
         view?: string;
@@ -1100,9 +1113,6 @@ declare global {
         "waveai:model"?: string;
         "waveai:chatid"?: string;
         "waveai:widgetcontext"?: boolean;
-        "waveai:autoexecute"?: boolean;
-        "waveai:provider"?: string;
-        "waveai:islocal"?: boolean;
         "waveai:agentmode"?: string;
         "term:*"?: boolean;
         "term:fontsize"?: number;
@@ -1531,7 +1541,6 @@ declare global {
         "waveai:mode"?: string;
         "waveai:provider"?: string;
         "waveai:islocal"?: boolean;
-        "waveai:agentmode"?: string;
         "waveai:feedback"?: "good" | "bad";
         "waveai:action"?: string;
         "job:donereason"?: string;
@@ -1620,6 +1629,98 @@ declare global {
         selectionBackground: string;
         background: string;
         cursor: string;
+    };
+
+    // blockservice.TerminalCommandResultData
+    type TerminalCommandResultData = {
+        tabid: string;
+        blockid: string;
+        command?: string;
+        status: string;
+        exitcode?: number;
+        capturestatus: string;
+        startoffset: number;
+        readoffset: number;
+        endoffset: number;
+        bytesread: number;
+        text: string;
+        lines: string[];
+        truncated: boolean;
+        blockedreason?: string;
+        outputtoolarge?: boolean;
+    };
+
+    // blockservice.TerminalCommandResultRequest
+    type TerminalCommandResultRequest = {
+        tabid: string;
+        blockid?: string;
+        command?: string;
+        startoffset?: number;
+        maxbytes?: number;
+        maxlines?: number;
+    };
+
+    // blockservice.TerminalCommandStatusData
+    type TerminalCommandStatusData = {
+        tabid: string;
+        blockid: string;
+        status: string;
+        lastcommand?: string;
+        exitcode?: number;
+        lastoutputts?: number;
+    };
+
+    // blockservice.TerminalContextData
+    type TerminalContextData = {
+        tabid: string;
+        blockid: string;
+        view: string;
+        connection?: string;
+        cwd?: string;
+        controllerstatus?: string;
+        controllerconnname?: string;
+        controllerexitcode?: number;
+    };
+
+    // blockservice.TerminalInjectData
+    type TerminalInjectData = {
+        tabid: string;
+        blockid: string;
+        sent: boolean;
+    };
+
+    // blockservice.TerminalInjectRequest
+    type TerminalInjectRequest = {
+        tabid: string;
+        blockid?: string;
+        command: string;
+        force?: boolean;
+    };
+
+    // blockservice.TerminalScrollbackData
+    type TerminalScrollbackData = {
+        tabid: string;
+        blockid: string;
+        bytesread: number;
+        text: string;
+        lines: string[];
+        truncated: boolean;
+    };
+
+    // blockservice.TerminalScrollbackRequest
+    type TerminalScrollbackRequest = {
+        tabid: string;
+        blockid?: string;
+        maxbytes?: number;
+        maxlines?: number;
+    };
+
+    // blockservice.TerminalUserActivityStateData
+    type TerminalUserActivityStateData = {
+        tabid: string;
+        blockid: string;
+        isuseractive: boolean;
+        lastactivityts?: number;
     };
 
     // wshrpc.TimeSeriesData

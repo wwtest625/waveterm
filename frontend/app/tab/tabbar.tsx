@@ -56,12 +56,16 @@ const WaveAIButton = memo(({ divRef }: { divRef?: React.RefObject<HTMLDivElement
         return null;
     }
 
+    const aiButtonClasses = aiPanelOpen
+        ? "bg-accent hover:bg-accenthover text-white"
+        : "bg-hover hover:bg-hoverbg text-secondary";
+
     return (
         <Tooltip
             content="Toggle Wave AI Panel"
             placement="bottom"
             hideOnClick
-            divClassName={`flex h-[26px] px-1.5 justify-end items-center rounded-md mr-1 box-border cursor-pointer bg-hover hover:bg-hoverbg transition-colors text-[12px] ${aiPanelOpen ? "text-accent" : "text-secondary"}`}
+            divClassName={`flex h-[26px] px-1.5 justify-end items-center rounded-md mr-1 box-border cursor-pointer transition-colors text-[12px] ${aiButtonClasses}`}
             divStyle={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
             divOnClick={onClick}
             divRef={divRef}

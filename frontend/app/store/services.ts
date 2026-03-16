@@ -16,6 +16,36 @@ class BlockServiceType {
         return WOS.callBackendService("block", "GetControllerStatus", Array.from(arguments))
     }
 
+    // read incremental terminal command output from a start offset
+    GetTerminalCommandResult(req: TerminalCommandResultRequest): Promise<TerminalCommandResultData> {
+        return WOS.callBackendService("block", "GetTerminalCommandResult", Array.from(arguments))
+    }
+
+    // resolve current terminal command status for a tab
+    GetTerminalCommandStatus(tabId: string, blockId: string): Promise<TerminalCommandStatusData> {
+        return WOS.callBackendService("block", "GetTerminalCommandStatus", Array.from(arguments))
+    }
+
+    // resolve current terminal context for a tab
+    GetTerminalContext(tabId: string, blockId: string): Promise<TerminalContextData> {
+        return WOS.callBackendService("block", "GetTerminalContext", Array.from(arguments))
+    }
+
+    // read tail scrollback text from a tab terminal
+    GetTerminalScrollback(req: TerminalScrollbackRequest): Promise<TerminalScrollbackData> {
+        return WOS.callBackendService("block", "GetTerminalScrollback", Array.from(arguments))
+    }
+
+    // resolve recent terminal user activity state for a tab
+    GetUserActivityState(tabId: string, blockId: string): Promise<TerminalUserActivityStateData> {
+        return WOS.callBackendService("block", "GetUserActivityState", Array.from(arguments))
+    }
+
+    // inject a command to the resolved terminal controller
+    InjectTerminalCommand(req: TerminalInjectRequest): Promise<TerminalInjectData> {
+        return WOS.callBackendService("block", "InjectTerminalCommand", Array.from(arguments))
+    }
+
     // save the terminal state to a blockfile
     SaveTerminalState(blockId: string, state: string, stateType: string, ptyOffset: number, termSize: TermSize): Promise<void> {
         return WOS.callBackendService("block", "SaveTerminalState", Array.from(arguments))
@@ -33,6 +63,12 @@ class ClientServiceType {
     AgreeTos(): Promise<void> {
         return WOS.callBackendService("client", "AgreeTos", Array.from(arguments))
     }
+    AppendSSHUpload(arg2: string, arg3: string): Promise<void> {
+        return WOS.callBackendService("client", "AppendSSHUpload", Array.from(arguments))
+    }
+    FinishSSHUpload(arg2: string, arg3: boolean): Promise<void> {
+        return WOS.callBackendService("client", "FinishSSHUpload", Array.from(arguments))
+    }
     FocusWindow(arg2: string): Promise<void> {
         return WOS.callBackendService("client", "FocusWindow", Array.from(arguments))
     }
@@ -44,6 +80,15 @@ class ClientServiceType {
     }
     GetTab(arg1: string): Promise<Tab> {
         return WOS.callBackendService("client", "GetTab", Array.from(arguments))
+    }
+    ReadLocalFileChunk(arg2: string, arg3: number, arg4: number): Promise<LocalFileChunk> {
+        return WOS.callBackendService("client", "ReadLocalFileChunk", Array.from(arguments))
+    }
+    StartSSHUpload(arg2: string, arg3: string, arg4: boolean): Promise<string> {
+        return WOS.callBackendService("client", "StartSSHUpload", Array.from(arguments))
+    }
+    StatLocalFile(arg2: string): Promise<LocalFileInfo> {
+        return WOS.callBackendService("client", "StatLocalFile", Array.from(arguments))
     }
     TelemetryUpdate(arg2: boolean): Promise<void> {
         return WOS.callBackendService("client", "TelemetryUpdate", Array.from(arguments))

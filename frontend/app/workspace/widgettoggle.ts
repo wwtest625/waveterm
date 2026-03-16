@@ -6,12 +6,16 @@ type WidgetToggleAction =
     | { type: "focus"; blockId: string }
     | { type: "close"; blockId: string };
 
+function isWidgetOpen(trackedBlockId: string | undefined, activeBlockIds: string[]): boolean {
+    return trackedBlockId != null && activeBlockIds.includes(trackedBlockId);
+}
+
 function getWidgetToggleAction(
     trackedBlockId: string | undefined,
     activeBlockIds: string[],
     focusedBlockId?: string
 ): WidgetToggleAction {
-    if (trackedBlockId == null || !activeBlockIds.includes(trackedBlockId)) {
+    if (!isWidgetOpen(trackedBlockId, activeBlockIds)) {
         return { type: "create" };
     }
     if (focusedBlockId === trackedBlockId) {
@@ -21,4 +25,5 @@ function getWidgetToggleAction(
 }
 
 export { getWidgetToggleAction };
+export { isWidgetOpen };
 export type { WidgetToggleAction };
