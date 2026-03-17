@@ -2,11 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { BlockNodeModel } from "@/app/block/blocktypes";
-import type { TabModel } from "@/app/store/tab-model";
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import type { TabModel } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { getConnStatusAtom, getOverrideConfigAtom, getSettingsKeyAtom, globalStore, refocusNode } from "@/store/global";
+import type { TreeViewRef } from "@/app/treeview/treeview";
+import {
+    getHorizontalResizeTargets,
+    getHorizontalSplitSizes,
+    getOpenWidgetWidthPercent,
+} from "@/app/workspace/widgetwidth";
+import { setWidgetWidthInFileContent } from "@/app/workspace/widgetconfig";
+import { getTrackedWidgetKey } from "@/app/workspace/widgetopenstate";
+import { getLayoutStateAtomFromTab } from "@/layout/lib/layoutAtom";
+import { getLayoutModelForStaticTab } from "@/layout/lib/layoutModelHooks";
+import { LayoutTreeActionType, type LayoutTreeResizeNodeAction } from "@/layout/lib/types";
+import { atoms, getApi, getConnStatusAtom, getOverrideConfigAtom, getSettingsKeyAtom, globalStore, refocusNode } from "@/store/global";
 import * as services from "@/store/services";
 import * as WOS from "@/store/wos";
 import { goHistory, goHistoryBack, goHistoryForward } from "@/util/historyutil";
@@ -19,7 +30,6 @@ import { Atom, atom, Getter, PrimitiveAtom, WritableAtom } from "jotai";
 import { loadable } from "jotai/utils";
 import type * as MonacoTypes from "monaco-editor";
 import { createRef } from "react";
-import type { TreeViewRef } from "@/app/treeview/treeview";
 import { PreviewView } from "./preview";
 import { buildRemoteFileError } from "./preview-error-util";
 
@@ -34,6 +44,15 @@ const BOOKMARKS: { label: string; path: string }[] = [
 
 const MaxFileSize = 1024 * 1024 * 10; // 10MB
 const MaxCSVSize = 1024 * 1024 * 1; // 1MB
+const BlockWidthPresets = [25, 33, 40, 50, 60, 75];
+const WidgetWidthDebugKey = "defwidget@files";
+
+function logWidgetWidthDebug(widgetKey: string, message: string, details?: Record<string, unknown>) {
+    if (widgetKey !== WidgetWidthDebugKey) {
+        return;
+    }
+    console.log(`[widget-width-debug] ${message}`, details ?? {});
+}
 
 const textApplicationMimetypes = [
     "application/sql",
@@ -780,6 +799,13 @@ export class PreviewModel implements ViewModel {
             label: "Editor Font Size",
             submenu: fontSizeSubMenu,
         });
+        const widthSubMenu = this.getWidthMenuItems();
+        if (widthSubMenu.length > 0) {
+            menuItems.push({
+                label: "Width",
+                submenu: widthSubMenu,
+            });
+        }
         const finfo = jotaiLoadableValue(globalStore.get(this.loadableFileInfo), null);
         addOpenMenuItems(menuItems, globalStore.get(this.connectionImmediate), finfo, this.blockId);
         const loadableSV = globalStore.get(this.loadableSpecializedView);
@@ -814,6 +840,115 @@ export class PreviewModel implements ViewModel {
             }
         }
         return menuItems;
+    }
+
+    private getWidthMenuItems(): ContextMenuItem[] {
+        const layoutStateAtom = getLayoutStateAtomFromTab(this.tabModel.tabAtom, globalStore.get);
+        if (layoutStateAtom == null) {
+            return [];
+        }
+        const layoutState = globalStore.get(layoutStateAtom);
+        const layoutModel = getLayoutModelForStaticTab();
+        const blockNode = layoutModel.getNodeByBlockId(this.blockId);
+        const resizeTargets = getHorizontalResizeTargets(layoutState?.rootnode, blockNode);
+        if (resizeTargets == null) {
+            return [];
+        }
+
+        const currentWidth = getOpenWidgetWidthPercent(layoutState?.rootnode, blockNode);
+        const menuItems: ContextMenuItem[] = [];
+        if (currentWidth != null) {
+            menuItems.push({
+                label: `Current Width: ${currentWidth}%`,
+                enabled: false,
+            });
+            menuItems.push({ type: "separator" });
+        }
+
+        for (const width of BlockWidthPresets) {
+            menuItems.push({
+                label: `${width}%`,
+                type: "checkbox",
+                checked: currentWidth === width,
+                click: () => {
+                    const splitSizes = getHorizontalSplitSizes(
+                        resizeTargets.currentNode.size + resizeTargets.siblingNode.size,
+                        width
+                    );
+                    const resizeAction: LayoutTreeResizeNodeAction = {
+                        type: LayoutTreeActionType.ResizeNode,
+                        resizeOperations: [
+                            { nodeId: resizeTargets.siblingNode.id, size: splitSizes.currentSize },
+                            { nodeId: resizeTargets.currentNode.id, size: splitSizes.newSize },
+                        ],
+                    };
+                    layoutModel.treeReducer(resizeAction);
+                    fireAndForget(() => this.persistWidthSelection(width));
+                },
+            });
+        }
+
+        return menuItems;
+    }
+
+    private async persistWidthSelection(width: number): Promise<void> {
+        const widgetKey = getTrackedWidgetKey(this.tabModel.tabId, this.blockId);
+        if (widgetKey == null) {
+            return;
+        }
+        logWidgetWidthDebug(widgetKey, "persistWidthSelection start", {
+            blockId: this.blockId,
+            width,
+            tabId: this.tabModel.tabId,
+        });
+
+        const fullConfig = globalStore.get(atoms.fullConfigAtom);
+        const existingWidgetConfig = fullConfig?.widgets?.[widgetKey] ?? fullConfig?.defaultwidgets?.[widgetKey];
+        if (fullConfig != null && existingWidgetConfig != null) {
+            globalStore.set(atoms.fullConfigAtom, {
+                ...fullConfig,
+                widgets: {
+                    ...(fullConfig.widgets ?? {}),
+                    [widgetKey]: {
+                        ...existingWidgetConfig,
+                        "display:width": width,
+                    },
+                },
+            });
+            logWidgetWidthDebug(widgetKey, "persistWidthSelection updated fullConfigAtom", {
+                width,
+                previousWidth: existingWidgetConfig["display:width"],
+            });
+        }
+
+        const widgetsPath = `${getApi().getConfigDir()}/widgets.json`;
+        let widgetsFileContent = "";
+        try {
+            const fileData = await RpcApi.FileReadCommand(TabRpcClient, {
+                info: { path: widgetsPath },
+            });
+            widgetsFileContent = fileData?.data64 ? base64ToString(fileData.data64) : "";
+        } catch (error) {
+            console.warn("Failed to read widgets.json before persisting widget width:", error);
+        }
+
+        const nextFileContent = setWidgetWidthInFileContent(widgetsFileContent, widgetKey, width);
+        logWidgetWidthDebug(widgetKey, "persistWidthSelection prepared widgets.json content", {
+            widgetsPath,
+            width,
+        });
+        try {
+            await RpcApi.FileWriteCommand(TabRpcClient, {
+                info: { path: widgetsPath },
+                data64: stringToBase64(nextFileContent),
+            });
+            logWidgetWidthDebug(widgetKey, "persistWidthSelection wrote widgets.json", {
+                widgetsPath,
+                width,
+            });
+        } catch (error) {
+            console.warn("Failed to persist widget width to widgets.json:", error);
+        }
     }
 
     giveFocus(): boolean {

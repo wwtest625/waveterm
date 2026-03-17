@@ -12,6 +12,7 @@
     },
     "defwidget@files": {
         "display:order": -4,
+        "display:width": 33,
         "icon": "folder",
         "label": "files",
         "blockdef": {

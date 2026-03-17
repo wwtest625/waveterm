@@ -8,12 +8,15 @@ import { getActiveTabModel, getTabModelByTabId } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { shouldIncludeWidgetForWorkspace } from "@/app/workspace/widgetfilter";
+import { getLayoutStateAtomFromTab } from "@/layout/lib/layoutAtom";
 import { getLayoutModelForStaticTab } from "@/layout/lib/layoutModelHooks";
-import { atoms, createBlock, globalStore, isDev, refocusNode, WOS } from "@/store/global";
+import { findParent } from "@/layout/lib/layoutNode";
+import { FlexDirection, LayoutTreeActionType, type LayoutTreeResizeNodeAction } from "@/layout/lib/types";
+import { atoms, createBlock, createBlockSplitHorizontally, globalStore, isDev, refocusNode, WOS } from "@/store/global";
 import { fireAndForget, isBlank, makeIconClass } from "@/util/util";
 import {
-    FloatingPortal,
     autoUpdate,
+    FloatingPortal,
     offset,
     shift,
     useDismiss,
@@ -24,14 +27,23 @@ import clsx from "clsx";
 import { useAtomValue } from "jotai";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { buildWidgetBlockDef } from "./widgetblockdef";
+import { getTrackedWidgetBlockIds } from "./widgetopenstate";
 import { getWidgetToggleAction, isWidgetOpen } from "./widgettoggle";
+import { getHorizontalSplitSizes, getOpenWidgetWidthPercent, getWidgetPreferredWidth } from "./widgetwidth";
 
 type WidgetListEntry = {
     key: string;
     widget: WidgetConfigType;
 };
 
-const widgetOpenBlockIdsByTabId = new Map<string, Record<string, string>>();
+const WidgetWidthDebugKey = "defwidget@files";
+
+function logWidgetWidthDebug(widgetKey: string, message: string, details?: Record<string, unknown>) {
+    if (widgetKey !== WidgetWidthDebugKey) {
+        return;
+    }
+    console.log(`[widget-width-debug] ${message}`, details ?? {});
+}
 
 function sortByDisplayOrder(wmap: { [key: string]: WidgetConfigType }): WidgetListEntry[] {
     if (wmap == null) {
@@ -42,15 +54,6 @@ function sortByDisplayOrder(wmap: { [key: string]: WidgetConfigType }): WidgetLi
         return (a.widget["display:order"] ?? 0) - (b.widget["display:order"] ?? 0);
     });
     return wlist;
-}
-
-function getTrackedWidgetBlockIds(tabId: string): Record<string, string> {
-    let trackedBlockIds = widgetOpenBlockIdsByTabId.get(tabId);
-    if (trackedBlockIds == null) {
-        trackedBlockIds = {};
-        widgetOpenBlockIdsByTabId.set(tabId, trackedBlockIds);
-    }
-    return trackedBlockIds;
 }
 
 async function handleWidgetSelect(widgetKey: string, widget: WidgetConfigType) {
@@ -65,28 +68,202 @@ async function handleWidgetSelect(widgetKey: string, widget: WidgetConfigType) {
     const layoutModel = getLayoutModelForStaticTab();
     const focusedNode = globalStore.get(layoutModel.focusedNode);
     const toggleAction = getWidgetToggleAction(trackedBlockId, tabData?.blockids ?? [], focusedNode?.data?.blockId);
+    const targetBlockId = getOpenTargetBlockId(tabData?.blockids ?? [], focusedNode?.data?.blockId);
+    logWidgetWidthDebug(widgetKey, "handleWidgetSelect", {
+        configuredWidth: widget["display:width"],
+        trackedBlockId,
+        toggleAction,
+        focusedBlockId: focusedNode?.data?.blockId,
+        targetBlockId,
+        activeBlockIds: tabData?.blockids ?? [],
+    });
 
     if (toggleAction.type === "close") {
         delete trackedBlockIds[widgetKey];
+        logWidgetWidthDebug(widgetKey, "closing widget block", { blockId: toggleAction.blockId });
         uxCloseBlock(toggleAction.blockId);
         return;
     }
 
     if (toggleAction.type === "focus") {
+        applyPreferredWidthToOpenWidget(widgetKey, widget, toggleAction.blockId, tabModel);
         refocusNode(toggleAction.blockId);
         return;
     }
 
-    const focusedBlock = getFocusedBlockContext();
+    const focusedBlock = getFocusedBlockContext(targetBlockId);
     const blockDef = buildWidgetBlockDef(widget, focusedBlock);
-    const blockId = await createBlock(blockDef, widget.magnified);
+    const blockId = await createWidgetBlock(widgetKey, widget, blockDef, targetBlockId);
     trackedBlockIds[widgetKey] = blockId;
+    schedulePreferredWidthApply(widgetKey, widget, blockId, tabModel);
 }
 
-function getFocusedBlockContext(): { view?: string; connection?: string; cwd?: string } | undefined {
+function getOpenTargetBlockId(activeBlockIds: string[], focusedBlockId?: string): string | undefined {
     const layoutModel = getLayoutModelForStaticTab();
-    const focusedNode = globalStore.get(layoutModel.focusedNode);
-    const blockId = focusedNode?.data?.blockId;
+    if (focusedBlockId != null && layoutModel.getNodeByBlockId(focusedBlockId) != null) {
+        return focusedBlockId;
+    }
+    return activeBlockIds.find((blockId) => layoutModel.getNodeByBlockId(blockId) != null);
+}
+
+function schedulePreferredWidthApply(
+    widgetKey: string,
+    widget: WidgetConfigType,
+    widgetBlockId: string,
+    tabModel: ReturnType<typeof getActiveTabModel>
+) {
+    if (tabModel == null) {
+        return;
+    }
+    setTimeout(() => {
+        logWidgetWidthDebug(widgetKey, "scheduled width apply (0ms)", { widgetBlockId });
+        applyPreferredWidthToOpenWidget(widgetKey, widget, widgetBlockId, tabModel);
+    }, 0);
+    setTimeout(() => {
+        logWidgetWidthDebug(widgetKey, "scheduled width apply (50ms)", { widgetBlockId });
+        applyPreferredWidthToOpenWidget(widgetKey, widget, widgetBlockId, tabModel);
+    }, 50);
+}
+
+async function createWidgetBlock(
+    widgetKey: string,
+    widget: WidgetConfigType,
+    blockDef: BlockDef,
+    focusedBlockId?: string
+): Promise<string> {
+    const preferredWidth = getWidgetPreferredWidth(widget);
+    logWidgetWidthDebug(widgetKey, "createWidgetBlock start", {
+        preferredWidth,
+        focusedBlockId,
+        magnified: widget.magnified ?? false,
+    });
+    if (widget.magnified || preferredWidth == null || focusedBlockId == null) {
+        logWidgetWidthDebug(widgetKey, "createWidgetBlock fallback to createBlock", {
+            reason: widget.magnified ? "magnified" : preferredWidth == null ? "no-preferred-width" : "no-focused-block",
+        });
+        return createBlock(blockDef, widget.magnified);
+    }
+
+    const layoutModel = getLayoutModelForStaticTab();
+    const focusedNode = layoutModel.getNodeByBlockId(focusedBlockId);
+    if (focusedNode == null) {
+        logWidgetWidthDebug(widgetKey, "createWidgetBlock fallback because focused node missing", { focusedBlockId });
+        return createBlock(blockDef, widget.magnified);
+    }
+
+    const splitSizes = getHorizontalSplitSizes(focusedNode.size, preferredWidth);
+    logWidgetWidthDebug(widgetKey, "createWidgetBlock split sizes", {
+        focusedNodeId: focusedNode.id,
+        focusedNodeSize: focusedNode.size,
+        splitSizes,
+    });
+    const blockId = await createBlockSplitHorizontally(blockDef, focusedBlockId, "after");
+    const insertedNode = layoutModel.getNodeByBlockId(blockId);
+    const resizedFocusedNode = layoutModel.getNodeByBlockId(focusedBlockId);
+    if (insertedNode == null || resizedFocusedNode == null) {
+        logWidgetWidthDebug(widgetKey, "createWidgetBlock could not find nodes after split", {
+            blockId,
+            insertedNodeFound: insertedNode != null,
+            focusedNodeFound: resizedFocusedNode != null,
+        });
+        return blockId;
+    }
+
+    const resizeAction: LayoutTreeResizeNodeAction = {
+        type: LayoutTreeActionType.ResizeNode,
+        resizeOperations: [
+            { nodeId: resizedFocusedNode.id, size: splitSizes.currentSize },
+            { nodeId: insertedNode.id, size: splitSizes.newSize },
+        ],
+    };
+    layoutModel.treeReducer(resizeAction);
+    logWidgetWidthDebug(widgetKey, "createWidgetBlock applied initial resize", {
+        blockId,
+        insertedNodeId: insertedNode.id,
+        resizedFocusedNodeId: resizedFocusedNode.id,
+        insertedNodeSize: insertedNode.size,
+        resizedFocusedNodeSize: resizedFocusedNode.size,
+    });
+    return blockId;
+}
+
+function applyPreferredWidthToOpenWidget(
+    widgetKey: string,
+    widget: WidgetConfigType,
+    widgetBlockId: string,
+    tabModel: ReturnType<typeof getActiveTabModel>
+) {
+    const preferredWidth = getWidgetPreferredWidth(widget);
+    if (widget.magnified || preferredWidth == null || tabModel == null) {
+        logWidgetWidthDebug(widgetKey, "applyPreferredWidthToOpenWidget skipped", {
+            widgetBlockId,
+            preferredWidth,
+            magnified: widget.magnified ?? false,
+            hasTabModel: tabModel != null,
+        });
+        return;
+    }
+
+    const layoutModel = getLayoutModelForStaticTab();
+    const widgetNode = layoutModel.getNodeByBlockId(widgetBlockId);
+    if (widgetNode == null) {
+        logWidgetWidthDebug(widgetKey, "applyPreferredWidthToOpenWidget missing widget node", { widgetBlockId });
+        return;
+    }
+
+    const layoutStateAtom = getLayoutStateAtomFromTab(tabModel.tabAtom, globalStore.get);
+    if (layoutStateAtom == null) {
+        logWidgetWidthDebug(widgetKey, "applyPreferredWidthToOpenWidget missing layoutStateAtom", { widgetBlockId });
+        return;
+    }
+    const rootNode = globalStore.get(layoutStateAtom)?.rootnode;
+    const parentNode = rootNode == null ? null : findParent(rootNode, widgetNode.id);
+    if (parentNode?.children == null || parentNode.flexDirection !== FlexDirection.Row) {
+        logWidgetWidthDebug(widgetKey, "applyPreferredWidthToOpenWidget parent not horizontal", {
+            widgetBlockId,
+            parentFlexDirection: parentNode?.flexDirection,
+            hasChildren: parentNode?.children != null,
+        });
+        return;
+    }
+
+    const widgetIndex = parentNode.children.findIndex((child) => child.id === widgetNode.id);
+    if (widgetIndex === -1) {
+        logWidgetWidthDebug(widgetKey, "applyPreferredWidthToOpenWidget widget index missing", { widgetBlockId });
+        return;
+    }
+
+    const siblingNode = parentNode.children[widgetIndex - 1] ?? parentNode.children[widgetIndex + 1];
+    if (siblingNode == null) {
+        logWidgetWidthDebug(widgetKey, "applyPreferredWidthToOpenWidget missing sibling", { widgetBlockId });
+        return;
+    }
+
+    const currentWidth = getOpenWidgetWidthPercent(rootNode, widgetNode);
+    const splitSizes = getHorizontalSplitSizes(widgetNode.size + siblingNode.size, preferredWidth);
+    const resizeAction: LayoutTreeResizeNodeAction = {
+        type: LayoutTreeActionType.ResizeNode,
+        resizeOperations: [
+            { nodeId: siblingNode.id, size: splitSizes.currentSize },
+            { nodeId: widgetNode.id, size: splitSizes.newSize },
+        ],
+    };
+    layoutModel.treeReducer(resizeAction);
+    const updatedRootNode = globalStore.get(layoutStateAtom)?.rootnode;
+    const updatedWidgetNode = layoutModel.getNodeByBlockId(widgetBlockId);
+    logWidgetWidthDebug(widgetKey, "applyPreferredWidthToOpenWidget applied resize", {
+        widgetBlockId,
+        preferredWidth,
+        currentWidth,
+        siblingNodeId: siblingNode.id,
+        siblingNodeSizeBefore: siblingNode.size,
+        widgetNodeSizeBefore: widgetNode.size,
+        splitSizes,
+        widthAfter: getOpenWidgetWidthPercent(updatedRootNode, updatedWidgetNode),
+    });
+}
+
+function getFocusedBlockContext(blockId?: string): { view?: string; connection?: string; cwd?: string } | undefined {
     if (blockId == null) {
         return undefined;
     }

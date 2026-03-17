@@ -835,6 +835,7 @@ func SetConnectionsConfigValue(connName string, toMerge waveobj.MetaMapType) err
 
 type WidgetConfigType struct {
 	DisplayOrder  float64          `json:"display:order,omitempty"`
+	DisplayWidth  float64          `json:"display:width,omitempty"`
 	DisplayHidden bool             `json:"display:hidden,omitempty"`
 	Icon          string           `json:"icon,omitempty"`
 	Color         string           `json:"color,omitempty"`
