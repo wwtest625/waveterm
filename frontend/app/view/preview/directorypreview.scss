@@ -128,6 +128,14 @@
                     padding: 0 6px;
                     min-width: var(--min-row-width);
 
+                    &.row-odd:not(:focus):not(.focused):not(:hover) {
+                        background-color: oklch(from var(--block-bg-color) calc(l - 0.6) c h);
+                    }
+
+                    &.row-even:not(:focus):not(.focused):not(:hover) {
+                        background-color: transparent;
+                    }
+
                     &.focused {
                         background-color: rgb(from var(--accent-color) r g b / 0.5);
                         color: var(--main-text-color);

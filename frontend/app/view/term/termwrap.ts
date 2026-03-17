@@ -125,6 +125,15 @@ export class TermWrap {
     inSyncTransaction: boolean = false;
     inRepaintTransaction: boolean = false;
 
+    // batch write optimization
+    private writeBuffer: Uint8Array[] = [];
+    private writeBufferTimer: ReturnType<typeof setTimeout> | null = null;
+    private readonly BATCH_WRITE_INTERVAL_MS = 16; // ~60fps
+    private readonly BATCH_WRITE_MAX_SIZE = 64 * 1024; // 64KB max buffer before forced flush
+    private isScrolling: boolean = false;
+    private scrollPauseTimer: ReturnType<typeof setTimeout> | null = null;
+    private readonly SCROLL_PAUSE_DELAY_MS = 150;
+
     constructor(
         tabId: string,
         blockId: string,
@@ -433,6 +442,15 @@ export class TermWrap {
     }
 
     dispose() {
+        if (this.writeBufferTimer) {
+            clearTimeout(this.writeBufferTimer);
+            this.writeBufferTimer = null;
+        }
+        if (this.scrollPauseTimer) {
+            clearTimeout(this.scrollPauseTimer);
+            this.scrollPauseTimer = null;
+        }
+        this.flushWriteBuffer();
         this.promptMarkers.forEach((marker) => {
             try {
                 marker.dispose();
@@ -474,12 +492,13 @@ export class TermWrap {
 
     handleNewFileSubjectData(msg: WSFileEventData) {
         if (msg.fileop == "truncate") {
+            this.flushWriteBuffer();
             this.terminal.clear();
             this.heldData = [];
         } else if (msg.fileop == "append") {
             const decodedData = base64ToArray(msg.data64);
             if (this.loaded) {
-                this.doTerminalWrite(decodedData, null);
+                this.batchWrite(decodedData);
             } else {
                 this.heldData.push(decodedData);
             }
@@ -487,6 +506,45 @@ export class TermWrap {
             console.log("bad fileop for terminal", msg);
             return;
         }
+    }
+
+    private getBufferSize(): number {
+        return this.writeBuffer.reduce((acc, arr) => acc + arr.length, 0);
+    }
+
+    private batchWrite(data: Uint8Array): void {
+        if (this.isScrolling) {
+            this.writeBuffer.push(data);
+            return;
+        }
+        this.writeBuffer.push(data);
+        const bufferSize = this.getBufferSize();
+        if (bufferSize >= this.BATCH_WRITE_MAX_SIZE) {
+            this.flushWriteBuffer();
+        } else if (!this.writeBufferTimer) {
+            this.writeBufferTimer = setTimeout(() => {
+                this.writeBufferTimer = null;
+                this.flushWriteBuffer();
+            }, this.BATCH_WRITE_INTERVAL_MS);
+        }
+    }
+
+    private flushWriteBuffer(): void {
+        if (this.writeBuffer.length === 0) {
+            return;
+        }
+        const totalSize = this.getBufferSize();
+        const merged = new Uint8Array(totalSize);
+        let offset = 0;
+        for (const chunk of this.writeBuffer) {
+            merged.set(chunk, offset);
+            offset += chunk.length;
+        }
+        this.writeBuffer = [];
+        this.ptyOffset += totalSize;
+        this.dataBytesProcessed += totalSize;
+        this.lastUpdated = Date.now();
+        this.terminal.write(merged);
     }
 
     doTerminalWrite(data: string | Uint8Array, setPtyOffset?: number): Promise<void> {
@@ -584,6 +642,17 @@ export class TermWrap {
         const atBottom = scrollTop + clientHeight >= scrollHeight - clientHeight * 0.5;
         this.setAtBottom(atBottom);
         const delta = this.viewportScrollTop - scrollTop;
+        if (delta >= 100 || delta <= -100) {
+            this.isScrolling = true;
+            if (this.scrollPauseTimer) {
+                clearTimeout(this.scrollPauseTimer);
+            }
+            this.scrollPauseTimer = setTimeout(() => {
+                this.isScrolling = false;
+                this.scrollPauseTimer = null;
+                this.flushWriteBuffer();
+            }, this.SCROLL_PAUSE_DELAY_MS);
+        }
         if (isDev() && delta >= 500) {
             console.log(
                 `[termwrap] large-scroll blockId=${this.blockId} delta=${Math.round(delta)}px scrollTop=${scrollTop} wasNearBottom=${atBottom}`

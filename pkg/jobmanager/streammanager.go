@@ -17,7 +17,7 @@ const (
 	CwndSize      = 64 * 1024       // 64 KB window for connected mode
 	CirBufSize    = 2 * 1024 * 1024 // 2 MB max buffer size
 	DisconnReadSz = 4 * 1024        // 4 KB read chunks when disconnected
-	MaxPacketSize = 4 * 1024        // 4 KB max data per packet
+	MaxPacketSize = 64 * 1024       // 64 KB max data per packet (optimized for batch writes)
 )
 
 type DataSender interface {

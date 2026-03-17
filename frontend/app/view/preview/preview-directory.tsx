@@ -853,7 +853,7 @@ const TableRow = React.forwardRef(function ({
 
     return (
         <div
-            className={clsx("dir-table-body-row", { focused: focusIndex === idx })}
+            className={clsx("dir-table-body-row", { focused: focusIndex === idx }, idx % 2 === 0 ? "row-even" : "row-odd")}
             data-rowindex={idx}
             onDoubleClick={() => {
                 handleFileActivation(row.original, model, connection, setErrorMsg);
