@@ -39,10 +39,47 @@ import { isMacOS, isWindows } from "@/util/platformutil";
 import { boundNumber, fireAndForget, stringToBase64 } from "@/util/util";
 import * as jotai from "jotai";
 import * as React from "react";
+import { buildBackfilledTermCard } from "./term-cards-backfill";
 import { getBlockingCommand } from "./shellblocking";
 import { normalizeQuickInputForSend } from "./term-quickinput";
 import { computeTheme, DefaultTermTheme } from "./termutil";
 import { TermWrap } from "./termwrap";
+
+type TermCardState = "pending" | "streaming" | "done";
+
+type TermCard = {
+    id: string;
+    cmdText: string;
+    createdTs: number;
+    startTs: number | null;
+    endTs: number | null;
+    exitCode: number | null;
+    state: TermCardState;
+    output: string;
+    outputLines: string[];
+    collapsed: boolean;
+};
+
+function makeCardId(ts: number): string {
+    return `card-${ts}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sanitizeAnsiForCards(input: string): string {
+    if (!input) {
+        return "";
+    }
+    // remove OSC sequences (including our OSC 16162/7)
+    // eslint-disable-next-line no-control-regex
+    input = input.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
+    // drop CSI sequences except SGR (m)
+    // eslint-disable-next-line no-control-regex
+    input = input.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, (seq) => (seq.endsWith("m") ? seq : ""));
+    // drop other single-character ESC sequences
+    // eslint-disable-next-line no-control-regex
+    input = input.replace(/\x1b[@-Z\\-_]/g, "");
+    input = input.replace(/\r/g, "\n");
+    return input;
+}
 
 export class TermViewModel implements ViewModel {
     viewType: string;
@@ -89,6 +126,17 @@ export class TermViewModel implements ViewModel {
     searchAtoms?: SearchAtoms;
     lastUserActivityUpdateTs: number = 0;
 
+    cardsAtom: jotai.PrimitiveAtom<TermCard[]>;
+    cardsSearchAtom: jotai.PrimitiveAtom<string>;
+    cardsContextLabelAtom: jotai.PrimitiveAtom<string>;
+    private cardOutputRemainder = "";
+    private cardCaptureEnabled = false;
+    private cardsUnsubFns: Array<() => void> = [];
+    private cardsTextDecoder = new TextDecoder("utf-8", { fatal: false });
+    private cardFallbackFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
+    private cardFallbackNoOutputTimer: ReturnType<typeof setTimeout> | null = null;
+    private lastCardOutputTs = 0;
+
     constructor(blockId: string, nodeModel: BlockNodeModel, tabModel: TabModel) {
         this.viewType = "term";
         this.blockId = blockId;
@@ -108,13 +156,23 @@ export class TermViewModel implements ViewModel {
         this.vdomToolbarTarget = jotai.atom<VDomTargetToolbar>(null) as jotai.PrimitiveAtom<VDomTargetToolbar>;
         this.termMode = jotai.atom((get) => {
             const blockData = get(this.blockAtom);
-            return blockData?.meta?.["term:mode"] ?? "term";
+            const configured = blockData?.meta?.["term:mode"];
+            if (configured) {
+                return configured;
+            }
+            if (blockData?.meta?.controller === "cmd") {
+                return "term";
+            }
+            return "cards";
         });
         this.isRestarting = jotai.atom(false);
         this.viewIcon = jotai.atom((get) => {
             const termMode = get(this.termMode);
             if (termMode == "vdom") {
                 return { elemtype: "iconbutton", icon: "bolt" };
+            }
+            if (termMode == "cards") {
+                return { elemtype: "iconbutton", icon: "comment-dots" };
             }
             return { elemtype: "iconbutton", icon: "terminal" };
         });
@@ -156,6 +214,23 @@ export class TermViewModel implements ViewModel {
                 });
             }
             const isCmd = get(this.isCmdController);
+            if (!isCmd) {
+                if (termMode === "cards") {
+                    rtn.push({
+                        elemtype: "iconbutton",
+                        icon: "terminal",
+                        title: "切换到普通终端",
+                        click: () => this.setTermMode("term"),
+                    });
+                } else {
+                    rtn.push({
+                        elemtype: "iconbutton",
+                        icon: "comment-dots",
+                        title: "切换到卡片终端",
+                        click: () => this.setTermMode("cards"),
+                    });
+                }
+            }
             if (isCmd) {
                 const blockMeta = get(this.blockAtom)?.meta;
                 let cmdText = blockMeta?.["cmd"];
@@ -282,6 +357,18 @@ export class TermViewModel implements ViewModel {
             });
         });
         this.quickInputValueAtom = useBlockAtom(blockId, "termquickinputvalue", () => jotai.atom(""));
+
+        this.cardsAtom = useBlockAtom(blockId, "termcards", () => jotai.atom<TermCard[]>([])) as jotai.PrimitiveAtom<
+            TermCard[]
+        >;
+        this.cardsSearchAtom = useBlockAtom(blockId, "termcardssearch", () => jotai.atom("")) as jotai.PrimitiveAtom<
+            string
+        >;
+        this.cardsContextLabelAtom = useBlockAtom(
+            blockId,
+            "termcardscontextlabel",
+            () => jotai.atom("")
+        ) as jotai.PrimitiveAtom<string>;
         this.noPadding = jotai.atom(true);
         this.endIconButtons = jotai.atom((get) => {
             const blockData = get(this.blockAtom);
@@ -481,10 +568,269 @@ export class TermViewModel implements ViewModel {
         RpcApi.ControllerInputCommand(TabRpcClient, { blockid: this.blockId, inputdata64: b64data });
     }
 
+    attachToTermWrap(termWrap: TermWrap | null) {
+        this.cardsUnsubFns.forEach((fn) => fn());
+        this.cardsUnsubFns = [];
+        this.cardOutputRemainder = "";
+        this.cardCaptureEnabled = false;
+        if (this.cardFallbackFinalizeTimer) {
+            clearTimeout(this.cardFallbackFinalizeTimer);
+            this.cardFallbackFinalizeTimer = null;
+        }
+        if (this.cardFallbackNoOutputTimer) {
+            clearTimeout(this.cardFallbackNoOutputTimer);
+            this.cardFallbackNoOutputTimer = null;
+        }
+
+        if (!termWrap) {
+            return;
+        }
+
+        globalStore.set(this.cardsContextLabelAtom, globalStore.get(termWrap.contextLabelAtom) ?? "");
+
+        this.cardsUnsubFns.push(
+            globalStore.sub(termWrap.contextLabelAtom, () => {
+                const nextLabel = globalStore.get(termWrap.contextLabelAtom) ?? "";
+                globalStore.set(this.cardsContextLabelAtom, nextLabel);
+            })
+        );
+
+        this.cardsUnsubFns.push(
+            globalStore.sub(termWrap.shellIntegrationStatusAtom, () => {
+                const status = globalStore.get(termWrap.shellIntegrationStatusAtom);
+                if (status === "running-command") {
+                    const termMode = globalStore.get(this.termMode);
+                    if (termMode !== "cards") {
+                        return;
+                    }
+                    const inAltBuffer = termWrap.terminal?.buffer?.active?.type === "alternate";
+                    const lastCommand = globalStore.get(termWrap.lastCommandAtom);
+                    const blockingCmd = getBlockingCommand(lastCommand, inAltBuffer);
+                    if (blockingCmd) {
+                        this.markLastPendingCardAsInteractive(blockingCmd);
+                        this.setTermMode("term");
+                        return;
+                    }
+                    this.beginCardFromShellIntegration();
+                    this.cardCaptureEnabled = true;
+                    return;
+                }
+                if (status === "ready") {
+                    this.finalizeActiveCard();
+                    this.cardCaptureEnabled = false;
+                }
+            })
+        );
+    }
+
+    prepareCardsMode(termWrap: TermWrap) {
+        if (!globalStore.get(termWrap.runtimeInfoReadyAtom)) {
+            return;
+        }
+
+        const integrationStatus = globalStore.get(termWrap.shellIntegrationStatusAtom);
+        if (integrationStatus == null) {
+            this.setTermMode("term");
+            return;
+        }
+
+        const lastCommand = globalStore.get(termWrap.lastCommandAtom);
+        const inAltBuffer = termWrap.terminal?.buffer?.active?.type === "alternate";
+        const blockingCmd = getBlockingCommand(lastCommand, inAltBuffer);
+        if (blockingCmd) {
+            this.markLastPendingCardAsInteractive(blockingCmd);
+            this.setTermMode("term");
+            return;
+        }
+
+        const cards = globalStore.get(this.cardsAtom) ?? [];
+        if (cards.length > 0) {
+            this.cardCaptureEnabled = integrationStatus === "running-command";
+            return;
+        }
+
+        const backfilledCard = buildBackfilledTermCard({
+            buffer: termWrap.terminal.buffer.active,
+            cmdText: lastCommand,
+            createdTs: Date.now(),
+            exitCode: globalStore.get(termWrap.lastCommandExitCodeAtom),
+            promptMarkers: termWrap.promptMarkers,
+            shellIntegrationStatus: integrationStatus,
+        });
+        if (backfilledCard == null) {
+            return;
+        }
+
+        globalStore.set(this.cardsAtom, [backfilledCard]);
+        if (integrationStatus === "running-command") {
+            this.cardCaptureEnabled = true;
+            this.lastCardOutputTs = Date.now();
+        }
+    }
+
+    private markLastPendingCardAsInteractive(blockingCmd: string) {
+        const cards = globalStore.get(this.cardsAtom) ?? [];
+        const lastIdx = cards.length - 1;
+        if (lastIdx < 0 || cards[lastIdx].state !== "pending") {
+            return;
+        }
+        const now = Date.now();
+        const card = cards[lastIdx];
+        const next: TermCard = {
+            ...card,
+            startTs: now,
+            endTs: now,
+            state: "done",
+            output: `\nEntered interactive mode (${blockingCmd}). Switched back to the normal terminal.\n`,
+            outputLines: [`Entered interactive mode (${blockingCmd}). Switched back to the normal terminal.`],
+        };
+        const nextCards = [...cards];
+        nextCards[lastIdx] = next;
+        globalStore.set(this.cardsAtom, nextCards);
+    }
+
+    handleControllerOutputChunk(data: Uint8Array) {
+        if (globalStore.get(this.termMode) !== "cards") {
+            return;
+        }
+        const activeId = this.getActiveCardId();
+        if (!this.cardCaptureEnabled && activeId == null) {
+            return;
+        }
+        const targetCardId = activeId;
+        if (!targetCardId) {
+            return;
+        }
+
+        const text = this.cardsTextDecoder.decode(data, { stream: true });
+        const sanitized = sanitizeAnsiForCards(text);
+        if (!sanitized) {
+            return;
+        }
+        this.lastCardOutputTs = Date.now();
+        this.appendOutputToCard(targetCardId, sanitized);
+
+        const termWrap = this.termRef.current;
+        const integrationStatus = termWrap ? globalStore.get(termWrap.shellIntegrationStatusAtom) : null;
+        if (integrationStatus == null) {
+            this.scheduleFallbackFinalize();
+        }
+    }
+
+    private scheduleFallbackFinalize() {
+        if (this.cardFallbackFinalizeTimer) {
+            clearTimeout(this.cardFallbackFinalizeTimer);
+        }
+        this.cardFallbackFinalizeTimer = setTimeout(() => {
+            this.cardFallbackFinalizeTimer = null;
+            const termWrap = this.termRef.current;
+            const integrationStatus = termWrap ? globalStore.get(termWrap.shellIntegrationStatusAtom) : null;
+            if (integrationStatus != null) {
+                return;
+            }
+            if (Date.now() - this.lastCardOutputTs < 650) {
+                this.scheduleFallbackFinalize();
+                return;
+            }
+            this.finalizeActiveCard();
+            this.cardCaptureEnabled = false;
+        }, 650);
+    }
+
+    private getActiveCardId(): string | null {
+        const cards = globalStore.get(this.cardsAtom) ?? [];
+        for (let i = cards.length - 1; i >= 0; i--) {
+            const c = cards[i];
+            if (c.state === "streaming" || c.state === "pending") {
+                return c.id;
+            }
+        }
+        return null;
+    }
+
+    private beginCardFromShellIntegration() {
+        const termWrap = this.termRef.current;
+        const cmdText = termWrap ? globalStore.get(termWrap.lastCommandAtom) : null;
+        const now = Date.now();
+        const cards = globalStore.get(this.cardsAtom) ?? [];
+
+        const lastIdx = cards.length - 1;
+        if (lastIdx >= 0 && cards[lastIdx].state === "pending") {
+            const pending = cards[lastIdx];
+            const next: TermCard = {
+                ...pending,
+                cmdText: cmdText ?? pending.cmdText,
+                startTs: now,
+                state: "streaming",
+            };
+            const nextCards = [...cards];
+            nextCards[lastIdx] = next;
+            globalStore.set(this.cardsAtom, nextCards);
+            return;
+        }
+
+        const card: TermCard = {
+            id: makeCardId(now),
+            cmdText: cmdText ?? "",
+            createdTs: now,
+            startTs: now,
+            endTs: null,
+            exitCode: null,
+            state: "streaming",
+            output: "",
+            outputLines: [],
+            collapsed: true,
+        };
+        globalStore.set(this.cardsAtom, [...cards, card]);
+    }
+
+    private finalizeActiveCard() {
+        const termWrap = this.termRef.current;
+        const exitCode = termWrap ? globalStore.get(termWrap.lastCommandExitCodeAtom) : null;
+        const now = Date.now();
+        const cards = globalStore.get(this.cardsAtom) ?? [];
+        const idx = [...cards].reverse().findIndex((c) => c.state === "streaming");
+        if (idx === -1) {
+            return;
+        }
+        const realIdx = cards.length - 1 - idx;
+        const card = cards[realIdx];
+        const next: TermCard = {
+            ...card,
+            endTs: now,
+            exitCode: exitCode ?? null,
+            state: "done",
+        };
+        const nextCards = [...cards];
+        nextCards[realIdx] = next;
+        globalStore.set(this.cardsAtom, nextCards);
+    }
+
+    private appendOutputToCard(cardId: string, chunk: string) {
+        const cards = globalStore.get(this.cardsAtom) ?? [];
+        const idx = cards.findIndex((c) => c.id === cardId);
+        if (idx === -1) {
+            return;
+        }
+        const card = cards[idx];
+        const combined = card.output + chunk;
+        const lines = combined.split("\n");
+        const cappedLines = lines.length > 2000 ? lines.slice(lines.length - 2000) : lines;
+        const cappedOutput = cappedLines.join("\n");
+        const next: TermCard = {
+            ...card,
+            output: cappedOutput,
+            outputLines: cappedLines,
+        };
+        const nextCards = [...cards];
+        nextCards[idx] = next;
+        globalStore.set(this.cardsAtom, nextCards);
+    }
+
     supportsQuickInput(): boolean {
         const termMode = globalStore.get(this.termMode);
         const blockData = globalStore.get(this.blockAtom);
-        return termMode == "term" && blockData?.meta?.controller != "cmd";
+        return termMode != "vdom" && blockData?.meta?.controller != "cmd";
     }
 
     setQuickInputValue(value: string) {
@@ -521,14 +867,68 @@ export class TermViewModel implements ViewModel {
         return true;
     }
 
-    setTermMode(mode: "term" | "vdom") {
-        if (mode == "term") {
-            mode = null;
-        }
+    setTermMode(mode: "term" | "vdom" | "cards") {
         RpcApi.SetMetaCommand(TabRpcClient, {
             oref: WOS.makeORef("block", this.blockId),
             meta: { "term:mode": mode },
         });
+    }
+
+    setCardsContextLabel(label: string) {
+        const next = label ?? "";
+        globalStore.set(this.cardsContextLabelAtom, next);
+        if (this.termRef.current?.contextLabelAtom) {
+            globalStore.set(this.termRef.current.contextLabelAtom, next);
+        }
+        RpcApi.SetRTInfoCommand(TabRpcClient, {
+            oref: WOS.makeORef("block", this.blockId),
+            data: { "term:contextlabel": next } as any,
+        });
+    }
+
+    createPendingCard(cmdText: string) {
+        if (!cmdText?.trim()) {
+            return;
+        }
+        const now = Date.now();
+        const card: TermCard = {
+            id: makeCardId(now),
+            cmdText,
+            createdTs: now,
+            startTs: null,
+            endTs: null,
+            exitCode: null,
+            state: "pending",
+            output: "",
+            outputLines: [],
+            collapsed: true,
+        };
+        const cards = globalStore.get(this.cardsAtom) ?? [];
+        globalStore.set(this.cardsAtom, [...cards, card]);
+        this.cardCaptureEnabled = true;
+        this.lastCardOutputTs = now;
+
+        const termWrap = this.termRef.current;
+        const integrationStatus = termWrap ? globalStore.get(termWrap.shellIntegrationStatusAtom) : null;
+        if (integrationStatus == null) {
+            if (this.cardFallbackNoOutputTimer) {
+                clearTimeout(this.cardFallbackNoOutputTimer);
+            }
+            this.cardFallbackNoOutputTimer = setTimeout(() => {
+                this.cardFallbackNoOutputTimer = null;
+                const activeId = this.getActiveCardId();
+                if (!activeId) {
+                    return;
+                }
+                const cards = globalStore.get(this.cardsAtom) ?? [];
+                const active = cards.find((c) => c.id === activeId);
+                if (active?.outputLines?.length) {
+                    return;
+                }
+                this.finalizeActiveCard();
+                this.cardCaptureEnabled = false;
+            }, 2500);
+        }
     }
 
     triggerRestartAtom() {
@@ -585,6 +985,7 @@ export class TermViewModel implements ViewModel {
 
     dispose() {
         DefaultRouter.unregisterRoute(makeFeBlockRouteId(this.blockId));
+        this.cardsUnsubFns.forEach((fn) => fn());
         this.shellProcStatusUnsubFn?.();
         this.blockJobStatusUnsubFn?.();
         this.termBPMUnsubFn?.();
@@ -619,7 +1020,7 @@ export class TermViewModel implements ViewModel {
         if (keyutil.checkKeyPressed(waveEvent, "Cmd:Escape")) {
             const blockAtom = WOS.getWaveObjectAtom<Block>(`block:${this.blockId}`);
             const blockData = globalStore.get(blockAtom);
-            const newTermMode = blockData?.meta?.["term:mode"] == "vdom" ? null : "vdom";
+            const newTermMode = blockData?.meta?.["term:mode"] == "vdom" ? "term" : "vdom";
             const vdomBlockId = globalStore.get(this.vdomBlockId);
             if (newTermMode == "vdom" && !vdomBlockId) {
                 return;

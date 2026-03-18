@@ -27,6 +27,7 @@ import { TermStickers } from "./termsticker";
 import { TermThemeUpdater } from "./termtheme";
 import { computeTheme, normalizeCursorStyle } from "./termutil";
 import { TermWrap } from "./termwrap";
+import { TermCardsView } from "./term-cards";
 import "./xterm.css";
 
 const dlog = debug("wave:term");
@@ -67,7 +68,7 @@ const TermVDomToolbarNode = ({ vdomBlockId, blockId, model }: TerminalViewProps 
                 RpcApi.SetMetaCommand(TabRpcClient, {
                     oref: WOS.makeORef("block", blockId),
                     meta: {
-                        "term:mode": null,
+                        "term:mode": "term",
                         "term:vdomtoolbarblockid": null,
                     },
                 });
@@ -110,7 +111,7 @@ const TermVDomNodeSingleId = ({ vdomBlockId, blockId, model }: TerminalViewProps
                 RpcApi.SetMetaCommand(TabRpcClient, {
                     oref: WOS.makeORef("block", blockId),
                     meta: {
-                        "term:mode": null,
+                        "term:mode": "term",
                         "term:vdomblockid": null,
                     },
                 });
@@ -176,8 +177,8 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const [blockData] = WOS.useWaveObjectValue<Block>(WOS.makeORef("block", blockId));
     const termSettingsAtom = getSettingsPrefixAtom("term");
     const termSettings = jotai.useAtomValue(termSettingsAtom);
-    let termMode = blockData?.meta?.["term:mode"] ?? "term";
-    if (termMode != "term" && termMode != "vdom") {
+    let termMode = blockData?.meta?.["term:mode"] ?? (blockData?.meta?.controller === "cmd" ? "term" : "cards");
+    if (termMode != "term" && termMode != "vdom" && termMode != "cards") {
         termMode = "term";
     }
     const termModeRef = React.useRef(termMode);
@@ -204,6 +205,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const wholeWord = useAtomValueSafe<boolean>(searchProps.wholeWord);
     const regex = useAtomValueSafe<boolean>(searchProps.regex);
     const searchVal = jotai.useAtomValue<string>(searchProps.searchValue);
+    const cardsRuntimeReady = useAtomValueSafe<boolean>(termWrapInst?.runtimeInfoReadyAtom);
     const searchDecorations = React.useMemo(
         () => ({
             matchOverviewRuler: "#000000",
@@ -308,11 +310,13 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
                 keydownHandler: model.handleTerminalKeydown.bind(model),
                 useWebGl: !termSettings?.["term:disablewebgl"],
                 sendDataHandler: model.sendDataToController.bind(model),
+                controllerOutputHandler: model.handleControllerOutputChunk.bind(model),
                 nodeModel: model.nodeModel,
             }
         );
         (window as any).term = termWrap;
         model.termRef.current = termWrap;
+        model.attachToTermWrap(termWrap);
         setTermWrapInst(termWrap);
         const rszObs = new ResizeObserver(() => {
             if (termWrap.cachedAtBottomForResize == null) {
@@ -332,6 +336,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
             }, 10);
         }
         return () => {
+            model.attachToTermWrap(null);
             termWrap.dispose();
             rszObs.disconnect();
             setTermWrapInst(null);
@@ -345,6 +350,13 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         }
         termModeRef.current = termMode;
     }, [termMode]);
+
+    React.useEffect(() => {
+        if (!isBasicTerm || termMode !== "cards" || termWrapInst == null) {
+            return;
+        }
+        model.prepareCardsMode(termWrapInst);
+    }, [cardsRuntimeReady, isBasicTerm, model, termMode, termWrapInst]);
 
     React.useEffect(() => {
         if (isMI && isBasicTerm && isFocused && model.termRef.current != null) {
@@ -407,7 +419,10 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
             <TermToolbarVDomNode key="vdom-toolbar" blockId={blockId} model={model} />
             <TermVDomNode key="vdom" blockId={blockId} model={model} />
             <div key="connect-elem" className="term-connectelem" ref={connectElemRef} />
-            {isBasicTerm ? (
+            {isBasicTerm && termMode === "cards" ? (
+                <TermCardsView blockId={blockId} model={model} termWrap={termWrapInst} />
+            ) : null}
+            {isBasicTerm && termMode !== "cards" ? (
                 <div className="term-quick-input" onMouseDown={(e) => e.stopPropagation()}>
                     <div className="term-quick-input-editor">
                         <MultiLineInput

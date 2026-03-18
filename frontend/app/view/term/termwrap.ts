@@ -65,6 +65,7 @@ type TermWrapOptions = {
     keydownHandler?: (e: KeyboardEvent) => boolean;
     useWebGl?: boolean;
     sendDataHandler?: (data: string) => void;
+    controllerOutputHandler?: (data: Uint8Array) => void;
     nodeModel?: BlockNodeModel;
 };
 
@@ -91,10 +92,15 @@ export class TermWrap {
     lastUpdated: number;
     promptMarkers: TermTypes.IMarker[] = [];
     shellIntegrationStatusAtom: jotai.PrimitiveAtom<ShellIntegrationStatus | null>;
+    runtimeInfoReadyAtom: jotai.PrimitiveAtom<boolean>;
     lastCommandAtom: jotai.PrimitiveAtom<string | null>;
+    lastCommandExitCodeAtom: jotai.PrimitiveAtom<number | null>;
+    promptVersionAtom: jotai.PrimitiveAtom<number>;
+    contextLabelAtom: jotai.PrimitiveAtom<string>;
     nodeModel: BlockNodeModel; // this can be null
     hoveredLinkUri: string | null = null;
     onLinkHover?: (uri: string | null, mouseX: number, mouseY: number) => void;
+    controllerOutputHandler?: (data: Uint8Array) => void;
 
     // IME composition state tracking
     isComposing: boolean = false;
@@ -145,6 +151,7 @@ export class TermWrap {
         this.tabId = tabId;
         this.blockId = blockId;
         this.sendDataHandler = waveOptions.sendDataHandler;
+        this.controllerOutputHandler = waveOptions.controllerOutputHandler;
         this.nodeModel = waveOptions.nodeModel;
         this.ptyOffset = 0;
         this.dataBytesProcessed = 0;
@@ -152,7 +159,11 @@ export class TermWrap {
         this.lastUpdated = Date.now();
         this.promptMarkers = [];
         this.shellIntegrationStatusAtom = jotai.atom(null) as jotai.PrimitiveAtom<ShellIntegrationStatus | null>;
+        this.runtimeInfoReadyAtom = jotai.atom(false) as jotai.PrimitiveAtom<boolean>;
         this.lastCommandAtom = jotai.atom(null) as jotai.PrimitiveAtom<string | null>;
+        this.lastCommandExitCodeAtom = jotai.atom(null) as jotai.PrimitiveAtom<number | null>;
+        this.promptVersionAtom = jotai.atom(0) as jotai.PrimitiveAtom<number>;
+        this.contextLabelAtom = jotai.atom("") as jotai.PrimitiveAtom<string>;
         this.terminal = new Terminal(options);
         this.fitAddon = new FitAddon();
         this.fitAddon.scrollbarWidth = 6; // this needs to match scrollbar width in term.scss
@@ -361,6 +372,7 @@ export class TermWrap {
     };
 
     async initTerminal() {
+        globalStore.set(this.runtimeInfoReadyAtom, false);
         const copyOnSelectAtom = getSettingsKeyAtom("term:copyonselect");
         this.toDispose.push(this.terminal.onData(this.handleTermData.bind(this)));
         this.toDispose.push(
@@ -416,27 +428,34 @@ export class TermWrap {
         this.mainFileSubject.subscribe(this.handleNewFileSubjectData.bind(this));
 
         try {
-            const rtInfo = await RpcApi.GetRTInfoCommand(TabRpcClient, {
-                oref: WOS.makeORef("block", this.blockId),
-            });
+            try {
+                const rtInfo = await RpcApi.GetRTInfoCommand(TabRpcClient, {
+                    oref: WOS.makeORef("block", this.blockId),
+                });
 
-            if (rtInfo && rtInfo["shell:integration"]) {
-                const shellState = rtInfo["shell:state"] as ShellIntegrationStatus;
-                globalStore.set(this.shellIntegrationStatusAtom, shellState || null);
-            } else {
-                globalStore.set(this.shellIntegrationStatusAtom, null);
+                if (rtInfo && rtInfo["shell:integration"]) {
+                    const shellState = rtInfo["shell:state"] as ShellIntegrationStatus;
+                    globalStore.set(this.shellIntegrationStatusAtom, shellState || null);
+                } else {
+                    globalStore.set(this.shellIntegrationStatusAtom, null);
+                }
+
+                const lastCmd = rtInfo ? rtInfo["shell:lastcmd"] : null;
+                globalStore.set(this.lastCommandAtom, lastCmd || null);
+
+                const lastExitCode = rtInfo ? (rtInfo["shell:lastcmdexitcode"] as number) : null;
+                globalStore.set(this.lastCommandExitCodeAtom, lastExitCode ?? null);
+
+                const contextLabel = rtInfo ? (rtInfo["term:contextlabel"] as string) : null;
+                globalStore.set(this.contextLabelAtom, contextLabel ?? "");
+            } catch (e) {
+                console.log("Error loading runtime info:", e);
             }
 
-            const lastCmd = rtInfo ? rtInfo["shell:lastcmd"] : null;
-            globalStore.set(this.lastCommandAtom, lastCmd || null);
-        } catch (e) {
-            console.log("Error loading runtime info:", e);
-        }
-
-        try {
             await this.loadInitialTerminalData();
         } finally {
             this.loaded = true;
+            globalStore.set(this.runtimeInfoReadyAtom, true);
         }
         this.runProcessIdleTimeout();
     }
@@ -544,6 +563,10 @@ export class TermWrap {
         this.ptyOffset += totalSize;
         this.dataBytesProcessed += totalSize;
         this.lastUpdated = Date.now();
+        // Capture the raw stream before xterm parser side effects (OSC prompt ready,
+        // exit code updates, etc.) flip cards state to "done". Otherwise fast commands
+        // can finalize before the callback runs and their output gets dropped.
+        this.controllerOutputHandler?.(merged);
         this.terminal.write(merged);
     }
 
@@ -559,6 +582,11 @@ export class TermWrap {
         let prtn = new Promise<void>((presolve, _) => {
             resolve = presolve;
         });
+        const encoded = typeof data === "string" ? new TextEncoder().encode(data) : data;
+        // Keep cards capture in front of terminal parser state transitions for the same
+        // reason as flushWriteBuffer(): we want the output chunk while the card is still
+        // active, not after prompt-ready events finalize it.
+        this.controllerOutputHandler?.(encoded);
         this.terminal.write(data, () => {
             if (setPtyOffset != null) {
                 this.ptyOffset = setPtyOffset;

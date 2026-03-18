@@ -19,6 +19,7 @@ type ObjRTInfo struct {
 	ShellLastCmd         string `json:"shell:lastcmd,omitempty"`
 	ShellLastCmdExitCode int    `json:"shell:lastcmdexitcode,omitempty"`
 	TermLastUserInputTs  int64  `json:"term:lastuserinputts,omitempty"`
+	TermContextLabel     string `json:"term:contextlabel,omitempty"`
 
 	BuilderLayout map[string]float64 `json:"builder:layout,omitempty"`
 	BuilderAppId  string             `json:"builder:appid,omitempty"`

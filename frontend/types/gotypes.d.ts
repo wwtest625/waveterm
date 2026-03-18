@@ -1188,6 +1188,7 @@ declare global {
         "shell:lastcmd"?: string;
         "shell:lastcmdexitcode"?: number;
         "term:lastuserinputts"?: number;
+        "term:contextlabel"?: string;
         "builder:layout"?: {[key: string]: number};
         "builder:appid"?: string;
         "builder:env"?: {[key: string]: string};
