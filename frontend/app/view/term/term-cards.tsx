@@ -83,6 +83,7 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
     const containerRef = React.useRef<HTMLDivElement>(null);
     const prevCardsLenRef = React.useRef(cards.length);
     const [shouldAutoScroll, setShouldAutoScroll] = React.useState(true);
+    const [cardSearches, setCardSearches] = React.useState<Record<string, string>>({});
 
     const checkIfAtBottom = React.useCallback(() => {
         const container = containerRef.current;
@@ -126,6 +127,25 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
             setShouldAutoScroll(true);
         }
     }, [cards.length]);
+
+    React.useEffect(() => {
+        setCardSearches((prev) => {
+            const next: Record<string, string> = {};
+            for (const card of cards) {
+                if (prev[card.id] != null) {
+                    next[card.id] = prev[card.id];
+                }
+            }
+            const prevKeys = Object.keys(prev).sort();
+            const nextKeys = Object.keys(next).sort();
+            const changed =
+                prevKeys.length !== nextKeys.length || prevKeys.some((key, idx) => key !== nextKeys[idx]);
+            if (!changed) {
+                return prev;
+            }
+            return next;
+        });
+    }, [cards]);
 
     const filteredCards = React.useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -207,6 +227,13 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
         [cards, setCards]
     );
 
+    const setCardSearch = React.useCallback((cardId: string, value: string) => {
+        setCardSearches((prev) => ({
+            ...prev,
+            [cardId]: value,
+        }));
+    }, []);
+
     return (
         <div className="term-cards-overlay">
             <div className="term-cards-topbar">
@@ -261,9 +288,20 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
                 ) : (
                     filteredCards.map((card) => {
                         const duration = formatDurationMs(card.startTs, card.endTs);
-                        const maxLines = 60;
-                        const shownLines = card.collapsed ? card.outputLines.slice(0, maxLines) : card.outputLines;
-                        const hasMore = card.outputLines.length > maxLines;
+                        const maxLines = 40;
+                        const cardSearch = cardSearches[card.id] ?? "";
+                        const normalizedCardSearch = cardSearch.trim().toLowerCase();
+                        const searchMatches =
+                            normalizedCardSearch === ""
+                                ? card.outputLines
+                                : card.outputLines.filter((line) =>
+                                      stripAnsiForCopy(line).toLowerCase().includes(normalizedCardSearch)
+                                  );
+                        const shownLines =
+                            card.collapsed && normalizedCardSearch === ""
+                                ? searchMatches.slice(0, maxLines)
+                                : searchMatches;
+                        const hasMore = normalizedCardSearch === "" && searchMatches.length > maxLines;
                         return (
                             <div key={card.id} className="term-cards-item">
                                 <div className="term-cards-bubble term-cards-bubble-right">
@@ -280,6 +318,7 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
                                             </span>
                                         )}
                                         {duration && <span className="term-cards-bubble-meta">{duration}</span>}
+                                        {card.cwd && <span className="term-cards-bubble-meta">{card.cwd}</span>}
                                     </div>
                                     <div className="term-cards-cmd">{card.cmdText}</div>
                                 </div>
@@ -287,26 +326,43 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
                                 <div className="term-cards-bubble term-cards-bubble-left">
                                     <div className="term-cards-bubble-header">
                                         <span className="term-cards-bubble-title">Output</span>
+                                        <input
+                                            className="term-cards-input term-cards-input-small"
+                                            value={cardSearch}
+                                            onChange={(e) => setCardSearch(card.id, e.target.value)}
+                                            placeholder="Search in card"
+                                        />
                                         <Button
                                             className="!h-[26px] !px-2 !text-xs"
                                             onClick={() => fireAndForget(() => onCopyOutput(card.output))}
                                         >
                                             Copy
                                         </Button>
+                                        {normalizedCardSearch !== "" && (
+                                            <span className="term-cards-bubble-meta">
+                                                {searchMatches.length} match{searchMatches.length === 1 ? "" : "es"}
+                                            </span>
+                                        )}
                                         {hasMore && (
                                             <Button
                                                 className="!h-[26px] !px-2 !text-xs"
                                                 onClick={() => toggleCardCollapsed(card.id)}
                                             >
-                                                {card.collapsed ? `Expand (${card.outputLines.length})` : "Collapse"}
+                                                {card.collapsed ? `Expand (${searchMatches.length})` : "Collapse"}
                                             </Button>
                                         )}
                                     </div>
                                     <div className="term-cards-output">
                                         {shownLines.length === 0 ? (
-                                            <div className="text-muted-foreground">This command has no output yet.</div>
+                                            <div className="text-muted-foreground">
+                                                {normalizedCardSearch !== ""
+                                                    ? "No matches in this card."
+                                                    : "This command has no output yet."}
+                                            </div>
                                         ) : (
-                                            shownLines.map((line, idx) => <AnsiLine key={idx} line={line} />)
+                                            shownLines.map((line, idx) => (
+                                                <AnsiLine key={idx} line={line} searchTerm={cardSearch} />
+                                            ))
                                         )}
                                     </div>
                                 </div>

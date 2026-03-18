@@ -236,7 +236,8 @@
     }
 
     .term-cards-bubble-left {
-        align-self: flex-start;
+        align-self: stretch;
+        max-width: 100%;
     }
 
     .term-cards-bubble-right {
@@ -249,6 +250,7 @@
         flex-direction: row;
         gap: 10px;
         align-items: center;
+        flex-wrap: wrap;
         margin-bottom: 6px;
         color: var(--muted-color);
     }
@@ -270,8 +272,20 @@
     }
 
     .term-cards-output {
-        white-space: pre-wrap;
-        word-break: break-word;
+        white-space: pre;
+        word-break: normal;
+        overflow-x: auto;
+        overflow-y: hidden;
+        tab-size: 4;
+        line-height: 1.45;
+        padding-bottom: 2px;
+    }
+
+    .term-cards-input-small {
+        width: 180px;
+        height: 26px;
+        font-size: 11px;
+        padding: 0 8px;
     }
 
     .term-cards-inputbar {

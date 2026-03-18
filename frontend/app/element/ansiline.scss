@@ -1,0 +1,138 @@
+.ansi-line {
+    display: block;
+    white-space: pre;
+}
+
+.ansi-line-highlight {
+    background-color: color-mix(in srgb, var(--accent-color) 34%, transparent);
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-color) 22%, transparent);
+}
+
+.text-ansi-black {
+    color: var(--ansi-black);
+}
+
+.text-ansi-red {
+    color: var(--ansi-red);
+}
+
+.text-ansi-green {
+    color: var(--ansi-green);
+}
+
+.text-ansi-yellow {
+    color: var(--ansi-yellow);
+}
+
+.text-ansi-blue {
+    color: var(--ansi-blue);
+}
+
+.text-ansi-magenta {
+    color: var(--ansi-magenta);
+}
+
+.text-ansi-cyan {
+    color: var(--ansi-cyan);
+}
+
+.text-ansi-white {
+    color: var(--ansi-white);
+}
+
+.text-ansi-brightblack {
+    color: var(--ansi-brightblack);
+}
+
+.text-ansi-brightred {
+    color: var(--ansi-brightred);
+}
+
+.text-ansi-brightgreen {
+    color: var(--ansi-brightgreen);
+}
+
+.text-ansi-brightyellow {
+    color: var(--ansi-brightyellow);
+}
+
+.text-ansi-brightblue {
+    color: var(--ansi-brightblue);
+}
+
+.text-ansi-brightmagenta {
+    color: var(--ansi-brightmagenta);
+}
+
+.text-ansi-brightcyan {
+    color: var(--ansi-brightcyan);
+}
+
+.text-ansi-brightwhite {
+    color: var(--ansi-brightwhite);
+}
+
+.bg-ansi-black {
+    background-color: var(--ansi-black);
+}
+
+.bg-ansi-red {
+    background-color: var(--ansi-red);
+}
+
+.bg-ansi-green {
+    background-color: var(--ansi-green);
+}
+
+.bg-ansi-yellow {
+    background-color: var(--ansi-yellow);
+}
+
+.bg-ansi-blue {
+    background-color: var(--ansi-blue);
+}
+
+.bg-ansi-magenta {
+    background-color: var(--ansi-magenta);
+}
+
+.bg-ansi-cyan {
+    background-color: var(--ansi-cyan);
+}
+
+.bg-ansi-white {
+    background-color: var(--ansi-white);
+}
+
+.bg-ansi-brightblack {
+    background-color: var(--ansi-brightblack);
+}
+
+.bg-ansi-brightred {
+    background-color: var(--ansi-brightred);
+}
+
+.bg-ansi-brightgreen {
+    background-color: var(--ansi-brightgreen);
+}
+
+.bg-ansi-brightyellow {
+    background-color: var(--ansi-brightyellow);
+}
+
+.bg-ansi-brightblue {
+    background-color: var(--ansi-brightblue);
+}
+
+.bg-ansi-brightmagenta {
+    background-color: var(--ansi-brightmagenta);
+}
+
+.bg-ansi-brightcyan {
+    background-color: var(--ansi-brightcyan);
+}
+
+.bg-ansi-brightwhite {
+    background-color: var(--ansi-brightwhite);
+}

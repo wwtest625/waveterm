@@ -20,6 +20,7 @@ type CardBackfillRange = {
 export type BackfilledTermCard = {
     id: string;
     cmdText: string;
+    cwd?: string | null;
     createdTs: number;
     startTs: number | null;
     endTs: number | null;
@@ -92,12 +93,14 @@ function trimBackfilledOutputLines(outputLines: string[], cmdText: string): stri
 export function buildBackfilledTermCard(params: {
     buffer: TermTypes.IBuffer;
     cmdText: string | null;
+    cwd?: string | null;
     createdTs?: number;
     exitCode: number | null;
     promptMarkers: PromptMarkerLike[];
     shellIntegrationStatus: ShellIntegrationStatus;
 }): BackfilledTermCard | null {
-    const { buffer, cmdText, createdTs = Date.now(), exitCode, promptMarkers, shellIntegrationStatus } = params;
+    const { buffer, cmdText, cwd = null, createdTs = Date.now(), exitCode, promptMarkers, shellIntegrationStatus } =
+        params;
     const normalizedCmd = cmdText?.trim();
     if (!normalizedCmd) {
         return null;
@@ -113,6 +116,7 @@ export function buildBackfilledTermCard(params: {
     return {
         id: makeCardId(createdTs),
         cmdText: normalizedCmd,
+        cwd,
         createdTs,
         startTs: null,
         endTs: null,

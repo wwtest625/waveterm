@@ -50,6 +50,7 @@ type TermCardState = "pending" | "streaming" | "done";
 type TermCard = {
     id: string;
     cmdText: string;
+    cwd?: string | null;
     createdTs: number;
     startTs: number | null;
     endTs: number | null;
@@ -79,6 +80,50 @@ function sanitizeAnsiForCards(input: string): string {
     input = input.replace(/\x1b[@-Z\\-_]/g, "");
     input = input.replace(/\r/g, "\n");
     return input;
+}
+
+function stripAnsiForCardText(input: string): string {
+    // eslint-disable-next-line no-control-regex
+    return input.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function trimLeadingCommandEcho(lines: string[], cmdText: string): string[] {
+    if (lines.length === 0 || !cmdText?.trim()) {
+        return lines;
+    }
+    const firstLine = stripAnsiForCardText(lines[0]).trim();
+    const normalizedCmd = cmdText.trim();
+    if (
+        firstLine === normalizedCmd ||
+        firstLine.endsWith(` ${normalizedCmd}`) ||
+        firstLine.includes(normalizedCmd)
+    ) {
+        return lines.slice(1);
+    }
+    return lines;
+}
+
+function isLikelyShellPromptLine(line: string): boolean {
+    const text = stripAnsiForCardText(line).trim();
+    if (text === "") {
+        return false;
+    }
+    return (
+        /^[^\s@]+@[^\s:]+:[^\r\n]*[#$]$/.test(text) ||
+        /^[^\s]+[#$>]$/.test(text) ||
+        /^[A-Za-z]:\\.*>$/.test(text)
+    );
+}
+
+function normalizeCardOutputLines(lines: string[], cmdText: string, isDone: boolean): string[] {
+    let nextLines = trimLeadingCommandEcho([...lines], cmdText);
+    while (nextLines.length > 0 && nextLines[nextLines.length - 1] === "") {
+        nextLines.pop();
+    }
+    if (isDone && nextLines.length > 0 && isLikelyShellPromptLine(nextLines[nextLines.length - 1])) {
+        nextLines.pop();
+    }
+    return nextLines;
 }
 
 export class TermViewModel implements ViewModel {
@@ -136,6 +181,11 @@ export class TermViewModel implements ViewModel {
     private cardFallbackFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
     private cardFallbackNoOutputTimer: ReturnType<typeof setTimeout> | null = null;
     private lastCardOutputTs = 0;
+
+    private getCurrentWorkingDir(): string {
+        const blockData = globalStore.get(this.blockAtom);
+        return blockData?.meta?.["cmd:cwd"] ?? "";
+    }
 
     constructor(blockId: string, nodeModel: BlockNodeModel, tabModel: TabModel) {
         this.viewType = "term";
@@ -652,6 +702,7 @@ export class TermViewModel implements ViewModel {
         const backfilledCard = buildBackfilledTermCard({
             buffer: termWrap.terminal.buffer.active,
             cmdText: lastCommand,
+            cwd: this.getCurrentWorkingDir(),
             createdTs: Date.now(),
             exitCode: globalStore.get(termWrap.lastCommandExitCodeAtom),
             promptMarkers: termWrap.promptMarkers,
@@ -772,6 +823,7 @@ export class TermViewModel implements ViewModel {
         const card: TermCard = {
             id: makeCardId(now),
             cmdText: cmdText ?? "",
+            cwd: this.getCurrentWorkingDir(),
             createdTs: now,
             startTs: now,
             endTs: null,
@@ -795,11 +847,14 @@ export class TermViewModel implements ViewModel {
         }
         const realIdx = cards.length - 1 - idx;
         const card = cards[realIdx];
+        const normalizedOutputLines = normalizeCardOutputLines(card.outputLines, card.cmdText, true);
         const next: TermCard = {
             ...card,
             endTs: now,
             exitCode: exitCode ?? null,
             state: "done",
+            output: normalizedOutputLines.join("\n"),
+            outputLines: normalizedOutputLines,
         };
         const nextCards = [...cards];
         nextCards[realIdx] = next;
@@ -815,7 +870,8 @@ export class TermViewModel implements ViewModel {
         const card = cards[idx];
         const combined = card.output + chunk;
         const lines = combined.split("\n");
-        const cappedLines = lines.length > 2000 ? lines.slice(lines.length - 2000) : lines;
+        const normalizedLines = normalizeCardOutputLines(lines, card.cmdText, false);
+        const cappedLines = normalizedLines.length > 2000 ? normalizedLines.slice(normalizedLines.length - 2000) : normalizedLines;
         const cappedOutput = cappedLines.join("\n");
         const next: TermCard = {
             ...card,
@@ -894,6 +950,7 @@ export class TermViewModel implements ViewModel {
         const card: TermCard = {
             id: makeCardId(now),
             cmdText,
+            cwd: this.getCurrentWorkingDir(),
             createdTs: now,
             startTs: null,
             endTs: null,

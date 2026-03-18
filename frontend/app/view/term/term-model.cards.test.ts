@@ -22,6 +22,7 @@ describe("buildBackfilledTermCard", () => {
         const card = buildBackfilledTermCard({
             buffer: makeBuffer(["$ git status", "modified: frontend/app/view/term/term.tsx", ""]),
             cmdText: "git status",
+            cwd: "/workspace/waveterm",
             createdTs: 123,
             exitCode: 0,
             promptMarkers: [{ line: 0 }, { line: 3 }],
@@ -31,6 +32,7 @@ describe("buildBackfilledTermCard", () => {
         expect(card).toMatchObject({
             cmdText: "git status",
             createdTs: 123,
+            cwd: "/workspace/waveterm",
             endTs: null,
             exitCode: 0,
             output: "modified: frontend/app/view/term/term.tsx",
@@ -44,6 +46,7 @@ describe("buildBackfilledTermCard", () => {
         const card = buildBackfilledTermCard({
             buffer: makeBuffer(["older output", "$ npm test", "running suite...", "still running"]),
             cmdText: "npm test",
+            cwd: "/workspace/waveterm",
             createdTs: 456,
             exitCode: 1,
             promptMarkers: [{ line: 1 }],
@@ -53,6 +56,7 @@ describe("buildBackfilledTermCard", () => {
         expect(card).toMatchObject({
             cmdText: "npm test",
             createdTs: 456,
+            cwd: "/workspace/waveterm",
             exitCode: null,
             output: "running suite...\nstill running",
             outputLines: ["running suite...", "still running"],
@@ -65,6 +69,7 @@ describe("buildBackfilledTermCard", () => {
         const card = buildBackfilledTermCard({
             buffer: makeBuffer(["$ pwd"]),
             cmdText: "pwd",
+            cwd: "/workspace/waveterm",
             exitCode: 0,
             promptMarkers: [],
             shellIntegrationStatus: "ready",
