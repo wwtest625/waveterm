@@ -232,6 +232,30 @@ func DisposeSuggestionsCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcO
 	return err
 }
 
+// command "dockercontaineraction", wshserver.DockerContainerActionCommand
+func DockerContainerActionCommand(w *wshutil.WshRpc, data wshrpc.DockerContainerActionRequest, opts *wshrpc.RpcOpts) (wshrpc.DockerActionResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.DockerActionResponse](w, "dockercontaineraction", data, opts)
+	return resp, err
+}
+
+// command "dockerimageaction", wshserver.DockerImageActionCommand
+func DockerImageActionCommand(w *wshutil.WshRpc, data wshrpc.DockerImageActionRequest, opts *wshrpc.RpcOpts) (wshrpc.DockerActionResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.DockerActionResponse](w, "dockerimageaction", data, opts)
+	return resp, err
+}
+
+// command "dockerlistcontainers", wshserver.DockerListContainersCommand
+func DockerListContainersCommand(w *wshutil.WshRpc, data wshrpc.DockerListContainersRequest, opts *wshrpc.RpcOpts) (wshrpc.DockerListContainersResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.DockerListContainersResponse](w, "dockerlistcontainers", data, opts)
+	return resp, err
+}
+
+// command "dockerlistimages", wshserver.DockerListImagesCommand
+func DockerListImagesCommand(w *wshutil.WshRpc, data wshrpc.DockerListImagesRequest, opts *wshrpc.RpcOpts) (wshrpc.DockerListImagesResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.DockerListImagesResponse](w, "dockerlistimages", data, opts)
+	return resp, err
+}
+
 // command "electrondecrypt", wshserver.ElectronDecryptCommand
 func ElectronDecryptCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronDecryptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandElectronDecryptRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandElectronDecryptRtnData](w, "electrondecrypt", data, opts)

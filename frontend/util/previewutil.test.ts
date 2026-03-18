@@ -11,6 +11,17 @@ describe("openPreviewInNewBlock", () => {
             createBlockSplitHorizontally,
             getApi: vi.fn(),
         }));
+        vi.doMock("@/app/store/tab-model", () => ({
+            getActiveTabModel: vi.fn(),
+        }));
+        vi.doMock("@/app/store/wshclientapi", () => ({
+            RpcApi: {
+                ControllerInputCommand: vi.fn(),
+            },
+        }));
+        vi.doMock("@/app/store/wshrpcutil", () => ({
+            TabRpcClient: "tab-rpc-client",
+        }));
         vi.doMock("./platformutil", () => ({
             makeNativeLabel: vi.fn(),
         }));
@@ -53,6 +64,17 @@ describe("openPreviewInNewBlock", () => {
             createBlockSplitHorizontally,
             getApi: vi.fn(),
         }));
+        vi.doMock("@/app/store/tab-model", () => ({
+            getActiveTabModel: vi.fn(),
+        }));
+        vi.doMock("@/app/store/wshclientapi", () => ({
+            RpcApi: {
+                ControllerInputCommand: vi.fn(),
+            },
+        }));
+        vi.doMock("@/app/store/wshrpcutil", () => ({
+            TabRpcClient: "tab-rpc-client",
+        }));
         vi.doMock("./platformutil", () => ({
             makeNativeLabel: vi.fn(),
         }));
@@ -91,6 +113,17 @@ describe("openPreviewInNewBlock", () => {
             createBlockSplitHorizontally,
             getApi: vi.fn(),
         }));
+        vi.doMock("@/app/store/tab-model", () => ({
+            getActiveTabModel: vi.fn(),
+        }));
+        vi.doMock("@/app/store/wshclientapi", () => ({
+            RpcApi: {
+                ControllerInputCommand: vi.fn(),
+            },
+        }));
+        vi.doMock("@/app/store/wshrpcutil", () => ({
+            TabRpcClient: "tab-rpc-client",
+        }));
         vi.doMock("./util", () => ({
             fireAndForget: (fn: () => unknown) => fn(),
             lazy: (fn: () => unknown) => fn(),
@@ -104,7 +137,13 @@ describe("openPreviewInNewBlock", () => {
         }));
 
         const { openCommandInNewBlock } = await import("./previewutil");
-        await openCommandInNewBlock("tar -xf /tmp/model.tar.gz -C model", "/tmp", "ssh://devbox", "block-1", "解压 model.tar.gz");
+        await openCommandInNewBlock(
+            "tar -xf /tmp/model.tar.gz -C model",
+            "/tmp",
+            "ssh://devbox",
+            "block-1",
+            "解压 model.tar.gz"
+        );
 
         expect(createBlockSplitHorizontally).toHaveBeenCalledWith(
             {
@@ -252,5 +291,75 @@ describe("openPreviewInNewBlock", () => {
             "after"
         );
         expect(createBlock).not.toHaveBeenCalled();
+    });
+
+    it("creates a shell terminal and sends a command when requested", async () => {
+        const createBlock = vi.fn();
+        const createBlockSplitHorizontally = vi.fn().mockResolvedValue("term-2");
+        const ControllerInputCommand = vi.fn().mockResolvedValue(undefined);
+        const refocusNode = vi.fn();
+        const tabAtom = Symbol("tab-atom");
+
+        vi.resetModules();
+        vi.doMock("@/app/store/tab-model", () => ({
+            getActiveTabModel: () => ({ tabAtom }),
+        }));
+        vi.doMock("@/app/store/global", () => ({
+            createBlock,
+            createBlockSplitHorizontally,
+            getApi: vi.fn(),
+            globalStore: {
+                get: (atom: unknown) => {
+                    if (atom === tabAtom) {
+                        return { blockids: [] };
+                    }
+                    return null;
+                },
+            },
+            refocusNode,
+            WOS: {
+                makeORef: (_type: string, id: string) => `block:${id}`,
+                getWaveObjectAtom: (oref: string) => oref,
+            },
+        }));
+        vi.doMock("@/app/store/wshclientapi", () => ({
+            RpcApi: {
+                ControllerInputCommand,
+            },
+        }));
+        vi.doMock("@/app/store/wshrpcutil", () => ({
+            TabRpcClient: "tab-rpc-client",
+        }));
+        vi.doMock("./util", () => ({
+            fireAndForget: (fn: () => unknown) => fn(),
+            lazy: (fn: () => unknown) => fn(),
+            stringToBase64: (value: string) => Buffer.from(value).toString("base64"),
+        }));
+        vi.doMock("./waveutil", () => ({
+            formatRemoteUri: vi.fn(),
+        }));
+        vi.doMock("@/app/transfer/transfer-store", () => ({
+            startDownloadTransfer: vi.fn(),
+        }));
+
+        const { sendCommandToTerminal } = await import("./previewutil");
+        await sendCommandToTerminal("docker exec -it web /bin/sh", "root@192.2.53.33", "block-1");
+
+        expect(createBlockSplitHorizontally).toHaveBeenCalledWith(
+            {
+                meta: {
+                    controller: "shell",
+                    view: "term",
+                    connection: "root@192.2.53.33",
+                },
+            },
+            "block-1",
+            "after"
+        );
+        expect(ControllerInputCommand).toHaveBeenCalledWith("tab-rpc-client", {
+            blockid: "term-2",
+            inputdata64: Buffer.from("docker exec -it web /bin/sh\n").toString("base64"),
+        });
+        expect(refocusNode).toHaveBeenCalledWith("term-2");
     });
 });

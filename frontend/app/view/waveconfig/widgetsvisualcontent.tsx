@@ -6,8 +6,8 @@ import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { getTabModelByTabId } from "@/app/store/tab-model";
 import type { WaveConfigViewModel } from "@/app/view/waveconfig/waveconfig-model";
-import { parseWidgetsFile } from "@/app/workspace/widgetconfig";
 import type { WidgetConfigDraft, WidgetsFile } from "@/app/workspace/widgetconfig";
+import { parseWidgetsFile } from "@/app/workspace/widgetconfig";
 import { getTrackedWidgetBlockId } from "@/app/workspace/widgetopenstate";
 import {
     clampWidgetWidth,
@@ -46,6 +46,12 @@ const fallbackWidgets: Record<string, WidgetConfigDraft> = {
         icon: "globe",
         label: "web",
         blockdef: { meta: { view: "web" } },
+    },
+    "defwidget@docker": {
+        "display:order": -2.5,
+        icon: "brands@docker",
+        label: "容器",
+        blockdef: { meta: { view: "docker" } },
     },
     "defwidget@ai": {
         "display:order": -2,

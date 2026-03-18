@@ -1,11 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { startDownloadTransfer } from "@/app/transfer/transfer-store";
-import { getActiveTabModel } from "@/app/store/tab-model";
 import { createBlock, createBlockSplitHorizontally, getApi, globalStore, refocusNode, WOS } from "@/app/store/global";
+import { getActiveTabModel } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { startDownloadTransfer } from "@/app/transfer/transfer-store";
 import { quote as shellQuote } from "shell-quote";
 import { fireAndForget, stringToBase64 } from "./util";
 import { formatRemoteUri } from "./waveutil";
@@ -109,6 +109,49 @@ export async function sendDirectoryToTerminal(
         return createBlockSplitHorizontally(termBlockDef, currentBlockId, "after");
     }
     return createBlock(termBlockDef);
+}
+
+async function sendTextToTerminalBlock(blockId: string, text: string): Promise<void> {
+    const inputdata64 = stringToBase64(text);
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 8; attempt++) {
+        try {
+            await RpcApi.ControllerInputCommand(TabRpcClient, {
+                blockid: blockId,
+                inputdata64,
+            });
+            return;
+        } catch (err) {
+            lastError = err;
+            await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+    }
+    throw lastError;
+}
+
+export async function sendCommandToTerminal(command: string, conn: string, currentBlockId?: string): Promise<string> {
+    const existingTerminalBlockId = findShellTerminalBlockId(conn);
+    if (existingTerminalBlockId != null) {
+        await sendTextToTerminalBlock(existingTerminalBlockId, `${command}\n`);
+        refocusNode(existingTerminalBlockId);
+        return existingTerminalBlockId;
+    }
+
+    const termBlockDef: BlockDef = {
+        meta: {
+            controller: "shell",
+            view: "term",
+            connection: conn,
+        },
+    };
+
+    const newBlockId =
+        currentBlockId != null
+            ? await createBlockSplitHorizontally(termBlockDef, currentBlockId, "after")
+            : await createBlock(termBlockDef);
+    await sendTextToTerminalBlock(newBlockId, `${command}\n`);
+    refocusNode(newBlockId);
+    return newBlockId;
 }
 
 export function addOpenMenuItems(

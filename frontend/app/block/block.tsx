@@ -9,7 +9,10 @@ import {
     FullSubBlockProps,
     SubBlockProps,
 } from "@/app/block/blocktypes";
+import type { TabModel } from "@/app/store/tab-model";
+import { useTabModel } from "@/app/store/tab-model";
 import { AiFileDiffViewModel } from "@/app/view/aifilediff/aifilediff";
+import { DockerViewModel } from "@/app/view/docker/docker";
 import { LauncherViewModel } from "@/app/view/launcher/launcher";
 import { PreviewModel } from "@/app/view/preview/preview-model";
 import { QuickCommandsViewModel } from "@/app/view/quickcommands/quickcommands-model";
@@ -28,8 +31,6 @@ import {
     registerBlockComponentModel,
     unregisterBlockComponentModel,
 } from "@/store/global";
-import type { TabModel } from "@/app/store/tab-model";
-import { useTabModel } from "@/app/store/tab-model";
 import { getWaveObjectAtom, makeORef, useWaveObjectValue } from "@/store/wos";
 import { focusedBlockId, getElemAsStr } from "@/util/focusutil";
 import { isBlank, useAtomValueSafe } from "@/util/util";
@@ -40,8 +41,8 @@ import { WebViewModel } from "@/view/webview/webview";
 import clsx from "clsx";
 import { atom, useAtomValue } from "jotai";
 import { memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { QuickTipsViewModel } from "../view/quicktipsview/quicktipsview";
 import { ConnectionsManagerViewModel } from "../view/connectionsmanager/connections-manager";
+import { QuickTipsViewModel } from "../view/quicktipsview/quicktipsview";
 import { WaveConfigViewModel } from "../view/waveconfig/waveconfig-model";
 import "./block.scss";
 import { BlockFrame } from "./blockframe";
@@ -64,6 +65,7 @@ BlockRegistry.set("waveconfig", WaveConfigViewModel);
 BlockRegistry.set("connectionsmanager", ConnectionsManagerViewModel);
 BlockRegistry.set("quickcommands", QuickCommandsViewModel);
 BlockRegistry.set("transfer", TransferViewModel);
+BlockRegistry.set("docker", DockerViewModel);
 
 function makeViewModel(blockId: string, blockView: string, nodeModel: BlockNodeModel, tabModel: TabModel): ViewModel {
     const ctor = BlockRegistry.get(blockView);

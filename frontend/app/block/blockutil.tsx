@@ -40,6 +40,9 @@ export function blockViewToIcon(view: string): string {
     if (view == "transfer") {
         return "arrow-right-arrow-left";
     }
+    if (view == "docker") {
+        return "brands@docker";
+    }
     return "square";
 }
 
@@ -73,6 +76,9 @@ export function blockViewToName(view: string): string {
     }
     if (view == "transfer") {
         return "Transfers";
+    }
+    if (view == "docker") {
+        return "容器";
     }
     return view;
 }

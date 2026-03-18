@@ -64,3 +64,22 @@ test("buildWidgetBlockDef does not mutate original widget blockdef", () => {
     assert.equal(widget.blockdef?.meta?.connection, undefined);
     assert.equal(widget.blockdef?.meta?.file, "~");
 });
+
+test("buildWidgetBlockDef inherits connection for docker widget from focused terminal", () => {
+    const widget = {
+        blockdef: {
+            meta: {
+                view: "docker",
+            },
+        },
+    } as WidgetConfigType;
+
+    const result = buildWidgetBlockDef(widget, {
+        view: "term",
+        connection: "root@192.2.53.33",
+        cwd: "/srv/app",
+    });
+
+    assert.equal(result.meta?.view, "docker");
+    assert.equal(result.meta?.connection, "root@192.2.53.33");
+});

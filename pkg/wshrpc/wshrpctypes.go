@@ -95,6 +95,12 @@ type WshRpcInterface interface {
 	GetTabCommand(ctx context.Context, tabId string) (*waveobj.Tab, error)
 	GetAllTabIndicatorsCommand(ctx context.Context) (map[string]*TabIndicator, error)
 
+	// docker
+	DockerListContainersCommand(ctx context.Context, data DockerListContainersRequest) (DockerListContainersResponse, error)
+	DockerListImagesCommand(ctx context.Context, data DockerListImagesRequest) (DockerListImagesResponse, error)
+	DockerContainerActionCommand(ctx context.Context, data DockerContainerActionRequest) (DockerActionResponse, error)
+	DockerImageActionCommand(ctx context.Context, data DockerImageActionRequest) (DockerActionResponse, error)
+
 	// connection functions
 	ConnStatusCommand(ctx context.Context) ([]ConnStatus, error)
 	WslStatusCommand(ctx context.Context) ([]ConnStatus, error)
@@ -413,6 +419,64 @@ type RemoteInfo struct {
 	ClientVersion string `json:"clientversion"`
 	Shell         string `json:"shell"`
 	HomeDir       string `json:"homedir"`
+}
+
+type DockerListContainersRequest struct {
+	Connection string `json:"connection,omitempty"`
+	All        bool   `json:"all,omitempty"`
+}
+
+type DockerListImagesRequest struct {
+	Connection string `json:"connection,omitempty"`
+}
+
+type DockerContainerActionRequest struct {
+	Connection  string `json:"connection,omitempty"`
+	ContainerId string `json:"containerId"`
+	Action      string `json:"action"`
+}
+
+type DockerImageActionRequest struct {
+	Connection string `json:"connection,omitempty"`
+	ImageId    string `json:"imageId"`
+	Action     string `json:"action"`
+}
+
+type DockerContainerSummary struct {
+	Id         string `json:"id"`
+	Name       string `json:"name"`
+	Image      string `json:"image"`
+	State      string `json:"state"`
+	StatusText string `json:"statusText"`
+	PortsText  string `json:"portsText"`
+}
+
+type DockerImageSummary struct {
+	Id         string `json:"id"`
+	Repository string `json:"repository"`
+	Tag        string `json:"tag"`
+	SizeText   string `json:"sizeText"`
+	InUse      bool   `json:"inUse"`
+}
+
+type DockerError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+type DockerListContainersResponse struct {
+	Containers []DockerContainerSummary `json:"containers"`
+	Error      *DockerError             `json:"error,omitempty"`
+}
+
+type DockerListImagesResponse struct {
+	Images []DockerImageSummary `json:"images"`
+	Error  *DockerError         `json:"error,omitempty"`
+}
+
+type DockerActionResponse struct {
+	Error *DockerError `json:"error,omitempty"`
 }
 
 const (

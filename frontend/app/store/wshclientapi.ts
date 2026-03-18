@@ -187,6 +187,26 @@ class RpcApiType {
         return client.wshRpcCall("disposesuggestions", data, opts);
     }
 
+    // command "dockercontaineraction" [call]
+    DockerContainerActionCommand(client: WshClient, data: DockerContainerActionRequest, opts?: RpcOpts): Promise<DockerActionResponse> {
+        return client.wshRpcCall("dockercontaineraction", data, opts);
+    }
+
+    // command "dockerimageaction" [call]
+    DockerImageActionCommand(client: WshClient, data: DockerImageActionRequest, opts?: RpcOpts): Promise<DockerActionResponse> {
+        return client.wshRpcCall("dockerimageaction", data, opts);
+    }
+
+    // command "dockerlistcontainers" [call]
+    DockerListContainersCommand(client: WshClient, data: DockerListContainersRequest, opts?: RpcOpts): Promise<DockerListContainersResponse> {
+        return client.wshRpcCall("dockerlistcontainers", data, opts);
+    }
+
+    // command "dockerlistimages" [call]
+    DockerListImagesCommand(client: WshClient, data: DockerListImagesRequest, opts?: RpcOpts): Promise<DockerListImagesResponse> {
+        return client.wshRpcCall("dockerlistimages", data, opts);
+    }
+
     // command "electrondecrypt" [call]
     ElectronDecryptCommand(client: WshClient, data: CommandElectronDecryptData, opts?: RpcOpts): Promise<CommandElectronDecryptRtnData> {
         return client.wshRpcCall("electrondecrypt", data, opts);

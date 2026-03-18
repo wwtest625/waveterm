@@ -835,6 +835,74 @@ declare global {
         modifiedtime: string;
     };
 
+    // wshrpc.DockerActionResponse
+    type DockerActionResponse = {
+        error?: DockerError;
+    };
+
+    // wshrpc.DockerContainerActionRequest
+    type DockerContainerActionRequest = {
+        connection?: string;
+        containerId: string;
+        action: string;
+    };
+
+    // wshrpc.DockerContainerSummary
+    type DockerContainerSummary = {
+        id: string;
+        name: string;
+        image: string;
+        state: string;
+        statusText: string;
+        portsText: string;
+    };
+
+    // wshrpc.DockerError
+    type DockerError = {
+        code: string;
+        message: string;
+        detail?: string;
+    };
+
+    // wshrpc.DockerImageActionRequest
+    type DockerImageActionRequest = {
+        connection?: string;
+        imageId: string;
+        action: string;
+    };
+
+    // wshrpc.DockerImageSummary
+    type DockerImageSummary = {
+        id: string;
+        repository: string;
+        tag: string;
+        sizeText: string;
+        inUse: boolean;
+    };
+
+    // wshrpc.DockerListContainersRequest
+    type DockerListContainersRequest = {
+        connection?: string;
+        all?: boolean;
+    };
+
+    // wshrpc.DockerListContainersResponse
+    type DockerListContainersResponse = {
+        containers: DockerContainerSummary[];
+        error?: DockerError;
+    };
+
+    // wshrpc.DockerListImagesRequest
+    type DockerListImagesRequest = {
+        connection?: string;
+    };
+
+    // wshrpc.DockerListImagesResponse
+    type DockerListImagesResponse = {
+        images: DockerImageSummary[];
+        error?: DockerError;
+    };
+
     // vdom.DomRect
     type DomRect = {
         top: number;
