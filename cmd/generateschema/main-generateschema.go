@@ -31,7 +31,7 @@ func (ViewNameType) JSONSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		AnyOf: []*jsonschema.Schema{
 			{
-				Enum: []any{"term", "preview", "web", "sysinfo", "launcher"},
+				Enum: []any{"term", "preview", "web", "sysinfo", "launcher", "docker", "tmux"},
 			},
 			{
 				Type: "string",

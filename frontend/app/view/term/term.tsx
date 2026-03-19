@@ -68,7 +68,6 @@ const TermVDomToolbarNode = ({ vdomBlockId, blockId, model }: TerminalViewProps 
                 RpcApi.SetMetaCommand(TabRpcClient, {
                     oref: WOS.makeORef("block", blockId),
                     meta: {
-                        "term:mode": "term",
                         "term:vdomtoolbarblockid": null,
                     },
                 });
@@ -108,12 +107,19 @@ const TermVDomNodeSingleId = ({ vdomBlockId, blockId, model }: TerminalViewProps
             eventType: "blockclose",
             scope: WOS.makeORef("block", vdomBlockId),
             handler: (event) => {
+                const blockData = globalStore.get(model.blockAtom);
+                const curMode = blockData?.meta?.["term:mode"];
+                const pre = blockData?.meta?.["term:pre_vdom_mode"] === "cards" ? "cards" : "term";
+                const meta: Record<string, any> = {
+                    "term:vdomblockid": null,
+                    "term:pre_vdom_mode": null,
+                };
+                if (curMode === "vdom") {
+                    meta["term:mode"] = pre;
+                }
                 RpcApi.SetMetaCommand(TabRpcClient, {
                     oref: WOS.makeORef("block", blockId),
-                    meta: {
-                        "term:mode": "term",
-                        "term:vdomblockid": null,
-                    },
+                    meta,
                 });
             },
         });
@@ -177,10 +183,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const [blockData] = WOS.useWaveObjectValue<Block>(WOS.makeORef("block", blockId));
     const termSettingsAtom = getSettingsPrefixAtom("term");
     const termSettings = jotai.useAtomValue(termSettingsAtom);
-    let termMode = blockData?.meta?.["term:mode"] ?? (blockData?.meta?.controller === "cmd" ? "term" : "cards");
-    if (termMode != "term" && termMode != "vdom" && termMode != "cards") {
-        termMode = "term";
-    }
+    const termMode = jotai.useAtomValue(model.termMode);
     const termModeRef = React.useRef(termMode);
 
     const tabModel = useTabModel();

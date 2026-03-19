@@ -782,6 +782,16 @@ class RpcApiType {
         return client.wshRpcCall("testmultiarg", { args: [arg1, arg2, arg3] }, opts);
     }
 
+    // command "tmuxlistsessions" [call]
+    TmuxListSessionsCommand(client: WshClient, data: TmuxListSessionsRequest, opts?: RpcOpts): Promise<TmuxListSessionsResponse> {
+        return client.wshRpcCall("tmuxlistsessions", data, opts);
+    }
+
+    // command "tmuxlistwindows" [call]
+    TmuxListWindowsCommand(client: WshClient, data: TmuxListWindowsRequest, opts?: RpcOpts): Promise<TmuxListWindowsResponse> {
+        return client.wshRpcCall("tmuxlistwindows", data, opts);
+    }
+
     // command "vdomasyncinitiation" [call]
     VDomAsyncInitiationCommand(client: WshClient, data: VDomAsyncInitiationRequest, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("vdomasyncinitiation", data, opts);

@@ -26,6 +26,15 @@ export function buildWidgetBlockDef(widget: WidgetConfigType, focusedBlock?: Foc
         }
     }
 
+    if (meta.view === "tmux" && focusedBlock?.view === "term") {
+        if (focusedBlock.connection != null && focusedBlock.connection !== "") {
+            meta.connection = focusedBlock.connection;
+        }
+        if (focusedBlock.cwd != null && focusedBlock.cwd !== "") {
+            meta["cmd:cwd"] = focusedBlock.cwd;
+        }
+    }
+
     return {
         ...source,
         meta,

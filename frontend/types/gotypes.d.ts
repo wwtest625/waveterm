@@ -1798,6 +1798,51 @@ declare global {
         values: {[key: string]: number};
     };
 
+    // wshrpc.TmuxError
+    type TmuxError = {
+        code: string;
+        message: string;
+        detail?: string;
+    };
+
+    // wshrpc.TmuxListSessionsRequest
+    type TmuxListSessionsRequest = {
+        connection?: string;
+    };
+
+    // wshrpc.TmuxListSessionsResponse
+    type TmuxListSessionsResponse = {
+        sessions: TmuxSessionSummary[];
+        serverRunning: boolean;
+        error?: TmuxError;
+    };
+
+    // wshrpc.TmuxListWindowsRequest
+    type TmuxListWindowsRequest = {
+        connection?: string;
+        session: string;
+    };
+
+    // wshrpc.TmuxListWindowsResponse
+    type TmuxListWindowsResponse = {
+        windows: TmuxWindowSummary[];
+        error?: TmuxError;
+    };
+
+    // wshrpc.TmuxSessionSummary
+    type TmuxSessionSummary = {
+        name: string;
+        windows: number;
+        attached: number;
+    };
+
+    // wshrpc.TmuxWindowSummary
+    type TmuxWindowSummary = {
+        index: number;
+        name: string;
+        active: boolean;
+    };
+
     // uctypes.UIChat
     type UIChat = {
         chatid: string;

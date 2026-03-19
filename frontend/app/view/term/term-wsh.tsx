@@ -93,9 +93,12 @@ export class TermWshClient extends WshClient {
                 }, 500);
             }
             setTimeout(() => {
+                const curMode = globalStore.get(this.model.termMode);
+                const pre = curMode === "cards" ? "cards" : "term";
                 RpcApi.SetMetaCommand(this, {
                     oref: makeORef("block", this.model.blockId),
                     meta: {
+                        "term:pre_vdom_mode": pre,
                         "term:mode": "vdom",
                         "term:vdomblockid": newVDomBlockId,
                     },

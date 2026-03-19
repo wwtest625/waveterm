@@ -363,3 +363,233 @@ describe("openPreviewInNewBlock", () => {
         expect(refocusNode).toHaveBeenCalledWith("term-2");
     });
 });
+
+describe("sendCommandToFocusedTerminal", () => {
+    it("sends command to focused shell terminal when connection matches", async () => {
+        const ControllerInputCommand = vi.fn().mockResolvedValue(undefined);
+
+        vi.resetModules();
+        vi.doMock("@/app/store/tab-model", () => ({
+            getActiveTabModel: vi.fn(),
+        }));
+        vi.doMock("@/app/store/global", () => ({
+            createBlock: vi.fn(),
+            createBlockSplitHorizontally: vi.fn(),
+            getApi: vi.fn(),
+            getFocusedBlockId: () => "term-1",
+            globalStore: {
+                get: (atom: unknown) => {
+                    if (atom === "block:term-1") {
+                        return { meta: { view: "term", controller: "shell", connection: "ssh://devbox" } };
+                    }
+                    return null;
+                },
+            },
+            refocusNode: vi.fn(),
+            WOS: {
+                makeORef: (_type: string, id: string) => `block:${id}`,
+                getWaveObjectAtom: (oref: string) => oref,
+            },
+        }));
+        vi.doMock("@/app/store/wshclientapi", () => ({
+            RpcApi: {
+                ControllerInputCommand,
+            },
+        }));
+        vi.doMock("@/app/store/wshrpcutil", () => ({
+            TabRpcClient: "tab-rpc-client",
+        }));
+        vi.doMock("./util", () => ({
+            fireAndForget: (fn: () => unknown) => fn(),
+            lazy: (fn: () => unknown) => fn(),
+            stringToBase64: (value: string) => Buffer.from(value).toString("base64"),
+        }));
+        vi.doMock("./waveutil", () => ({
+            formatRemoteUri: vi.fn(),
+        }));
+        vi.doMock("@/app/transfer/transfer-store", () => ({
+            startDownloadTransfer: vi.fn(),
+        }));
+
+        const { sendCommandToFocusedTerminal } = await import("./previewutil");
+        const result = await sendCommandToFocusedTerminal("tmux list-sessions", "ssh://devbox");
+
+        expect(result).toEqual({ ok: true, blockId: "term-1", connection: "ssh://devbox" });
+        expect(ControllerInputCommand).toHaveBeenCalledWith("tab-rpc-client", {
+            blockid: "term-1",
+            inputdata64: Buffer.from("tmux list-sessions\n").toString("base64"),
+        });
+    });
+
+    it("returns no_focused_terminal when focused block is unavailable and no shell terminal exists", async () => {
+        const ControllerInputCommand = vi.fn().mockResolvedValue(undefined);
+
+        vi.resetModules();
+        vi.doMock("@/app/store/tab-model", () => ({
+            getActiveTabModel: vi.fn(),
+        }));
+        vi.doMock("@/app/store/global", () => ({
+            createBlock: vi.fn(),
+            createBlockSplitHorizontally: vi.fn(),
+            getApi: vi.fn(),
+            getFocusedBlockId: () => null,
+            globalStore: { get: vi.fn() },
+            refocusNode: vi.fn(),
+            WOS: {
+                makeORef: (_type: string, id: string) => `block:${id}`,
+                getWaveObjectAtom: (oref: string) => oref,
+            },
+        }));
+        vi.doMock("@/app/store/wshclientapi", () => ({
+            RpcApi: {
+                ControllerInputCommand,
+            },
+        }));
+        vi.doMock("@/app/store/wshrpcutil", () => ({
+            TabRpcClient: "tab-rpc-client",
+        }));
+        vi.doMock("./util", () => ({
+            fireAndForget: (fn: () => unknown) => fn(),
+            lazy: (fn: () => unknown) => fn(),
+            stringToBase64: (value: string) => Buffer.from(value).toString("base64"),
+        }));
+        vi.doMock("./waveutil", () => ({
+            formatRemoteUri: vi.fn(),
+        }));
+        vi.doMock("@/app/transfer/transfer-store", () => ({
+            startDownloadTransfer: vi.fn(),
+        }));
+
+        const { sendCommandToFocusedTerminal } = await import("./previewutil");
+        const result = await sendCommandToFocusedTerminal("tmux ls", "ssh://devbox");
+
+        expect(result).toMatchObject({ ok: false, code: "no_focused_terminal" });
+        expect(ControllerInputCommand).not.toHaveBeenCalled();
+    });
+
+    it("falls back to a same-connection shell terminal when focused block is not terminal", async () => {
+        const ControllerInputCommand = vi.fn().mockResolvedValue(undefined);
+
+        vi.resetModules();
+        vi.doMock("@/app/store/tab-model", () => ({
+            getActiveTabModel: () => ({ tabAtom: "tab:active" }),
+        }));
+        vi.doMock("@/app/store/global", () => ({
+            createBlock: vi.fn(),
+            createBlockSplitHorizontally: vi.fn(),
+            getApi: vi.fn(),
+            getFocusedBlockId: () => "tmux-1",
+            globalStore: {
+                get: (atom: unknown) => {
+                    if (atom === "tab:active") {
+                        return { blockids: ["tmux-1", "term-2"] };
+                    }
+                    if (atom === "block:tmux-1") {
+                        return { meta: { view: "tmux", connection: "ssh://devbox" } };
+                    }
+                    if (atom === "block:term-2") {
+                        return { meta: { view: "term", controller: "shell", connection: "ssh://devbox" } };
+                    }
+                    return null;
+                },
+            },
+            refocusNode: vi.fn(),
+            WOS: {
+                makeORef: (_type: string, id: string) => `block:${id}`,
+                getWaveObjectAtom: (oref: string) => oref,
+            },
+        }));
+        vi.doMock("@/app/store/wshclientapi", () => ({
+            RpcApi: {
+                ControllerInputCommand,
+            },
+        }));
+        vi.doMock("@/app/store/wshrpcutil", () => ({
+            TabRpcClient: "tab-rpc-client",
+        }));
+        vi.doMock("./util", () => ({
+            fireAndForget: (fn: () => unknown) => fn(),
+            lazy: (fn: () => unknown) => fn(),
+            stringToBase64: (value: string) => Buffer.from(value).toString("base64"),
+        }));
+        vi.doMock("./waveutil", () => ({
+            formatRemoteUri: vi.fn(),
+        }));
+        vi.doMock("@/app/transfer/transfer-store", () => ({
+            startDownloadTransfer: vi.fn(),
+        }));
+
+        const { sendCommandToFocusedTerminal } = await import("./previewutil");
+        const result = await sendCommandToFocusedTerminal("tmux ls", "ssh://devbox");
+
+        expect(result).toEqual({ ok: true, blockId: "term-2", connection: "ssh://devbox" });
+        expect(ControllerInputCommand).toHaveBeenCalledWith("tab-rpc-client", {
+            blockid: "term-2",
+            inputdata64: Buffer.from("tmux ls\n").toString("base64"),
+        });
+    });
+
+    it("returns connection_mismatch when only shell terminal in tab is another connection", async () => {
+        const ControllerInputCommand = vi.fn().mockResolvedValue(undefined);
+
+        vi.resetModules();
+        vi.doMock("@/app/store/tab-model", () => ({
+            getActiveTabModel: () => ({ tabAtom: "tab:active" }),
+        }));
+        vi.doMock("@/app/store/global", () => ({
+            createBlock: vi.fn(),
+            createBlockSplitHorizontally: vi.fn(),
+            getApi: vi.fn(),
+            getFocusedBlockId: () => "tmux-1",
+            globalStore: {
+                get: (atom: unknown) => {
+                    if (atom === "tab:active") {
+                        return { blockids: ["tmux-1", "term-1"] };
+                    }
+                    if (atom === "block:tmux-1") {
+                        return { meta: { view: "tmux", connection: "ssh://devbox" } };
+                    }
+                    if (atom === "block:term-1") {
+                        return { meta: { view: "term", controller: "shell", connection: "ssh://other" } };
+                    }
+                    return null;
+                },
+            },
+            refocusNode: vi.fn(),
+            WOS: {
+                makeORef: (_type: string, id: string) => `block:${id}`,
+                getWaveObjectAtom: (oref: string) => oref,
+            },
+        }));
+        vi.doMock("@/app/store/wshclientapi", () => ({
+            RpcApi: {
+                ControllerInputCommand,
+            },
+        }));
+        vi.doMock("@/app/store/wshrpcutil", () => ({
+            TabRpcClient: "tab-rpc-client",
+        }));
+        vi.doMock("./util", () => ({
+            fireAndForget: (fn: () => unknown) => fn(),
+            lazy: (fn: () => unknown) => fn(),
+            stringToBase64: (value: string) => Buffer.from(value).toString("base64"),
+        }));
+        vi.doMock("./waveutil", () => ({
+            formatRemoteUri: vi.fn(),
+        }));
+        vi.doMock("@/app/transfer/transfer-store", () => ({
+            startDownloadTransfer: vi.fn(),
+        }));
+
+        const { sendCommandToFocusedTerminal } = await import("./previewutil");
+        const result = await sendCommandToFocusedTerminal("tmux ls", "ssh://devbox");
+
+        expect(result).toMatchObject({
+            ok: false,
+            code: "connection_mismatch",
+            expectedConnection: "ssh://devbox",
+            terminalConnection: "ssh://other",
+        });
+        expect(ControllerInputCommand).not.toHaveBeenCalled();
+    });
+});

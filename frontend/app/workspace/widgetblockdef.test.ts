@@ -83,3 +83,23 @@ test("buildWidgetBlockDef inherits connection for docker widget from focused ter
     assert.equal(result.meta?.view, "docker");
     assert.equal(result.meta?.connection, "root@192.2.53.33");
 });
+
+test("buildWidgetBlockDef inherits connection and cwd for tmux widget from focused terminal", () => {
+    const widget = {
+        blockdef: {
+            meta: {
+                view: "tmux",
+            },
+        },
+    } as WidgetConfigType;
+
+    const result = buildWidgetBlockDef(widget, {
+        view: "term",
+        connection: "root@192.2.53.33",
+        cwd: "/srv/app",
+    });
+
+    assert.equal(result.meta?.view, "tmux");
+    assert.equal(result.meta?.connection, "root@192.2.53.33");
+    assert.equal(result.meta?.["cmd:cwd"], "/srv/app");
+});

@@ -101,6 +101,10 @@ type WshRpcInterface interface {
 	DockerContainerActionCommand(ctx context.Context, data DockerContainerActionRequest) (DockerActionResponse, error)
 	DockerImageActionCommand(ctx context.Context, data DockerImageActionRequest) (DockerActionResponse, error)
 
+	// tmux
+	TmuxListSessionsCommand(ctx context.Context, data TmuxListSessionsRequest) (TmuxListSessionsResponse, error)
+	TmuxListWindowsCommand(ctx context.Context, data TmuxListWindowsRequest) (TmuxListWindowsResponse, error)
+
 	// connection functions
 	ConnStatusCommand(ctx context.Context) ([]ConnStatus, error)
 	WslStatusCommand(ctx context.Context) ([]ConnStatus, error)
@@ -477,6 +481,44 @@ type DockerListImagesResponse struct {
 
 type DockerActionResponse struct {
 	Error *DockerError `json:"error,omitempty"`
+}
+
+type TmuxListSessionsRequest struct {
+	Connection string `json:"connection,omitempty"`
+}
+
+type TmuxListWindowsRequest struct {
+	Connection string `json:"connection,omitempty"`
+	Session    string `json:"session"`
+}
+
+type TmuxSessionSummary struct {
+	Name     string `json:"name"`
+	Windows  int    `json:"windows"`
+	Attached int    `json:"attached"`
+}
+
+type TmuxWindowSummary struct {
+	Index  int    `json:"index"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+}
+
+type TmuxError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+type TmuxListSessionsResponse struct {
+	Sessions      []TmuxSessionSummary `json:"sessions"`
+	ServerRunning bool                 `json:"serverRunning"`
+	Error         *TmuxError           `json:"error,omitempty"`
+}
+
+type TmuxListWindowsResponse struct {
+	Windows []TmuxWindowSummary `json:"windows"`
+	Error   *TmuxError          `json:"error,omitempty"`
 }
 
 const (

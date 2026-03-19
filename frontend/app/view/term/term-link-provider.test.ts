@@ -6,6 +6,10 @@ import { describe, expect, it, vi } from "vitest";
 describe("term-link-provider", () => {
     it("finds supported terminal file paths", async () => {
         vi.resetModules();
+        vi.doMock("@/util/platformutil", () => ({ PLATFORM: "linux", PlatformMacOS: "darwin" }));
+        vi.doMock("@/util/previewutil", () => ({ openPreviewInNewBlock: vi.fn() }));
+        vi.doMock("@/util/util", () => ({ fireAndForget: (fn: () => unknown) => fn() }));
+        vi.doMock("@/store/global", () => ({ globalStore: { get: vi.fn() }, WOS: { getWaveObjectAtom: vi.fn() } }));
         const mod = await import("./term-link-provider");
 
         expect(mod.findTerminalFileLinks("See ./src/termwrap.ts:42:7 and foo/bar.txt", 3)).toEqual([
@@ -38,6 +42,10 @@ describe("term-link-provider", () => {
 
     it("resolves relative paths against cwd", async () => {
         vi.resetModules();
+        vi.doMock("@/util/platformutil", () => ({ PLATFORM: "linux", PlatformMacOS: "darwin" }));
+        vi.doMock("@/util/previewutil", () => ({ openPreviewInNewBlock: vi.fn() }));
+        vi.doMock("@/util/util", () => ({ fireAndForget: (fn: () => unknown) => fn() }));
+        vi.doMock("@/store/global", () => ({ globalStore: { get: vi.fn() }, WOS: { getWaveObjectAtom: vi.fn() } }));
         const mod = await import("./term-link-provider");
 
         expect(mod.resolveTerminalFilePath("./src/app.ts", "/workspace/wave")).toBe("/workspace/wave/src/app.ts");
@@ -104,6 +112,10 @@ describe("term-link-provider", () => {
 
     it("emits hover callbacks for file links", async () => {
         vi.resetModules();
+        vi.doMock("@/util/platformutil", () => ({ PLATFORM: "linux", PlatformMacOS: "darwin" }));
+        vi.doMock("@/util/previewutil", () => ({ openPreviewInNewBlock: vi.fn() }));
+        vi.doMock("@/util/util", () => ({ fireAndForget: (fn: () => unknown) => fn() }));
+        vi.doMock("@/store/global", () => ({ globalStore: { get: vi.fn() }, WOS: { getWaveObjectAtom: vi.fn() } }));
         const { FilePathLinkProvider } = await import("./term-link-provider");
         const onHover = vi.fn();
         const onLeave = vi.fn();

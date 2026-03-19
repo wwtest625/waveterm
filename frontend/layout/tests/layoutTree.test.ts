@@ -13,45 +13,24 @@ import {
 import { newLayoutTreeState } from "./model";
 
 test("layoutTreeStateReducer - compute move", () => {
-    let treeState = newLayoutTreeState(newLayoutNode(undefined, undefined, undefined, { blockId: "root" }));
-    assert(treeState.rootNode.data!.blockId === "root", "root should have no children and should have data");
-    let node1 = newLayoutNode(undefined, undefined, undefined, { blockId: "node1" });
-    let pendingAction = computeMoveNode(treeState, {
-        type: LayoutTreeActionType.ComputeMove,
-        nodeId: treeState.rootNode.id,
-        nodeToMoveId: node1.id,
-        direction: DropDirection.Bottom,
-    });
-    const insertOperation = pendingAction as LayoutTreeMoveNodeAction;
-    assert(insertOperation.node === node1, "insert operation node should equal node1");
-    assert(!insertOperation.parentId, "insert operation parent should not be defined");
-    assert(insertOperation.index === 1, "insert operation index should equal 1");
-    assert(insertOperation.insertAtRoot, "insert operation insertAtRoot should be true");
-    moveNode(treeState, insertOperation);
-    assert(
-        treeState.rootNode.data === undefined && treeState.rootNode.children!.length === 2,
-        "root node should now have no data and should have two children"
-    );
-    assert(treeState.rootNode.children![1].data!.blockId === "node1", "root's second child should be node1");
+    const node0 = newLayoutNode(undefined, undefined, undefined, { blockId: "node0" });
+    const node1 = newLayoutNode(undefined, undefined, undefined, { blockId: "node1" });
+    const treeState = newLayoutTreeState(newLayoutNode(undefined, undefined, [node0, node1]));
+    assert(treeState.rootNode.children!.length === 2, "root should start with two children");
 
-    let node2 = newLayoutNode(undefined, undefined, undefined, { blockId: "node2" });
-    pendingAction = computeMoveNode(treeState, {
+    const pendingAction = computeMoveNode(treeState, {
         type: LayoutTreeActionType.ComputeMove,
-        nodeId: node1.id,
-        nodeToMoveId: node2.id,
-        direction: DropDirection.Bottom,
+        nodeId: node0.id,
+        nodeToMoveId: node1.id,
+        direction: DropDirection.Top,
     });
-    const insertOperation2 = pendingAction as LayoutTreeMoveNodeAction;
-    assert(insertOperation2.node === node2, "insert operation node should equal node2");
-    assert(insertOperation2.parentId === node1.id, "insert operation parent id should be node1 id");
-    assert(insertOperation2.index === 1, "insert operation index should equal 1");
-    assert(!insertOperation2.insertAtRoot, "insert operation insertAtRoot should be false");
-    moveNode(treeState, insertOperation2);
-    assert(
-        treeState.rootNode.data === undefined && treeState.rootNode.children!.length === 2,
-        "root node should still have three children"
-    );
-    assert(treeState.rootNode.children![1].children!.length === 2, "root's second child should now have two children");
+    const moveOperation = pendingAction as LayoutTreeMoveNodeAction;
+    assert(moveOperation.node === node1, "move operation node should equal node1");
+    assert(moveOperation.parentId === treeState.rootNode.id, "move operation parent should be root");
+    assert(moveOperation.index === 0, "move operation index should move node1 to the front");
+    moveNode(treeState, moveOperation);
+    assert(treeState.rootNode.children!.length === 2, "root should still have two children");
+    assert(treeState.rootNode.children![0].data!.blockId === "node1", "root's first child should now be node1");
 });
 
 test("computeMove - noop action", () => {

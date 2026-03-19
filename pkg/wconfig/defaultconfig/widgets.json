@@ -32,6 +32,16 @@
             }
         }
     },
+    "defwidget@tmux": {
+        "display:order": -2.5,
+        "icon": "table-columns",
+        "label": "tmux",
+        "blockdef": {
+            "meta": {
+                "view": "tmux"
+            }
+        }
+    },
     "defwidget@ai": {
         "display:order": -2,
         "icon": "sparkles",

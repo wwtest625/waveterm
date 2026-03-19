@@ -1,7 +1,15 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { createBlock, createBlockSplitHorizontally, getApi, globalStore, refocusNode, WOS } from "@/app/store/global";
+import {
+    createBlock,
+    createBlockSplitHorizontally,
+    getApi,
+    getFocusedBlockId,
+    globalStore,
+    refocusNode,
+    WOS,
+} from "@/app/store/global";
 import { getActiveTabModel } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -80,6 +88,27 @@ function findShellTerminalBlockId(conn?: string): string | null {
     return null;
 }
 
+function findAnyShellTerminalBlockId(): string | null {
+    const tabModel = getActiveTabModel();
+    if (tabModel == null) {
+        return null;
+    }
+
+    const tabData = globalStore.get(tabModel.tabAtom);
+    for (const blockId of tabData?.blockids ?? []) {
+        const blockAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId));
+        const blockData = globalStore.get(blockAtom);
+        if (blockData?.meta?.view !== "term") {
+            continue;
+        }
+        if (blockData?.meta?.controller !== "shell") {
+            continue;
+        }
+        return blockId;
+    }
+    return null;
+}
+
 export async function sendDirectoryToTerminal(
     directoryPath: string,
     conn: string,
@@ -152,6 +181,72 @@ export async function sendCommandToTerminal(command: string, conn: string, curre
     await sendTextToTerminalBlock(newBlockId, `${command}\n`);
     refocusNode(newBlockId);
     return newBlockId;
+}
+
+export type SendCommandToFocusedTerminalResult =
+    | { ok: true; blockId: string; connection: string }
+    | {
+          ok: false;
+          code: "no_focused_terminal" | "connection_mismatch";
+          message: string;
+          expectedConnection?: string;
+          terminalConnection?: string;
+      };
+
+export async function sendCommandToFocusedTerminal(
+    command: string,
+    expectedConnection?: string
+): Promise<SendCommandToFocusedTerminalResult> {
+    const expected = normalizeConnectionName(expectedConnection);
+    const focusedBlockId = getFocusedBlockId();
+    if (focusedBlockId != null) {
+        const focusedAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", focusedBlockId));
+        const focusedBlockData = globalStore.get(focusedAtom);
+        const focusedMeta = focusedBlockData?.meta;
+        if (focusedMeta?.view === "term" && focusedMeta?.controller === "shell") {
+            const focusedConn = normalizeConnectionName(focusedMeta?.connection as string);
+            if (focusedConn === expected) {
+                const payload = /[\r\n]$/.test(command) ? command : `${command}\n`;
+                await sendTextToTerminalBlock(focusedBlockId, payload);
+                return {
+                    ok: true,
+                    blockId: focusedBlockId,
+                    connection: focusedConn,
+                };
+            }
+        }
+    }
+
+    const matchedTerminalBlockId = findShellTerminalBlockId(expected);
+    if (matchedTerminalBlockId != null) {
+        const payload = /[\r\n]$/.test(command) ? command : `${command}\n`;
+        await sendTextToTerminalBlock(matchedTerminalBlockId, payload);
+        return {
+            ok: true,
+            blockId: matchedTerminalBlockId,
+            connection: expected,
+        };
+    }
+
+    const candidateTerminalBlockId = findAnyShellTerminalBlockId();
+    if (candidateTerminalBlockId != null) {
+        const candidateAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", candidateTerminalBlockId));
+        const candidateBlockData = globalStore.get(candidateAtom);
+        const candidateConn = normalizeConnectionName(candidateBlockData?.meta?.connection as string);
+        return {
+            ok: false,
+            code: "connection_mismatch",
+            message: "没有与面板连接一致的普通终端，请先聚焦或切换到同连接终端。",
+            expectedConnection: expected,
+            terminalConnection: candidateConn,
+        };
+    }
+
+    return {
+        ok: false,
+        code: "no_focused_terminal",
+        message: "没有可用终端。请先打开一个普通终端块。",
+    };
 }
 
 export function addOpenMenuItems(
