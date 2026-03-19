@@ -3,14 +3,13 @@
 
 import AnsiLine from "@/app/element/ansiline";
 import { Button } from "@/app/element/button";
-import { MultiLineInput } from "@/app/element/multilineinput";
 import { cn } from "@/app/shadcn/lib/utils";
 import type { TermViewModel } from "@/app/view/term/term-model";
 import { getBlockMetaKeyAtom } from "@/store/global";
 import { fireAndForget, useAtomValueSafe } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import * as React from "react";
-import { isQuickInputSubmitKeyEvent } from "./term-quickinput";
+import { TermQuickInputCompletion } from "./term-quickinput-completion";
 import type { TermWrap } from "./termwrap";
 
 type TermCardsViewProps = {
@@ -193,18 +192,6 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
         setShouldAutoScroll(true);
     }, [model, quickInputValue, contextLabel]);
 
-    const onKeyDown = React.useCallback(
-        (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-            if (!isQuickInputSubmitKeyEvent(e)) {
-                return;
-            }
-            e.preventDefault();
-            e.stopPropagation();
-            onSend();
-        },
-        [onSend]
-    );
-
     const onCopyOutput = React.useCallback(async (output: string) => {
         const text = stripAnsiForCopy(output);
         try {
@@ -274,7 +261,7 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
                 </div>
             </div>
             <div ref={containerRef} className="term-cards-list">
-                {filteredCards.length === 0 ? (
+                {(filteredCards.length === 0 && (!runtimeInfoReady || search.trim())) ? (
                     <div className="term-cards-item">
                         <div className="term-cards-bubble term-cards-bubble-left">
                             <div className="term-cards-bubble-header">
@@ -373,14 +360,12 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
             </div>
             <div className="term-cards-inputbar" onMouseDown={(e) => e.stopPropagation()}>
                 <div className="term-cards-inputbar-editor">
-                    <MultiLineInput
-                        ref={model.quickInputRef}
+                    <TermQuickInputCompletion
+                        model={model}
                         value={quickInputValue}
-                        onChange={(e) => setQuickInputValue(e.target.value)}
-                        onKeyDown={onKeyDown}
+                        onChange={setQuickInputValue}
+                        onSubmit={onSend}
                         placeholder="Enter a command. Ctrl+Enter sends it."
-                        rows={2}
-                        maxRows={6}
                         className="term-quick-input-field text-sm"
                     />
                 </div>

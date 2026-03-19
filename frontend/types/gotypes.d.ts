@@ -922,6 +922,7 @@ declare global {
         "file:cwd"?: string;
         "file:dironly"?: boolean;
         "file:connection"?: string;
+        "cmd:env"?: {[key: string]: string};
     };
 
     // wshrpc.FetchSuggestionsResponse

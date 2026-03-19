@@ -754,13 +754,14 @@ type CommandConnServerInitData struct {
 }
 
 type FetchSuggestionsData struct {
-	SuggestionType string `json:"suggestiontype"`
-	Query          string `json:"query"`
-	WidgetId       string `json:"widgetid"`
-	ReqNum         int    `json:"reqnum"`
-	FileCwd        string `json:"file:cwd,omitempty"`
-	FileDirOnly    bool   `json:"file:dironly,omitempty"`
-	FileConnection string `json:"file:connection,omitempty"`
+	SuggestionType string            `json:"suggestiontype"`
+	Query          string            `json:"query"`
+	WidgetId       string            `json:"widgetid"`
+	ReqNum         int               `json:"reqnum"`
+	FileCwd        string            `json:"file:cwd,omitempty"`
+	FileDirOnly    bool              `json:"file:dironly,omitempty"`
+	FileConnection string            `json:"file:connection,omitempty"`
+	CmdEnv         map[string]string `json:"cmd:env,omitempty"`
 }
 
 type FetchSuggestionsResponse struct {

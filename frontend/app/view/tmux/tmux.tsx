@@ -319,7 +319,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                     <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                             <div className="text-base font-semibold text-zinc-100">Sessions</div>
-                            <div className="text-sm text-zinc-500">管理会话，具体执行发生在当前聚焦终端内。</div>
+                            <div className="text-sm text-zinc-500">管理会话</div>
                         </div>
                         <div className="flex w-full max-w-xl flex-col gap-2 sm:flex-row">
                             <div className="flex-1">

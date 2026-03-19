@@ -143,6 +143,9 @@ func FetchSuggestions(ctx context.Context, data wshrpc.FetchSuggestionsData) (*w
 	if data.SuggestionType == "bookmark" {
 		return fetchBookmarkSuggestions(ctx, data)
 	}
+	if data.SuggestionType == "command" {
+		return fetchCommandSuggestions(ctx, data)
+	}
 	return nil, fmt.Errorf("unsupported suggestion type: %q", data.SuggestionType)
 }
 

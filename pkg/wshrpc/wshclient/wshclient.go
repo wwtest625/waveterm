@@ -6,14 +6,14 @@
 package wshclient
 
 import (
-	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
-	"github.com/wavetermdev/waveterm/pkg/vdom"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wconfig"
-	"github.com/wavetermdev/waveterm/pkg/wps"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/vdom"
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 )
 
 // command "activity", wshserver.ActivityCommand
@@ -253,18 +253,6 @@ func DockerListContainersCommand(w *wshutil.WshRpc, data wshrpc.DockerListContai
 // command "dockerlistimages", wshserver.DockerListImagesCommand
 func DockerListImagesCommand(w *wshutil.WshRpc, data wshrpc.DockerListImagesRequest, opts *wshrpc.RpcOpts) (wshrpc.DockerListImagesResponse, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.DockerListImagesResponse](w, "dockerlistimages", data, opts)
-	return resp, err
-}
-
-// command "tmuxlistsessions", wshserver.TmuxListSessionsCommand
-func TmuxListSessionsCommand(w *wshutil.WshRpc, data wshrpc.TmuxListSessionsRequest, opts *wshrpc.RpcOpts) (wshrpc.TmuxListSessionsResponse, error) {
-	resp, err := sendRpcRequestCallHelper[wshrpc.TmuxListSessionsResponse](w, "tmuxlistsessions", data, opts)
-	return resp, err
-}
-
-// command "tmuxlistwindows", wshserver.TmuxListWindowsCommand
-func TmuxListWindowsCommand(w *wshutil.WshRpc, data wshrpc.TmuxListWindowsRequest, opts *wshrpc.RpcOpts) (wshrpc.TmuxListWindowsResponse, error) {
-	resp, err := sendRpcRequestCallHelper[wshrpc.TmuxListWindowsResponse](w, "tmuxlistwindows", data, opts)
 	return resp, err
 }
 
@@ -950,6 +938,18 @@ func TestMultiArgCommand(w *wshutil.WshRpc, arg1 string, arg2 int, arg3 bool, op
 	return resp, err
 }
 
+// command "tmuxlistsessions", wshserver.TmuxListSessionsCommand
+func TmuxListSessionsCommand(w *wshutil.WshRpc, data wshrpc.TmuxListSessionsRequest, opts *wshrpc.RpcOpts) (wshrpc.TmuxListSessionsResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.TmuxListSessionsResponse](w, "tmuxlistsessions", data, opts)
+	return resp, err
+}
+
+// command "tmuxlistwindows", wshserver.TmuxListWindowsCommand
+func TmuxListWindowsCommand(w *wshutil.WshRpc, data wshrpc.TmuxListWindowsRequest, opts *wshrpc.RpcOpts) (wshrpc.TmuxListWindowsResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.TmuxListWindowsResponse](w, "tmuxlistwindows", data, opts)
+	return resp, err
+}
+
 // command "vdomasyncinitiation", wshserver.VDomAsyncInitiationCommand
 func VDomAsyncInitiationCommand(w *wshutil.WshRpc, data vdom.VDomAsyncInitiationRequest, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "vdomasyncinitiation", data, opts)
@@ -1073,3 +1073,5 @@ func WslStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.ConnSta
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.ConnStatus](w, "wslstatus", nil, opts)
 	return resp, err
 }
+
+

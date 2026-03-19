@@ -5,7 +5,6 @@ import { SubBlock } from "@/app/block/block";
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { Button } from "@/app/element/button";
 import { NullErrorBoundary } from "@/app/element/errorboundary";
-import { MultiLineInput } from "@/app/element/multilineinput";
 import { Search, useSearch } from "@/app/element/search";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { useTabModel } from "@/app/store/tab-model";
@@ -21,7 +20,7 @@ import clsx from "clsx";
 import debug from "debug";
 import * as jotai from "jotai";
 import * as React from "react";
-import { isQuickInputSubmitKeyEvent } from "./term-quickinput";
+import { TermQuickInputCompletion } from "./term-quickinput-completion";
 import { TermLinkTooltip } from "./term-tooltip";
 import { TermStickers } from "./termsticker";
 import { TermThemeUpdater } from "./termtheme";
@@ -397,18 +396,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         model.submitQuickInput();
     }, [model]);
 
-    const handleQuickInputKeyDown = React.useCallback(
-        (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-            if (!isQuickInputSubmitKeyEvent(e)) {
-                return;
-            }
-            e.preventDefault();
-            e.stopPropagation();
-            model.submitQuickInput();
-        },
-        [model]
-    );
-
     const handleQuickInputFocus = React.useCallback(() => {
         model.nodeModel.focusNode();
     }, [model]);
@@ -428,15 +415,13 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
             {isBasicTerm && termMode !== "cards" ? (
                 <div className="term-quick-input" onMouseDown={(e) => e.stopPropagation()}>
                     <div className="term-quick-input-editor">
-                        <MultiLineInput
-                            ref={model.quickInputRef}
+                        <TermQuickInputCompletion
+                            model={model}
                             value={quickInputValue}
-                            onChange={(e) => setQuickInputValue(e.target.value)}
-                            onKeyDown={handleQuickInputKeyDown}
+                            onChange={setQuickInputValue}
+                            onSubmit={handleQuickInputSend}
                             onFocus={handleQuickInputFocus}
-                            placeholder="快捷输入框，Ctrl+Enter 发送"
-                            rows={2}
-                            maxRows={6}
+                            placeholder="Enter a command. Ctrl+Enter sends it."
                             className="term-quick-input-field text-sm"
                         />
                     </div>
