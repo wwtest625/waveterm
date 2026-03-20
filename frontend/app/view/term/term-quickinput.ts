@@ -24,6 +24,7 @@ function isCompletionSeparator(ch: string): boolean {
 }
 
 const commandPrefixSet = new Set(["sudo", "doas", "env", "time", "nice", "command", "builtin"]);
+const wrapperCommandSet = new Set(["sudo", "doas", "env", "time", "nice", "command", "builtin"]);
 
 function isPathLikeCompletionToken(token: string): boolean {
     if (!token) {
@@ -46,6 +47,51 @@ function getCommandSegmentStart(text: string, tokenStart: number): number {
         }
     }
     return segmentStart;
+}
+
+export type QuickInputCommandContext = {
+    command: string;
+    args: string[];
+    stage: number;
+};
+
+export function getQuickInputCommandContext(
+    value: string,
+    selectionStart: number,
+    selectionEnd: number
+): QuickInputCommandContext | null {
+    const text = value ?? "";
+    if (text.length === 0) {
+        return null;
+    }
+
+    const cursor = Math.max(selectionStart ?? 0, selectionEnd ?? selectionStart ?? 0);
+    const safeCursor = Math.max(0, Math.min(cursor, text.length));
+    const segmentStart = getCommandSegmentStart(text, safeCursor);
+    const segment = text.slice(segmentStart, safeCursor);
+    const trimmed = segment.trim();
+    if (trimmed === "") {
+        return null;
+    }
+
+    const tokens = trimmed.split(/\s+/).filter(Boolean);
+    while (tokens.length > 0 && wrapperCommandSet.has(tokens[0])) {
+        tokens.shift();
+    }
+    if (tokens.length === 0) {
+        return null;
+    }
+
+    const atTokenBoundary = /\s$/.test(segment);
+    const command = tokens[0];
+    const args = tokens.slice(1);
+    const stage = atTokenBoundary ? args.length : Math.max(args.length - 1, 0);
+
+    return {
+        command,
+        args,
+        stage,
+    };
 }
 
 function isCommandCompletionPosition(text: string, tokenStart: number, tokenEnd: number): boolean {

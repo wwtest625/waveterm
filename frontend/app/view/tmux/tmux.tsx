@@ -15,7 +15,6 @@ import {
     buildTmuxCreateSessionCommand,
     buildTmuxCreateWindowCommand,
     buildTmuxDetachSessionCommand,
-    buildTmuxEnterOrCreateSessionCommand,
     buildTmuxEnterSessionCommand,
     buildTmuxEnterWindowCommand,
     buildTmuxKillSessionCommand,
@@ -156,6 +155,52 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
         [connection, refreshData]
     );
 
+    const enterSession = useCallback(
+        async (sessionName: string) => {
+            if (pendingAction != null) {
+                return;
+            }
+            const ok = await sendCommand(buildTmuxEnterSessionCommand(sessionName), `进入 Session ${sessionName}`);
+            if (ok) {
+                setSelectedSession(sessionName);
+            }
+        },
+        [pendingAction, sendCommand]
+    );
+
+    const enterOrCreateSession = useCallback(
+        async (sessionName: string) => {
+            if (pendingAction != null) {
+                return;
+            }
+            const ok = await sendCommand(
+                buildTmuxEnterOrCreateSessionCommand(sessionName),
+                `进入 Session ${sessionName}`
+            );
+            if (ok) {
+                setSelectedSession(sessionName);
+            }
+        },
+        [pendingAction, sendCommand]
+    );
+
+    const enterWindow = useCallback(
+        async (windowItem: TmuxWindowSummary) => {
+            if (pendingAction != null) {
+                return;
+            }
+            if (selectedSession === "") {
+                setActionError("请先选择 Session。");
+                return;
+            }
+            await sendCommand(
+                buildTmuxEnterWindowCommand(selectedSession, windowItem.index),
+                `进入 Window ${windowItem.index}:${windowItem.name}`
+            );
+        },
+        [pendingAction, selectedSession, sendCommand]
+    );
+
     const confirmDangerousAction = useCallback(
         (actionLabel: string, sessionName: string, windowName?: string) => {
             return window.confirm(formatDangerConfirmText(actionLabel, connection, sessionName, windowName));
@@ -169,6 +214,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
         const ok = await sendCommand(buildTmuxCreateSessionCommand(resolvedName), `创建并进入 Session ${resolvedName}`);
         if (ok) {
             setNewSessionName(baseName);
+            setSelectedSession(resolvedName);
         }
     }, [baseSessionName, resolvedSessionName, sendCommand]);
 
@@ -304,9 +350,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                             </Button>
                             <Button
                                 className="grey"
-                                onClick={() =>
-                                    void sendCommand(buildTmuxEnterOrCreateSessionCommand("main"), "进入 main")
-                                }
+                                onClick={() => void enterOrCreateSession("main")}
                                 disabled={pendingAction != null}
                             >
                                 进入 main
@@ -342,9 +386,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                         </div>
                     </div>
                     {willAutoSuffixSessionName ? (
-                        <div className="mb-3 text-xs text-zinc-500">
-                            将创建 "{resolvedSessionName}"。
-                        </div>
+                        <div className="mb-3 text-xs text-zinc-500">将创建 "{resolvedSessionName}"。</div>
                     ) : null}
                     {sessions.length === 0 ? (
                         <div className="rounded-lg border border-dashed border-zinc-800 bg-zinc-950/70 px-4 py-6 text-center text-sm text-zinc-500">
@@ -358,17 +400,15 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                                     <div
                                         key={session.name}
                                         className={[
-                                            "rounded-lg border px-3 py-2.5 transition-colors",
+                                            "cursor-pointer rounded-lg border px-3 py-2.5 transition-colors",
                                             isSelected
                                                 ? "border-accent/40 bg-zinc-900"
-                                                : "border-zinc-800 bg-zinc-950/70 hover:border-zinc-700",
+                                                : "border-zinc-800 bg-zinc-950/70 hover:border-zinc-700 hover:bg-zinc-900/40",
                                         ].join(" ")}
+                                        onClick={() => setSelectedSession(session.name)}
                                     >
                                         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                                            <div
-                                                className="min-w-0 flex-1 cursor-pointer"
-                                                onClick={() => setSelectedSession(session.name)}
-                                            >
+                                            <div className="min-w-0 flex-1">
                                                 <div className="truncate text-base font-semibold text-zinc-100">
                                                     {session.name}
                                                 </div>
@@ -379,12 +419,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                                             <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                                                 <Button
                                                     className={rowPrimaryButtonClass}
-                                                    onClick={() =>
-                                                        void sendCommand(
-                                                            buildTmuxEnterSessionCommand(session.name),
-                                                            `进入 Session ${session.name}`
-                                                        )
-                                                    }
+                                                    onClick={() => void enterSession(session.name)}
                                                     disabled={pendingAction != null}
                                                 >
                                                     进入
@@ -476,7 +511,8 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                             {windows.map((windowItem) => (
                                 <div
                                     key={`${windowItem.index}:${windowItem.name}`}
-                                    className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2.5"
+                                    className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2.5 transition-colors hover:border-zinc-700"
+                                    onClick={() => void enterWindow(windowItem)}
                                 >
                                     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                         <div className="min-w-0 flex-1">
@@ -492,29 +528,30 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                                         <div className="flex flex-wrap gap-2 lg:justify-end">
                                             <Button
                                                 className={rowPrimaryButtonClass}
-                                                onClick={() =>
-                                                    void sendCommand(
-                                                        buildTmuxEnterWindowCommand(
-                                                            selectedSessionSummary.name,
-                                                            windowItem.index
-                                                        ),
-                                                        `进入 Window ${windowItem.index}:${windowItem.name}`
-                                                    )
-                                                }
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void enterWindow(windowItem);
+                                                }}
                                                 disabled={pendingAction != null}
                                             >
                                                 进入
                                             </Button>
                                             <Button
                                                 className={rowSecondaryButtonClass}
-                                                onClick={() => void renameWindow(windowItem)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void renameWindow(windowItem);
+                                                }}
                                                 disabled={pendingAction != null}
                                             >
                                                 重命名
                                             </Button>
                                             <Button
                                                 className={rowDangerButtonClass}
-                                                onClick={() => void killWindow(windowItem)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void killWindow(windowItem);
+                                                }}
                                                 disabled={pendingAction != null}
                                             >
                                                 Kill

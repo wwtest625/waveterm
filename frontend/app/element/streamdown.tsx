@@ -4,13 +4,54 @@
 import { CopyButton } from "@/app/element/copybutton";
 import { IconButton } from "@/app/element/iconbutton";
 import { cn, useAtomValueSafe } from "@/util/util";
+import { createBundledHighlighter, createSingletonShorthands } from "@shikijs/core";
 import type { Atom } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { bundledLanguages, codeToHtml } from "shiki/bundle/web";
+import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { Streamdown } from "streamdown";
 import { throttle } from "throttle-debounce";
 
 const ShikiTheme = "github-dark-high-contrast";
+
+const shikiLanguageLoaders = {
+    bash: () => import("@shikijs/langs/bash"),
+    go: () => import("@shikijs/langs/go"),
+    html: () => import("@shikijs/langs/html"),
+    javascript: () => import("@shikijs/langs/javascript"),
+    json: () => import("@shikijs/langs/json"),
+    markdown: () => import("@shikijs/langs/markdown"),
+    powershell: () => import("@shikijs/langs/powershell"),
+    python: () => import("@shikijs/langs/python"),
+    sh: () => import("@shikijs/langs/sh"),
+    tsx: () => import("@shikijs/langs/tsx"),
+    typescript: () => import("@shikijs/langs/typescript"),
+    yaml: () => import("@shikijs/langs/yaml"),
+} as const;
+
+type ShikiLanguage = keyof typeof shikiLanguageLoaders;
+
+const shikiLanguageAliases: Record<string, ShikiLanguage> = {
+    js: "javascript",
+    jsx: "javascript",
+    ts: "typescript",
+    md: "markdown",
+    yml: "yaml",
+};
+
+const shiki = createSingletonShorthands(
+    createBundledHighlighter({
+        langs: shikiLanguageLoaders,
+        themes: {
+            "github-dark-high-contrast": () => import("@shikijs/themes/github-dark-high-contrast"),
+        },
+        engine: () => createJavaScriptRegexEngine({ forgiving: true }),
+    })
+);
+
+function normalizeShikiLanguage(lang: string): ShikiLanguage | null {
+    const normalized = shikiLanguageAliases[lang.toLowerCase()] ?? lang.toLowerCase();
+    return normalized in shikiLanguageLoaders ? (normalized as ShikiLanguage) : null;
+}
 
 function extractText(node: React.ReactNode): string {
     if (node == null || typeof node === "boolean") return "";
@@ -33,7 +74,7 @@ function CodePlain({ className = "", isCodeBlock, text }: { className?: string; 
     );
 }
 
-function CodeHighlight({ className = "", lang, text }: { className?: string; lang: string; text: string }) {
+function CodeHighlight({ className = "", lang, text }: { className?: string; lang: ShikiLanguage; text: string }) {
     const [html, setHtml] = useState<string>("");
     const [hasError, setHasError] = useState(false);
     const codeRef = useRef<HTMLElement>(null);
@@ -42,7 +83,7 @@ function CodeHighlight({ className = "", lang, text }: { className?: string; lan
     const highlightCode = useCallback(
         async (textToHighlight: string, language: string, disposedRef: { current: boolean }, seq: number) => {
             try {
-                const full = await codeToHtml(textToHighlight, { lang: language, theme: ShikiTheme });
+                const full = await shiki.codeToHtml(textToHighlight, { lang: language as ShikiLanguage, theme: ShikiTheme });
                 const start = full.indexOf("<code");
                 const open = full.indexOf(">", start);
                 const end = full.lastIndexOf("</code>");
@@ -111,8 +152,10 @@ export function Code({ className = "", children }: { className?: string; childre
     const lang = m?.[1] || "text";
     const text = extractText(children);
 
-    if (isCodeBlock && lang in bundledLanguages) {
-        return <CodeHighlight className={className} lang={lang} text={text} />;
+    const shikiLang = normalizeShikiLanguage(lang);
+
+    if (isCodeBlock && shikiLang) {
+        return <CodeHighlight className={className} lang={shikiLang} text={text} />;
     }
 
     return <CodePlain className={className} isCodeBlock={isCodeBlock} text={text} />;

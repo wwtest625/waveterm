@@ -19,17 +19,17 @@ const config = {
     nodeGypRebuild: false,
     electronCompile: false,
     files: [
-        {
-            from: "./dist",
-            to: "./dist",
-            filter: ["**/*", "!bin/*", "bin/wavesrv.${arch}*", "bin/wsh*", "!tsunamiscaffold/**/*"],
-        },
-        {
-            from: ".",
-            to: ".",
-            filter: ["package.json"],
-        },
-        "!node_modules", // We don't need electron-builder to package in Node modules as Vite has already bundled any code that our program is using.
+        "dist/**/*",
+        "package.json",
+        "!**/node_modules{,/**/*}", // Only runtime artifacts from dist should be packaged; production dependencies are already bundled.
+        "!dist/win-unpacked{,/**/*}",
+        "!dist/tsunamiscaffold/**/*",
+        "!**/*.map",
+        "!dist/builder-*.yml",
+        "!dist/builder-*.yaml",
+        "!dist/latest.yml",
+        "!dist/alpha.yml",
+        "!dist/beta.yml",
     ],
     extraResources: [
         {

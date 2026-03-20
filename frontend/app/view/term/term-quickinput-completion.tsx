@@ -10,6 +10,7 @@ import React, { memo, useEffect, useRef, useState } from "react";
 import {
     applyQuickInputCompletion,
     formatQuickInputCompletion,
+    getQuickInputCommandContext,
     getQuickInputCompletionRange,
     isQuickInputSubmitKeyEvent,
     type QuickInputCompletionRange,
@@ -25,6 +26,26 @@ type QuickInputCompletionState = {
     suggestions: SuggestionType[];
     selectedIndex: number;
 };
+
+const dockerContainerArgCommands = new Set([
+    "attach",
+    "exec",
+    "inspect",
+    "kill",
+    "logs",
+    "pause",
+    "port",
+    "restart",
+    "rm",
+    "start",
+    "stats",
+    "stop",
+    "top",
+    "unpause",
+    "wait",
+]);
+
+const dockerImageArgCommands = new Set(["commit", "pull", "push", "run", "save", "tag"]);
 
 interface TermQuickInputCompletionProps {
     model: TermViewModel;
@@ -66,14 +87,20 @@ function getCompletionText(suggestion: SuggestionType): string {
 }
 
 function QuickInputSuggestionIcon({ suggestion }: { suggestion: SuggestionType }) {
-    if (suggestion.type === "command") {
-        return <i className="fa-solid fa-terminal text-emerald-400" />;
-    }
     if (suggestion.iconsrc) {
         return <img src={suggestion.iconsrc} alt="" className="h-4 w-4 object-contain" />;
     }
     if (suggestion.icon) {
         return <i className={makeIconClass(suggestion.icon, true)} style={{ color: suggestion.iconcolor || "inherit" }} />;
+    }
+    if (suggestion.type === "command" || suggestion.type === "docker-command" || suggestion.type === "nerdctl-command") {
+        return <i className="fa-solid fa-terminal text-emerald-400" />;
+    }
+    if (suggestion.type === "docker-container") {
+        return <i className="fa-solid fa-cube text-sky-400" />;
+    }
+    if (suggestion.type === "docker-image") {
+        return <i className="fa-solid fa-image text-fuchsia-400" />;
     }
     if (suggestion["file:mimetype"] === "directory") {
         return <i className="fa-regular fa-folder text-amber-400" />;
@@ -91,6 +118,35 @@ function QuickInputSuggestionLabel({ suggestion }: { suggestion: SuggestionType 
             {subText ? <div className="truncate text-[11px] text-slate-400">{subText}</div> : null}
         </div>
     );
+}
+
+function getCompletionSuggestionType(commandContext: ReturnType<typeof getQuickInputCommandContext> | null, range: QuickInputCompletionRange): string | null {
+    if (!commandContext) {
+        return range.kind === "command" ? "command" : "file";
+    }
+    if (commandContext.command === "docker") {
+        if (commandContext.stage === 0) {
+            return "docker-command";
+        }
+        const subcommand = commandContext.args[0] ?? "";
+        if (dockerContainerArgCommands.has(subcommand)) {
+            return "docker-container";
+        }
+        if (dockerImageArgCommands.has(subcommand)) {
+            return "docker-image";
+        }
+        return range.kind === "command" ? "command" : "file";
+    }
+    if (commandContext.command === "nerdctl" && commandContext.stage === 0) {
+        return "nerdctl-command";
+    }
+    return range.kind === "command" ? "command" : "file";
+}
+
+function getSuggestionFormatKind(suggestionType: string): "command" | "file" {
+    return suggestionType === "command" || suggestionType === "docker-command" || suggestionType === "nerdctl-command"
+        ? "command"
+        : "file";
 }
 
 const TermQuickInputCompletion = memo(
@@ -130,7 +186,7 @@ const TermQuickInputCompletion = memo(
                 closeCompletion();
                 return;
             }
-            const replacement = formatQuickInputCompletion(getCompletionText(suggestion), completionState.range.kind);
+            const replacement = formatQuickInputCompletion(getCompletionText(suggestion), getSuggestionFormatKind(suggestion.type));
             const applied = applyQuickInputCompletion(value, completionState.range, replacement);
             onChange(applied.value);
             closeCompletion();
@@ -157,6 +213,8 @@ const TermQuickInputCompletion = memo(
                 closeCompletion();
                 return;
             }
+            const commandContext = getQuickInputCommandContext(value, selectionStart, selectionEnd);
+            const suggestionType = getCompletionSuggestionType(commandContext, range);
 
             const reqNum = ++reqNumRef.current;
             const { cwd, connection, route, cmdEnv } = getCompletionContext(model);
@@ -174,13 +232,13 @@ const TermQuickInputCompletion = memo(
                 const result = await RpcApi.FetchSuggestionsCommand(
                     TabRpcClient,
                     {
-                        suggestiontype: range.kind,
+                        suggestiontype: suggestionType ?? range.kind,
                         query: range.query,
                         widgetid: widgetIdRef.current,
                         reqnum: reqNum,
                         "file:cwd": cwd,
                         "file:connection": connection || undefined,
-                        "cmd:env": range.kind === "command" ? cmdEnv : undefined,
+                        "cmd:env": suggestionType === "command" ? cmdEnv : undefined,
                     },
                     route ? { route } : undefined
                 );

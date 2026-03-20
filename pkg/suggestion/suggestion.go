@@ -146,6 +146,18 @@ func FetchSuggestions(ctx context.Context, data wshrpc.FetchSuggestionsData) (*w
 	if data.SuggestionType == "command" {
 		return fetchCommandSuggestions(ctx, data)
 	}
+	if data.SuggestionType == "docker-command" {
+		return fetchDockerCommandSuggestions(data.Query, data.ReqNum)
+	}
+	if data.SuggestionType == "nerdctl-command" {
+		return fetchNerdctlCommandSuggestions(data.Query, data.ReqNum)
+	}
+	if data.SuggestionType == "docker-container" {
+		return fetchDockerContainerSuggestions(ctx, data)
+	}
+	if data.SuggestionType == "docker-image" {
+		return fetchDockerImageSuggestions(ctx, data)
+	}
 	return nil, fmt.Errorf("unsupported suggestion type: %q", data.SuggestionType)
 }
 
