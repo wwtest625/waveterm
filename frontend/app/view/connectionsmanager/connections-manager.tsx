@@ -3,22 +3,21 @@
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { Button } from "@/app/element/button";
-import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TabModel } from "@/app/store/tab-model";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atoms, getConnStatusAtom } from "@/store/global";
 import { RpcApi } from "@/store/wshclientapi";
-import { useAtomValue } from "jotai";
-import { atom } from "jotai";
+import { atom, useAtomValue } from "jotai";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import {
     buildConnectionHost,
-    buildPasswordSecretName,
     buildConnMetaFromForm,
-    connectionMatchesQuery,
+    buildPasswordSecretName,
     ConnectionFormState,
+    connectionMatchesQuery,
     getEnsureWshButtonLabel,
     getWshBadgeInfo,
     makeConnectionFormFromConfig,
@@ -46,15 +45,7 @@ function makeBlankForm(): ConnectionFormState {
     };
 }
 
-function AuthToggle({
-    label,
-    active,
-    onClick,
-}: {
-    label: string;
-    active: boolean;
-    onClick: () => void;
-}) {
+function AuthToggle({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
     return (
         <button
             type="button"
@@ -208,8 +199,24 @@ function WshStatusBadge({ host }: { host: string }) {
     );
 }
 
-function getConnectionFailureGuidance(errorText: string): { summary: string; hints: string[] } {
+function getConnectionFailureGuidance(errorText: string): {
+    summary: string;
+    hints: string[];
+    isHostKeyChanged: boolean;
+} {
     const lowerError = errorText.toLowerCase();
+    if (lowerError.includes("hostkey-changed") || lowerError.includes("remote host identification has changed")) {
+        return {
+            summary:
+                "The server's SSH host key has changed. This could indicate a legitimate change (server reinstallation) or a security issue.",
+            hints: [
+                "If you recently reinstalled the server, click 'Update Key' to trust the new key.",
+                "If you did not expect this change, it could be a security issue - do NOT update the key.",
+                "The new key will be automatically trusted after updating.",
+            ],
+            isHostKeyChanged: true,
+        };
+    }
     if (lowerError.includes("unable to authenticate") || lowerError.includes("no supported methods remain")) {
         return {
             summary: "The server rejected the authentication methods offered by this connection.",
@@ -218,15 +225,14 @@ function getConnectionFailureGuidance(errorText: string): { summary: string; hin
                 "If password auth is disabled on the server, use Public Key or Keyboard Interactive.",
                 "If using root, confirm server policy allows root SSH login.",
             ],
+            isHostKeyChanged: false,
         };
     }
     if (lowerError.includes("connection refused")) {
         return {
             summary: "The server host was reached, but the SSH port refused the connection.",
-            hints: [
-                "Confirm SSH is running on the target host.",
-                "Check the SSH port in this connection profile.",
-            ],
+            hints: ["Confirm SSH is running on the target host.", "Check the SSH port in this connection profile."],
+            isHostKeyChanged: false,
         };
     }
     if (lowerError.includes("timed out") || lowerError.includes("timeout")) {
@@ -236,17 +242,20 @@ function getConnectionFailureGuidance(errorText: string): { summary: string; hin
                 "Verify the host IP and port are correct.",
                 "Check firewall, security group, and network ACL rules.",
             ],
+            isHostKeyChanged: false,
         };
     }
     if (lowerError.includes("no route to host") || lowerError.includes("network is unreachable")) {
         return {
             summary: "WaveTerm could not reach the target network endpoint.",
             hints: ["Check routing/VPN settings and whether the host is reachable from this machine."],
+            isHostKeyChanged: false,
         };
     }
     return {
         summary: "WaveTerm could not complete the requested operation for this connection.",
         hints: ["Review the technical details below for the exact server response."],
+        isHostKeyChanged: false,
     };
 }
 
@@ -254,13 +263,34 @@ function ConnectionFailureModalContent({
     title,
     error,
     attemptedHost,
+    onRetry,
 }: {
     title: string;
     error: unknown;
     attemptedHost?: string | null;
+    onRetry?: () => void;
 }) {
     const rawError = String(error ?? "Unknown error");
     const guidance = getConnectionFailureGuidance(rawError);
+    const [updatingKey, setUpdatingKey] = useState(false);
+
+    async function handleUpdateKey() {
+        if (!attemptedHost) return;
+        setUpdatingKey(true);
+        try {
+            await RpcApi.UpdateKnownHostKeyCommand(TabRpcClient, { host: attemptedHost });
+            // Close the modal and retry connection
+            modalsModel.popModal();
+            if (onRetry) {
+                onRetry();
+            }
+        } catch (e) {
+            // Show error but keep modal open
+            console.error("Failed to update host key:", e);
+        } finally {
+            setUpdatingKey(false);
+        }
+    }
 
     return (
         <div className="w-[84vw] max-w-[720px] max-h-[68vh] overflow-y-auto">
@@ -288,10 +318,22 @@ function ConnectionFailureModalContent({
                         ))}
                     </ul>
                 </div>
+                {guidance.isHostKeyChanged && attemptedHost && (
+                    <div className="px-4 pb-3">
+                        <Button className="!px-3" onClick={handleUpdateKey} disabled={updatingKey}>
+                            {updatingKey ? "Updating..." : "Update Key"}
+                        </Button>
+                        <div className="mt-2 text-xs text-secondary">
+                            This will remove the old host key and trust the new one.
+                        </div>
+                    </div>
+                )}
                 <div className="px-4 pb-4">
                     <div className="rounded-lg border border-border bg-black/30 p-3">
                         <div className="mb-1 text-[11px] uppercase tracking-wide text-secondary">Technical details</div>
-                        <pre className="m-0 whitespace-pre-wrap break-words text-xs leading-5 text-primary">{rawError}</pre>
+                        <pre className="m-0 whitespace-pre-wrap break-words text-xs leading-5 text-primary">
+                            {rawError}
+                        </pre>
                     </div>
                 </div>
             </div>
@@ -308,7 +350,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     const [saving, setSaving] = useState(false);
     const [testing, setTesting] = useState(false);
     const [ensuringWsh, setEnsuringWsh] = useState(false);
-    const [connectionsState, setConnectionsState] = useState<{[key: string]: ConnKeywords}>({});
+    const [connectionsState, setConnectionsState] = useState<{ [key: string]: ConnKeywords }>({});
     const [latencyMap, setLatencyMap] = useState<Record<string, number | null>>({});
     const selectedConnStatus = useAtomValue(getConnStatusAtom(selectedHost));
 

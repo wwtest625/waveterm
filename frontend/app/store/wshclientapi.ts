@@ -792,6 +792,11 @@ class RpcApiType {
         return client.wshRpcCall("tmuxlistwindows", data, opts);
     }
 
+    // command "updateknownhostkey" [call]
+    UpdateKnownHostKeyCommand(client: WshClient, data: UpdateKnownHostKeyData, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("updateknownhostkey", data, opts);
+    }
+
     // command "vdomasyncinitiation" [call]
     VDomAsyncInitiationCommand(client: WshClient, data: VDomAsyncInitiationRequest, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("vdomasyncinitiation", data, opts);

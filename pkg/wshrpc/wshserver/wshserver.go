@@ -770,6 +770,40 @@ func (ws *WshServer) NotifySystemResumeCommand(ctx context.Context) error {
 	return nil
 }
 
+func (ws *WshServer) UpdateKnownHostKeyCommand(ctx context.Context, data wshrpc.UpdateKnownHostKeyData) error {
+	log.Printf("UpdateKnownHostKeyCommand called for host: %s\n", data.Host)
+
+	// Get connection config to find known_hosts files
+	fullConfig := wconfig.GetWatcher().GetFullConfig()
+	connKeywords, ok := fullConfig.Connections[data.Host]
+	if !ok {
+		// Use defaults if no specific config
+		connKeywords = wconfig.ConnKeywords{}
+	}
+
+	// Get SSH config keywords for the host to get known_hosts file paths
+	sshKeywords, err := remote.FindSshConfigKeywords(data.Host)
+	if err != nil {
+		// Fall back to defaults if config parsing fails
+		sshKeywords, err = remote.FindSshDefaults(data.Host)
+		if err != nil {
+			return fmt.Errorf("failed to get SSH config: %w", err)
+		}
+	}
+
+	// Merge with connection-specific overrides
+	mergedKeywords := remote.MergeKeywords(sshKeywords, &connKeywords)
+
+	// Remove the old host key
+	err = remote.RemoveKnownHostKey(data.Host, mergedKeywords)
+	if err != nil {
+		return fmt.Errorf("failed to remove old host key: %w", err)
+	}
+
+	log.Printf("Successfully removed old host key for: %s\n", data.Host)
+	return nil
+}
+
 func (ws *WshServer) FindGitBashCommand(ctx context.Context, rescan bool) (string, error) {
 	fullConfig := wconfig.GetWatcher().GetFullConfig()
 	return shellutil.FindGitBash(&fullConfig, rescan), nil

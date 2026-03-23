@@ -474,6 +474,142 @@ func openKnownHostsForEdit(knownHostsFilename string) (*os.File, error) {
 	return os.OpenFile(knownHostsFilename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 }
 
+// RemoveKnownHostKey removes the host key entry for the given host from all known_hosts files.
+// This is used to update keys when a host's identity has changed.
+// The hostname parameter can be in various formats: "user@hostname", "hostname", "hostname:port", "[hostname]:port"
+func RemoveKnownHostKey(hostname string, connKeywords *wconfig.ConnKeywords) error {
+	globalKnownHostsFiles := connKeywords.SshGlobalKnownHostsFile
+	userKnownHostsFiles := connKeywords.SshUserKnownHostsFile
+
+	osUser, err := user.Current()
+	if err != nil {
+		return err
+	}
+	var unexpandedKnownHostsFiles []string
+	if osUser.Username == "root" {
+		unexpandedKnownHostsFiles = globalKnownHostsFiles
+	} else {
+		unexpandedKnownHostsFiles = append(userKnownHostsFiles, globalKnownHostsFiles...)
+	}
+
+	var knownHostsFiles []string
+	for _, filename := range unexpandedKnownHostsFiles {
+		filePath, err := wavebase.ExpandHomeDir(filename)
+		if err != nil {
+			continue
+		}
+		knownHostsFiles = append(knownHostsFiles, filePath)
+	}
+
+	if len(knownHostsFiles) == 0 {
+		return fmt.Errorf("no known_hosts files found")
+	}
+
+	// Parse hostname to extract just the host part (without user@ or port)
+	// Format can be: "user@hostname", "hostname", "hostname:port", "[hostname]:port"
+	hostToMatch := hostname
+	// Remove user@ prefix if present
+	if idx := strings.Index(hostToMatch, "@"); idx != -1 {
+		hostToMatch = hostToMatch[idx+1:]
+	}
+	// Remove port if present (handle both "host:port" and "[host]:port")
+	if strings.HasPrefix(hostToMatch, "[") {
+		// Format: [hostname]:port
+		if idx := strings.Index(hostToMatch, "]"); idx != -1 {
+			hostToMatch = hostToMatch[1:idx]
+		}
+	} else if idx := strings.LastIndex(hostToMatch, ":"); idx != -1 {
+		// Format: hostname:port (but be careful with IPv6)
+		// Only treat as port separator if there's no other colon (not IPv6)
+		if strings.Count(hostToMatch, ":") == 1 {
+			hostToMatch = hostToMatch[:idx]
+		}
+	}
+
+	// Generate all possible formats that might be in known_hosts
+	// known_hosts can have: "hostname", "[hostname]:port", "hostname,ip", etc.
+	// We'll normalize using xknownhosts and also try matching the raw hostname
+	normalizedHost := xknownhosts.Normalize(hostname)
+	normalizedHostNoPort := xknownhosts.Normalize(hostToMatch)
+
+	// Collect all hostname variants to match
+	matchPatterns := [][]byte{
+		[]byte(hostToMatch),
+		[]byte(normalizedHost),
+		[]byte(normalizedHostNoPort),
+	}
+
+	log.Printf("RemoveKnownHostKey: trying to match patterns: %v for input: %s", matchPatterns, hostname)
+
+	var lastErr error
+	for _, filename := range knownHostsFiles {
+		err := removeHostKeyFromFile(filename, matchPatterns)
+		if err != nil {
+			lastErr = err
+			log.Printf("failed to remove host key from %s: %v", filename, err)
+		}
+	}
+	return lastErr
+}
+
+// removeHostKeyFromFile removes lines containing any of the hostname patterns from a known_hosts file
+func removeHostKeyFromFile(filename string, matchPatterns [][]byte) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	lines := bytes.Split(data, []byte("\n"))
+	var newLines [][]byte
+	removedCount := 0
+	for _, line := range lines {
+		trimmedLine := bytes.TrimSpace(line)
+		if len(trimmedLine) == 0 || trimmedLine[0] == '#' {
+			// Keep empty lines and comments
+			newLines = append(newLines, line)
+			continue
+		}
+		// Check if line starts with any of our hostname patterns
+		// Format: hostname[,hostname,...] key-type base64-key [comment]
+		parts := bytes.Fields(trimmedLine)
+		if len(parts) >= 1 {
+			hostField := parts[0]
+			// Split by comma to handle multiple hostnames on one line
+			hosts := bytes.Split(hostField, []byte(","))
+			match := false
+			for _, h := range hosts {
+				hTrimmed := bytes.TrimSpace(h)
+				for _, pattern := range matchPatterns {
+					if bytes.Equal(hTrimmed, pattern) {
+						match = true
+						break
+					}
+				}
+				if match {
+					break
+				}
+			}
+			if match {
+				removedCount++
+				log.Printf("RemoveKnownHostKey: removing line: %s", string(trimmedLine))
+				continue
+			}
+		}
+		newLines = append(newLines, line)
+	}
+
+	if removedCount > 0 {
+		log.Printf("RemoveKnownHostKey: removed %d entries from %s", removedCount, filename)
+	}
+
+	// Write back to file
+	newData := bytes.Join(newLines, []byte("\n"))
+	return os.WriteFile(filename, newData, 0644)
+}
+
 func writeToKnownHosts(knownHostsFile string, newLine string, getUserVerification func() (*userinput.UserInputResponse, error)) error {
 	if getUserVerification == nil {
 		getUserVerification = func() (*userinput.UserInputResponse, error) {
@@ -956,6 +1092,21 @@ func ConnectToClient(connCtx context.Context, opts *SSHOpts, currentClient *ssh.
 		return client, debugInfo.JumpNum, ConnectionError{ConnectionDebugInfo: debugInfo, Err: err}
 	}
 	return client, debugInfo.JumpNum, nil
+}
+
+// FindSshConfigKeywords reads SSH config for the given host pattern
+func FindSshConfigKeywords(hostPattern string) (connKeywords *wconfig.ConnKeywords, outErr error) {
+	return findSshConfigKeywords(hostPattern)
+}
+
+// FindSshDefaults returns default SSH configuration
+func FindSshDefaults(hostPattern string) (connKeywords *wconfig.ConnKeywords, outErr error) {
+	return findSshDefaults(hostPattern)
+}
+
+// MergeKeywords merges two ConnKeywords structs
+func MergeKeywords(oldKeywords *wconfig.ConnKeywords, newKeywords *wconfig.ConnKeywords) *wconfig.ConnKeywords {
+	return mergeKeywords(oldKeywords, newKeywords)
 }
 
 // note that a `var == "yes"` will default to false

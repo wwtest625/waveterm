@@ -1887,6 +1887,11 @@ declare global {
         providerMetadata?: {[key: string]: any};
     };
 
+    // wshrpc.UpdateKnownHostKeyData
+    type UpdateKnownHostKeyData = {
+        host: string;
+    };
+
     // userinput.UserInputRequest
     type UserInputRequest = {
         requestid: string;

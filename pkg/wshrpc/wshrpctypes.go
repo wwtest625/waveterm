@@ -120,6 +120,7 @@ type WshRpcInterface interface {
 	FindGitBashCommand(ctx context.Context, rescan bool) (string, error)
 	ConnServerInitCommand(ctx context.Context, data CommandConnServerInitData) error
 	NotifySystemResumeCommand(ctx context.Context) error
+	UpdateKnownHostKeyCommand(ctx context.Context, data UpdateKnownHostKeyData) error
 
 	// eventrecv is special, it's handled internally by WshRpc with EventListener
 	EventRecvCommand(ctx context.Context, data wps.WaveEvent) error
@@ -415,6 +416,10 @@ type ConnRequest struct {
 	Host       string               `json:"host"`
 	Keywords   wconfig.ConnKeywords `json:"keywords,omitempty"`
 	LogBlockId string               `json:"logblockid,omitempty"`
+}
+
+type UpdateKnownHostKeyData struct {
+	Host string `json:"host"` // hostname:port
 }
 
 type RemoteInfo struct {

@@ -950,6 +950,12 @@ func TmuxListWindowsCommand(w *wshutil.WshRpc, data wshrpc.TmuxListWindowsReques
 	return resp, err
 }
 
+// command "updateknownhostkey", wshserver.UpdateKnownHostKeyCommand
+func UpdateKnownHostKeyCommand(w *wshutil.WshRpc, data wshrpc.UpdateKnownHostKeyData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "updateknownhostkey", data, opts)
+	return err
+}
+
 // command "vdomasyncinitiation", wshserver.VDomAsyncInitiationCommand
 func VDomAsyncInitiationCommand(w *wshutil.WshRpc, data vdom.VDomAsyncInitiationRequest, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "vdomasyncinitiation", data, opts)
