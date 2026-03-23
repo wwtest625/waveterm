@@ -54,15 +54,14 @@ function StandardSessionContent({ viewModel, onClose }: StandardSessionContentPr
                 Standard SSH Session
             </div>
             <div className="text-xs text-secondary leading-relaxed">
-                Standard SSH sessions end when the connection drops. Durable sessions keep your shell state, running
-                programs, and history alive through network changes, computer sleep, and Wave restarts.
+                标准 SSH 会话在连接断开时结束。持久会话会保护您的 shell 状态、运行中的程序和历史记录，让它们穿越网络变化、计算机休眠和 Wave 重启。
             </div>
             <button
                 className="bg-zinc-700 text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-zinc-600 transition-colors cursor-pointer flex items-center justify-center gap-2 mt-1"
                 onClick={handleRestartAsDurable}
             >
                 <i className="fa-solid fa-shield text-sky-500" />
-                Restart as Durable
+                重新启动为持久会话
             </button>
             <LearnMoreButton />
         </div>
@@ -78,11 +77,10 @@ function DurableAttachedContent({ onClose }: DurableAttachedContentProps) {
         <div className="flex flex-col gap-2 max-w-[280px]">
             <div className="font-semibold text-sm flex items-center gap-2 text-secondary">
                 <i className="fa-sharp fa-solid fa-shield text-sky-500" />
-                Durable Session (Attached)
+                持久会话（已连接）
             </div>
             <div className="text-xs text-secondary leading-relaxed">
-                Your shell state, running programs, and history are protected. This session will survive network
-                disconnects.
+                您的 shell 状态、运行中的程序和历史记录已受保护。此会话将穿越网络断开。
             </div>
             <LearnMoreButton />
         </div>
@@ -98,11 +96,10 @@ function DurableDetachedContent({ onClose }: DurableDetachedContentProps) {
         <div className="flex flex-col gap-2 max-w-[280px]">
             <div className="font-semibold text-sm flex items-center gap-2 text-secondary">
                 <i className="fa-sharp fa-solid fa-shield text-sky-300" />
-                Durable Session (Detached)
+                持久会话（已断开）
             </div>
             <div className="text-xs text-secondary leading-relaxed">
-                Connection lost, but your session is still running on the remote server. Wave will automatically
-                reconnect when the connection is restored.
+                连接已丢失，但您的会话仍在远程服务器上运行。Wave 将在连接恢复后自动重连。
             </div>
             <LearnMoreButton />
         </div>
@@ -126,10 +123,10 @@ function DurableAwaitingStart({ connected, viewModel, onClose }: DurableAwaiting
             <div className="flex flex-col gap-2 max-w-[280px]">
                 <div className="font-semibold text-sm flex items-center gap-2 text-secondary whitespace-nowrap">
                     <i className="fa-sharp fa-solid fa-shield text-muted" />
-                    Durable Session (Awaiting Connection)
+                    持久会话（等待连接）
                 </div>
                 <div className="text-xs text-secondary leading-relaxed">
-                    Configured for a durable session. The session will start when the connection is established.
+                    已配置持久会话。当连接建立后会话将启动。
                 </div>
                 <LearnMoreButton />
             </div>
@@ -140,17 +137,17 @@ function DurableAwaitingStart({ connected, viewModel, onClose }: DurableAwaiting
         <div className="flex flex-col gap-2 max-w-[280px]">
             <div className="font-semibold text-sm flex items-center gap-2 text-secondary whitespace-nowrap">
                 <i className="fa-sharp fa-solid fa-shield text-muted" />
-                Durable Session (Awaiting Start)
+                持久会话（等待启动）
             </div>
             <div className="text-xs text-secondary leading-relaxed">
-                Configured for a durable session, but session hasn't started yet. Click below to start it manually.
+                已配置持久会话，但会话尚未启动。点击下方手动启动。
             </div>
             <button
                 className="bg-zinc-700 text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-zinc-600 transition-colors cursor-pointer flex items-center justify-center gap-2 mt-1"
                 onClick={handleStartSession}
             >
                 <i className="fa-solid fa-shield text-sky-500" />
-                Start Session
+                启动会话
             </button>
             <LearnMoreButton />
         </div>
@@ -166,9 +163,9 @@ function DurableStartingContent({ onClose }: DurableStartingContentProps) {
         <div className="flex flex-col gap-2 max-w-[280px]">
             <div className="font-semibold text-sm flex items-center gap-2 text-secondary">
                 <i className="fa-sharp fa-solid fa-shield text-sky-300" />
-                Durable Session (Starting)
+                持久会话（启动中）
             </div>
-            <div className="text-xs text-secondary leading-relaxed">The durable session is starting.</div>
+            <div className="text-xs text-secondary leading-relaxed">正在启动持久会话。</div>
             <LearnMoreButton />
         </div>
     );
@@ -192,21 +189,21 @@ function DurableEndedContent({ doneReason, startupError, viewModel, onClose }: D
         util.fireAndForget(() => viewModel.restartSessionWithDurability(false));
     };
 
-    let titleText = "Durable Session (Ended)";
-    let descriptionText = "The durable session has ended. This block is still configured for durable sessions.";
+    let titleText = "持久会话（已结束）";
+    let descriptionText = "持久会话已结束。此块仍配置为持久会话。";
     let showRestartButton = true;
 
     if (doneReason === "terminated") {
-        titleText = "Durable Session (Ended, Exited)";
+        titleText = "持久会话（已结束，已退出）";
         descriptionText =
-            "The shell was terminated and is no longer running. This block is still configured for durable sessions.";
+            "Shell 已终止，不再运行。此块仍配置为持久会话。";
     } else if (doneReason === "gone") {
-        titleText = "Durable Session (Ended, Lost)";
+        titleText = "持久会话（已结束，已丢失）";
         descriptionText =
-            "The session was lost or not found on the remote server. This may have occurred due to a system reboot or the session being manually terminated.";
+            "会话丢失或未在远程服务器上找到。这可能是由于系统重启或会话被手动终止。";
     } else if (doneReason === "startuperror") {
-        titleText = "Durable Session (Failed to Start)";
-        descriptionText = "The durable session failed to start.";
+        titleText = "持久会话（启动失败）";
+        descriptionText = "持久会话启动失败。";
         return (
             <div className="flex flex-col gap-2 max-w-[280px]">
                 <div className="font-semibold text-sm flex items-center gap-2 text-secondary">
@@ -224,14 +221,14 @@ function DurableEndedContent({ doneReason, startupError, viewModel, onClose }: D
                     onClick={handleRestartSession}
                 >
                     <i className="fa-solid fa-shield text-sky-500" />
-                    Restart Session
+                    重启会话
                 </button>
                 <button
                     className="bg-zinc-700 text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-zinc-600 transition-colors cursor-pointer flex items-center justify-center gap-2"
                     onClick={handleRestartAsStandard}
                 >
                     <i className="fa-sharp fa-regular fa-shield text-muted" />
-                    Restart as Standard
+                    重启为标准会话
                 </button>
                 <LearnMoreButton />
             </div>
@@ -251,7 +248,7 @@ function DurableEndedContent({ doneReason, startupError, viewModel, onClose }: D
                     onClick={handleRestartSession}
                 >
                     <i className="fa-solid fa-shield text-sky-500" />
-                    Restart Session
+                    重启会话
                 </button>
             )}
             <LearnMoreButton />

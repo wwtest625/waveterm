@@ -94,7 +94,7 @@ const ConnectionsManagerButton = memo(({ divRef }: { divRef?: React.RefObject<HT
 
     return (
         <Tooltip
-            content="Open Connections Manager"
+            content="打开连接管理"
             placement="bottom"
             hideOnClick
             divClassName="flex h-[26px] px-2 justify-end items-center rounded-md mr-1 box-border cursor-pointer bg-hover hover:bg-hoverbg transition-colors text-secondary text-[12px]"

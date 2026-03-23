@@ -122,7 +122,7 @@ function ConnectionListRow({
                     <div className="shrink-0 text-[11px] text-secondary">{latencyText}</div>
                 </div>
                 <div className="truncate text-xs text-secondary">{addressLabel}</div>
-                <div className="truncate text-[11px] text-secondary">{group === "" ? "Ungrouped" : group}</div>
+                <div className="truncate text-[11px] text-secondary">{group === "" ? "未分组" : group}</div>
             </div>
             <div className="w-[96px] shrink-0 flex justify-center">
                 <ConnectionStatusBadge host={host} />
@@ -132,7 +132,7 @@ function ConnectionListRow({
             </div>
             <div className="shrink-0 flex items-center gap-1">
                 <ListActionButton
-                    label={isConnecting ? "Connecting" : "Connect"}
+                    label={isConnecting ? "连接中" : "连接"}
                     disabled={isConnecting}
                     onClick={(e) => {
                         e.stopPropagation();
@@ -143,7 +143,7 @@ function ConnectionListRow({
                     type="button"
                     className="h-[24px] w-[24px] shrink-0 rounded border border-border bg-panel text-secondary hover:text-primary hover:border-zinc-500"
                     onClick={(e) => onMore(e, host)}
-                    aria-label="More actions"
+                    aria-label="更多操作"
                 >
                     <i className="fa fa-ellipsis-h text-[11px]" />
                 </button>
@@ -158,7 +158,7 @@ class ConnectionsManagerViewModel implements ViewModel {
     nodeModel: BlockNodeModel;
     tabModel: TabModel;
     viewIcon = atom("server");
-    viewName = atom("Connections");
+    viewName = atom("连接管理");
 
     constructor(blockId: string, nodeModel: BlockNodeModel, tabModel: TabModel) {
         this.blockId = blockId;
@@ -174,16 +174,16 @@ class ConnectionsManagerViewModel implements ViewModel {
 
 function ConnectionStatusBadge({ host }: { host: string }) {
     const connStatus = useAtomValue(getConnStatusAtom(host));
-    let label = "Disconnected";
+    let label = "未连接";
     let className = "text-gray-300 border-gray-600";
     if (connStatus?.status === "connected") {
-        label = "Connected";
+        label = "已连接";
         className = "text-green-400 border-green-600";
     } else if (connStatus?.status === "connecting") {
-        label = "Connecting";
+        label = "连接中";
         className = "text-yellow-300 border-yellow-600";
     } else if (connStatus?.status === "error") {
-        label = "Error";
+        label = "错误";
         className = "text-red-400 border-red-600";
     }
     return <span className={`px-2 py-0.5 rounded border text-xs ${className}`}>{label}</span>;
@@ -208,53 +208,53 @@ function getConnectionFailureGuidance(errorText: string): {
     if (lowerError.includes("hostkey-changed") || lowerError.includes("remote host identification has changed")) {
         return {
             summary:
-                "The server's SSH host key has changed. This could indicate a legitimate change (server reinstallation) or a security issue.",
+                "服务器的 SSH 主机密钥已更改。这可能表示合法变更（服务器重装）或安全问题。",
             hints: [
-                "If you recently reinstalled the server, click 'Update Key' to trust the new key.",
-                "If you did not expect this change, it could be a security issue - do NOT update the key.",
-                "The new key will be automatically trusted after updating.",
+                "如果您最近重装了服务器，请点击「更新密钥」以信任新密钥。",
+                "如果您未预期此变更，可能是安全问题 - 请勿更新密钥。",
+                "更新后将自动信任新密钥。",
             ],
             isHostKeyChanged: true,
         };
     }
     if (lowerError.includes("unable to authenticate") || lowerError.includes("no supported methods remain")) {
         return {
-            summary: "The server rejected the authentication methods offered by this connection.",
+            summary: "服务器拒绝了此连接提供的认证方法。",
             hints: [
-                "Verify SSH User and credentials.",
-                "If password auth is disabled on the server, use Public Key or Keyboard Interactive.",
-                "If using root, confirm server policy allows root SSH login.",
+                "请验证 SSH 用户名和凭据。",
+                "如果服务器上禁用了密码认证，请使用公钥或键盘交互认证。",
+                "如果使用 root 用户，请确认服务器策略允许 root SSH 登录。",
             ],
             isHostKeyChanged: false,
         };
     }
     if (lowerError.includes("connection refused")) {
         return {
-            summary: "The server host was reached, but the SSH port refused the connection.",
-            hints: ["Confirm SSH is running on the target host.", "Check the SSH port in this connection profile."],
+            summary: "已连接到服务器主机，但 SSH 端口拒绝了连接。",
+            hints: ["请确认目标主机上 SSH 服务正在运行。", "请检查此连接配置中的 SSH 端口。"],
             isHostKeyChanged: false,
         };
     }
     if (lowerError.includes("timed out") || lowerError.includes("timeout")) {
         return {
-            summary: "The SSH test timed out before the server completed the handshake.",
+            summary: "SSH 测试在服务器完成握手前超时。",
             hints: [
-                "Verify the host IP and port are correct.",
-                "Check firewall, security group, and network ACL rules.",
+                "请验证主机 IP 和端口是否正确。",
+                "请检查防火墙、安全组和网络 ACL 规则。",
             ],
             isHostKeyChanged: false,
         };
     }
     if (lowerError.includes("no route to host") || lowerError.includes("network is unreachable")) {
         return {
-            summary: "WaveTerm could not reach the target network endpoint.",
-            hints: ["Check routing/VPN settings and whether the host is reachable from this machine."],
+            summary: "WaveTerm 无法到达目标网络端点。",
+            hints: ["请检查路由/VPN 设置以及主机是否从此机器可达。"],
             isHostKeyChanged: false,
         };
     }
     return {
-        summary: "WaveTerm could not complete the requested operation for this connection.",
-        hints: ["Review the technical details below for the exact server response."],
+        summary: "WaveTerm 无法为此连接完成请求的操作。",
+        hints: ["请查看下面的技术详情以获取服务器的确切响应。"],
         isHostKeyChanged: false,
     };
 }
@@ -270,7 +270,7 @@ function ConnectionFailureModalContent({
     attemptedHost?: string | null;
     onRetry?: () => void;
 }) {
-    const rawError = String(error ?? "Unknown error");
+    const rawError = String(error ?? "未知错误");
     const guidance = getConnectionFailureGuidance(rawError);
     const [updatingKey, setUpdatingKey] = useState(false);
 
@@ -305,13 +305,13 @@ function ConnectionFailureModalContent({
                     <p className="mt-2 text-sm leading-6 text-secondary">{guidance.summary}</p>
                     {attemptedHost && (
                         <div className="mt-2 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-panel px-2 py-1 text-xs text-secondary">
-                            <span className="uppercase tracking-wide text-[10px] text-secondary">Target</span>
+                            <span className="uppercase tracking-wide text-[10px] text-secondary">目标</span>
                             <span className="truncate font-mono text-primary">{attemptedHost}</span>
                         </div>
                     )}
                 </div>
                 <div className="px-4 py-3">
-                    <div className="text-[11px] uppercase tracking-wide text-secondary">Suggested checks</div>
+                    <div className="text-[11px] uppercase tracking-wide text-secondary">建议检查</div>
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-secondary">
                         {guidance.hints.map((hint) => (
                             <li key={hint}>{hint}</li>
@@ -321,16 +321,16 @@ function ConnectionFailureModalContent({
                 {guidance.isHostKeyChanged && attemptedHost && (
                     <div className="px-4 pb-3">
                         <Button className="!px-3" onClick={handleUpdateKey} disabled={updatingKey}>
-                            {updatingKey ? "Updating..." : "Update Key"}
+                            {updatingKey ? "更新中..." : "更新密钥"}
                         </Button>
                         <div className="mt-2 text-xs text-secondary">
-                            This will remove the old host key and trust the new one.
+                            这将移除旧的主机密钥并信任新密钥。
                         </div>
                     </div>
                 )}
                 <div className="px-4 pb-4">
                     <div className="rounded-lg border border-border bg-black/30 p-3">
-                        <div className="mb-1 text-[11px] uppercase tracking-wide text-secondary">Technical details</div>
+                        <div className="mb-1 text-[11px] uppercase tracking-wide text-secondary">技术详情</div>
                         <pre className="m-0 whitespace-pre-wrap break-words text-xs leading-5 text-primary">
                             {rawError}
                         </pre>
@@ -345,7 +345,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
     const [query, setQuery] = useState("");
     const [selectedHost, setSelectedHost] = useState<string>("");
-    const [activeGroup, setActiveGroup] = useState<string>("All");
+    const [activeGroup, setActiveGroup] = useState<string>("全部");
     const [form, setForm] = useState<ConnectionFormState>(makeBlankForm());
     const [saving, setSaving] = useState(false);
     const [testing, setTesting] = useState(false);
@@ -375,7 +375,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 set.add(g.trim());
             }
         }
-        return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+        return ["全部", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
     }, [connectionsState]);
 
     const filteredHosts = useMemo(() => {
@@ -386,7 +386,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 return false;
             }
             const group = (((connectionsState[host] as any)?.["display:group"] as string) ?? "").trim();
-            const groupMatch = activeGroup === "All" || group === activeGroup;
+            const groupMatch = activeGroup === "全部" || group === activeGroup;
             return groupMatch && connectionMatchesQuery(host, connectionsState[host], query);
         });
     }, [connectionsState, query, activeGroup]);
@@ -424,12 +424,12 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         const host = isNewConnection ? derivedHost : currentHost || derivedHost;
 
         if (host === "") {
-            modalsModel.pushModal("MessageModal", { children: "SSH Hostname is required before saving." });
+            modalsModel.pushModal("MessageModal", { children: "保存前需要填写 SSH 主机名。" });
             return null;
         }
         if (isNewConnection && connectionsState[host] && !connectionsState[host]?.["display:hidden"]) {
             modalsModel.pushModal("MessageModal", {
-                children: `Connection "${host}" already exists. Change SSH Hostname before saving the copy.`,
+                children: `连接 "${host}" 已存在。保存副本前请先修改 SSH 主机名。`,
             });
             return null;
         }
@@ -482,7 +482,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 { timeout: 60000 }
             );
         } catch (e) {
-            showConnectionFailureModal("Connect failed", e, host);
+            showConnectionFailureModal("连接失败", e, host);
         }
     }
 
@@ -500,12 +500,12 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
             hasStoredPassword: false,
         });
         modalsModel.pushModal("MessageModal", {
-            children: "Connection copied to a new draft. Modify SSH Hostname if needed, then click Save.",
+            children: "连接已复制到新草稿。如需要请修改 SSH 主机名，然后点击保存。",
         });
     }
 
     async function handleSoftDelete(host: string) {
-        if (!window.confirm(`Hide connection "${host}" from the list?`)) {
+        if (!window.confirm(`是否将连接 "${host}" 从列表中隐藏？`)) {
             return;
         }
         try {
@@ -527,7 +527,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 setForm(makeBlankForm());
             }
         } catch (e) {
-            showConnectionFailureModal("Delete failed", e, host);
+            showConnectionFailureModal("删除失败", e, host);
         }
     }
 
@@ -535,7 +535,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         ContextMenuModel.getInstance().showContextMenu(
             [
                 {
-                    label: "Copy",
+                    label: "复制",
                     click: () => handleCopy(host),
                 },
                 {
@@ -548,7 +548,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                     type: "separator",
                 },
                 {
-                    label: "Delete",
+                    label: "删除",
                     click: () => {
                         void handleSoftDelete(host);
                     },
@@ -563,7 +563,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         try {
             await persistForm();
         } catch (e) {
-            showConnectionFailureModal("Save failed", e);
+            showConnectionFailureModal("保存失败", e);
         } finally {
             setSaving(false);
         }
@@ -587,7 +587,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 { timeout: 60000 }
             );
         } catch (e) {
-            showConnectionFailureModal("Connection test failed", e, attemptedHost);
+            showConnectionFailureModal("连接测试失败", e, attemptedHost);
         } finally {
             setTesting(false);
         }
@@ -623,7 +623,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 { timeout: 60000 }
             );
         } catch (e) {
-            showConnectionFailureModal("WSH setup failed", e, attemptedHost);
+            showConnectionFailureModal("WSH 设置失败", e, attemptedHost);
         } finally {
             setEnsuringWsh(false);
         }
@@ -650,7 +650,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 <div className="p-3 border-b border-border flex items-center gap-2">
                     <input
                         className="flex-1 rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                        placeholder="Search host / name / user / address"
+                        placeholder="搜索主机 / 名称 / 用户 / 地址"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                     />
@@ -673,19 +673,19 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                         }}
                     >
                         <i className="fa fa-plus mr-1" />
-                        New
+                        新建
                     </Button>
                 </div>
                 <div className="flex-1 overflow-auto p-2">
                     {filteredHosts.length === 0 ? (
-                        <div className="text-secondary text-sm px-2 py-3">No connections</div>
+                        <div className="text-secondary text-sm px-2 py-3">暂无连接</div>
                     ) : (
                         <div className="space-y-1">
                             <div className="flex items-center gap-2 text-[11px] text-secondary px-2 py-1">
-                                <div className="flex-1 min-w-0">Name / Address / Group</div>
-                                <div className="w-[96px] shrink-0 text-center">Status</div>
+                                <div className="flex-1 min-w-0">名称 / 地址 / 分组</div>
+                                <div className="w-[96px] shrink-0 text-center">状态</div>
                                 <div className="w-[88px] shrink-0 text-center">WSH</div>
-                                <div className="shrink-0 w-[96px] text-left">Actions</div>
+                                <div className="shrink-0 w-[96px] text-left">操作</div>
                             </div>
                             {filteredHosts.map((host) => {
                                 const meta = connectionsState[host];
@@ -712,25 +712,25 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
 
             <div className="flex-1 overflow-auto">
                 <div className="max-w-[820px] p-4">
-                    <div className="text-lg font-semibold mb-3">Connections Manager</div>
+                    <div className="text-lg font-semibold mb-3">连接管理</div>
                     <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-3 items-start">
-                        <div className="text-secondary text-sm">Display Name</div>
+                        <div className="text-secondary text-sm">显示名称</div>
                         <input
                             className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
                             value={form.displayName}
                             onChange={(e) => setForm((prev) => ({ ...prev, displayName: e.target.value }))}
-                            placeholder="Production Host"
+                            placeholder="生产环境主机"
                         />
 
-                        <div className="text-secondary text-sm">Group</div>
+                        <div className="text-secondary text-sm">分组</div>
                         <input
                             className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
                             value={form.group}
                             onChange={(e) => setForm((prev) => ({ ...prev, group: e.target.value }))}
-                            placeholder="Production / Staging / Lab"
+                            placeholder="生产 / 测试 / 实验"
                         />
 
-                        <div className="text-secondary text-sm">SSH User</div>
+                        <div className="text-secondary text-sm">SSH 用户</div>
                         <input
                             className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
                             value={form.user}
@@ -738,7 +738,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                             placeholder="root"
                         />
 
-                        <div className="text-secondary text-sm">SSH Hostname / Port</div>
+                        <div className="text-secondary text-sm">SSH 主机名 / 端口</div>
                         <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-3">
                             <input
                                 className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
@@ -754,20 +754,20 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                             />
                         </div>
 
-                        <div className="text-secondary text-sm">Auth</div>
+                        <div className="text-secondary text-sm">认证方式</div>
                         <div className="flex flex-wrap gap-2">
                             <AuthToggle
-                                label="Password"
+                                label="密码"
                                 active={form.passwordAuth}
                                 onClick={() => setForm((prev) => ({ ...prev, passwordAuth: !prev.passwordAuth }))}
                             />
                             <AuthToggle
-                                label="Public Key"
+                                label="公钥"
                                 active={form.pubkeyAuth}
                                 onClick={() => setForm((prev) => ({ ...prev, pubkeyAuth: !prev.pubkeyAuth }))}
                             />
                             <AuthToggle
-                                label="Keyboard Interactive"
+                                label="键盘交互"
                                 active={form.keyboardInteractiveAuth}
                                 onClick={() =>
                                     setForm((prev) => ({
@@ -780,7 +780,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
 
                         {form.passwordAuth && (
                             <>
-                                <div className="text-secondary text-sm pt-2">Password</div>
+                                <div className="text-secondary text-sm pt-2">密码</div>
                                 <div>
                                     <input
                                         type="password"
@@ -789,48 +789,48 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                                         onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
                                         placeholder={
                                             form.hasStoredPassword
-                                                ? "Leave blank to keep the saved password"
-                                                : "Stored securely in Wave's secret store"
+                                                ? "留空以保留已保存的密码"
+                                                : "安全存储在 Wave 的密钥库中"
                                         }
                                     />
                                     {form.hasStoredPassword && form.password === "" && (
                                         <div className="mt-1 text-[11px] text-secondary">
-                                            A password is already stored for this connection.
+                                            已为此连接存储了密码。
                                         </div>
                                     )}
                                 </div>
                             </>
                         )}
 
-                        <div className="text-secondary text-sm pt-2">Remark</div>
+                        <div className="text-secondary text-sm pt-2">备注</div>
                         <textarea
                             className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none min-h-[88px]"
                             value={form.remark}
                             onChange={(e) => setForm((prev) => ({ ...prev, remark: e.target.value }))}
-                            placeholder="Host purpose, ownership, notes..."
+                            placeholder="主机用途、所有者、备注..."
                         />
                     </div>
 
                     <div className="mt-5 flex gap-2">
                         <Button className="!px-3" onClick={handleTestConnection} disabled={testing}>
-                            {testing ? "Testing..." : "Test Connection"}
+                            {testing ? "测试中..." : "测试连接"}
                         </Button>
                         <Button className="green !px-4" onClick={handleSave} disabled={saving}>
-                            {saving ? "Saving..." : "Save"}
+                            {saving ? "保存中..." : "保存"}
                         </Button>
                         <Button className="!px-3" onClick={handleEnsureWsh} disabled={ensuringWsh}>
-                            {ensuringWsh ? "Setting up WSH..." : getEnsureWshButtonLabel(selectedConnStatus)}
+                            {ensuringWsh ? "设置 WSH 中..." : getEnsureWshButtonLabel(selectedConnStatus)}
                         </Button>
                         <Button
                             className="!px-3"
                             onClick={() =>
                                 modalsModel.pushModal("MessageModal", {
                                     children:
-                                        "Tip: Passwords are saved to Wave's secret store. You can still use 'Edit Connections' for raw JSON editing.",
+                                        "提示：密码已保存到 Wave 的密钥库中。您仍可以使用「编辑连接」进行原始 JSON 编辑。",
                                 })
                             }
                         >
-                            Help
+                            帮助
                         </Button>
                     </div>
                 </div>

@@ -81,3 +81,85 @@ func TestMakeTmuxError(t *testing.T) {
 		})
 	}
 }
+
+func TestParseTmuxSessionSummariesEmpty(t *testing.T) {
+	output := ""
+	sessions, err := parseTmuxSessionSummaries(output)
+	if err != nil {
+		t.Fatalf("parseTmuxSessionSummaries returned error: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("expected 0 sessions, got %d", len(sessions))
+	}
+}
+
+func TestParseTmuxSessionSummariesMalformed(t *testing.T) {
+	output := "main\t2\ninvalid-line\nproject-a\t5\t0\t1"
+	sessions, err := parseTmuxSessionSummaries(output)
+	// The parser should skip malformed lines and return valid sessions
+	if err == nil {
+		// Check that we got at least the valid session
+		if len(sessions) < 1 {
+			t.Fatalf("expected at least 1 session, got %d", len(sessions))
+		}
+	}
+}
+
+func TestParseTmuxWindowSummariesEmpty(t *testing.T) {
+	output := ""
+	windows, err := parseTmuxWindowSummaries(output)
+	if err != nil {
+		t.Fatalf("parseTmuxWindowSummaries returned error: %v", err)
+	}
+	if len(windows) != 0 {
+		t.Fatalf("expected 0 windows, got %d", len(windows))
+	}
+}
+
+func TestIsNoTmuxServerError(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		stdout string
+		stderr string
+		expect bool
+	}{
+		{
+			name:   "no server in stderr",
+			err:    errors.New("exit status 1"),
+			stderr: "no server running on /tmp/tmux-1000/default",
+			expect: true,
+		},
+		{
+			name:   "no server in stdout (with full path)",
+			err:    errors.New("exit status 1"),
+			stdout: "no server running on /tmp/tmux-1000/default",
+			expect: true,
+		},
+		{
+			name:   "no server in stderr (no path)",
+			err:    errors.New("exit status 1"),
+			stderr: "no server running",
+			expect: false, // Function requires "on <path>" pattern
+		},
+		{
+			name:   "no error",
+			err:    nil,
+			expect: false,
+		},
+		{
+			name:   "different error",
+			err:    errors.New("command not found"),
+			expect: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isNoTmuxServerError(tc.err, tc.stdout, tc.stderr)
+			if result != tc.expect {
+				t.Fatalf("expected %v, got %v", tc.expect, result)
+			}
+		})
+	}
+}

@@ -113,9 +113,9 @@ test("shouldReinstallWsh only returns true for connected nowsh connections", () 
 });
 
 test("getEnsureWshButtonLabel matches connection state", () => {
-    assert.equal(getEnsureWshButtonLabel({ status: "connected", wshenabled: false } as ConnStatus), "Install WSH");
-    assert.equal(getEnsureWshButtonLabel({ status: "connected", wshenabled: true } as ConnStatus), "Ensure WSH");
-    assert.equal(getEnsureWshButtonLabel(null), "Ensure WSH");
+    assert.equal(getEnsureWshButtonLabel({ status: "connected", wshenabled: false } as ConnStatus), "安装 WSH");
+    assert.equal(getEnsureWshButtonLabel({ status: "connected", wshenabled: true } as ConnStatus), "确保 WSH");
+    assert.equal(getEnsureWshButtonLabel(null), "确保 WSH");
 });
 
 test("getWshBadgeInfo reports ready state with version", () => {
@@ -124,7 +124,7 @@ test("getWshBadgeInfo reports ready state with version", () => {
         wshenabled: true,
         wshversion: "wsh v0.14.1",
     } as ConnStatus);
-    assert.equal(badge.label, "Ready");
+    assert.equal(badge.label, "就绪");
     assert.match(badge.title, /0\.14\.1/);
 });
 
@@ -134,12 +134,12 @@ test("getWshBadgeInfo reports disabled and missing states", () => {
         wshenabled: false,
         nowshreason: "conn:wshenabled set to false",
     } as ConnStatus);
-    assert.equal(disabled.label, "Disabled");
+    assert.equal(disabled.label, "已禁用");
 
     const missing = getWshBadgeInfo({
         status: "connected",
         wshenabled: false,
         wsherror: "error installing wsh/connserver",
     } as ConnStatus);
-    assert.equal(missing.label, "Missing");
+    assert.equal(missing.label, "缺失");
 });

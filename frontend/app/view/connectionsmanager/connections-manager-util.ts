@@ -137,7 +137,7 @@ export function shouldReinstallWsh(connStatus: ConnStatus | null | undefined): b
 }
 
 export function getEnsureWshButtonLabel(connStatus: ConnStatus | null | undefined): string {
-    return shouldReinstallWsh(connStatus) ? "Install WSH" : "Ensure WSH";
+    return shouldReinstallWsh(connStatus) ? "安装 WSH" : "确保 WSH";
 }
 
 export type WshBadgeInfo = {
@@ -151,28 +151,28 @@ export function getWshBadgeInfo(connStatus: ConnStatus | null | undefined): WshB
         return {
             label: "-",
             className: "text-gray-300 border-gray-600",
-            title: "WSH status unavailable until the connection is active",
+            title: "连接激活前 WSH 状态不可用",
         };
     }
     if (connStatus.status === "connecting") {
         return {
             label: "...",
             className: "text-yellow-300 border-yellow-600",
-            title: "Checking WSH while the connection is being established",
+            title: "正在建立连接时检查 WSH",
         };
     }
     if (connStatus.wshenabled) {
         const versionText = connStatus.wshversion ? ` (${connStatus.wshversion})` : "";
         return {
-            label: "Ready",
+            label: "就绪",
             className: "text-green-400 border-green-600",
-            title: `WSH is available${versionText}`,
+            title: `WSH 可用${versionText}`,
         };
     }
-    const detail = connStatus.wsherror || connStatus.nowshreason || "WSH is not available on this connection";
+    const detail = connStatus.wsherror || connStatus.nowshreason || "此连接上 WSH 不可用";
     const isDisabled = detail.includes("conn:wshenabled set to false");
     return {
-        label: isDisabled ? "Disabled" : "Missing",
+        label: isDisabled ? "已禁用" : "缺失",
         className: isDisabled ? "text-yellow-300 border-yellow-600" : "text-red-400 border-red-600",
         title: detail,
     };
