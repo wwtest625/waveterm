@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
@@ -85,6 +86,28 @@ func (impl *WshRouterControlImpl) SetPeerInfoCommand(ctx context.Context, peerIn
 		return nil
 	}
 	return fmt.Errorf("setpeerinfo only valid for proxy connections")
+}
+
+func (impl *WshRouterControlImpl) AgentAuthenticateCommand(ctx context.Context) (wshrpc.CommandAuthenticateRtnData, error) {
+	handler := GetRpcResponseHandlerFromContext(ctx)
+	if handler == nil {
+		return wshrpc.CommandAuthenticateRtnData{}, fmt.Errorf("no response handler in context")
+	}
+	linkId := handler.GetIngressLinkId()
+	if linkId == baseds.NoLinkId {
+		return wshrpc.CommandAuthenticateRtnData{}, fmt.Errorf("no ingress link found")
+	}
+	routeId := fmt.Sprintf("wsh-agent:%s", uuid.New().String())
+	rpcCtx := &wshrpc.RpcContext{RouteId: routeId}
+	log.Printf("wshrouter agent-authenticate success linkid=%d routeid=%q", linkId, routeId)
+	impl.Router.trustLink(linkId, LinkKind_Leaf)
+	if err := impl.Router.bindRoute(linkId, routeId, true); err != nil {
+		return wshrpc.CommandAuthenticateRtnData{}, err
+	}
+	return wshrpc.CommandAuthenticateRtnData{
+		RouteId:    routeId,
+		RpcContext: rpcCtx,
+	}, nil
 }
 
 func (impl *WshRouterControlImpl) AuthenticateCommand(ctx context.Context, data string) (wshrpc.CommandAuthenticateRtnData, error) {

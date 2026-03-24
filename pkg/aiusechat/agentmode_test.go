@@ -35,6 +35,12 @@ func TestAgentMode_PlanningBlocksWriteActions(t *testing.T) {
 	if err := validateToolForAgentMode(AgentModePlanning, "term_command_output"); err != nil {
 		t.Fatalf("expected planning mode to allow term_command_output, got %v", err)
 	}
+	if err := validateToolForAgentMode(AgentModePlanning, "wave_get_command_result"); err != nil {
+		t.Fatalf("expected planning mode to allow wave_get_command_result, got %v", err)
+	}
+	if err := validateToolForAgentMode(AgentModePlanning, "wave_run_command"); err == nil {
+		t.Fatalf("expected planning mode to block wave_run_command")
+	}
 	if err := validateToolForAgentMode(AgentModePlanning, "web_navigate"); err == nil {
 		t.Fatalf("expected planning mode to block web_navigate")
 	}
@@ -49,6 +55,10 @@ func TestAgentMode_DefaultAndAutoApprovePolicies(t *testing.T) {
 	autoApproval := applyAgentModeApprovalPolicy(AgentModeAutoApprove, "write_text_file", uctypes.ApprovalNeedsApproval)
 	if autoApproval != uctypes.ApprovalAutoApproved {
 		t.Fatalf("expected auto-approve mode to auto approve write_text_file, got %q", autoApproval)
+	}
+	autoRunApproval := applyAgentModeApprovalPolicy(AgentModeAutoApprove, "wave_run_command", uctypes.ApprovalNeedsApproval)
+	if autoRunApproval != uctypes.ApprovalAutoApproved {
+		t.Fatalf("expected auto-approve mode to auto approve wave_run_command, got %q", autoRunApproval)
 	}
 
 	highRiskApproval := applyAgentModeApprovalPolicy(AgentModeAutoApprove, "term_inject_command", uctypes.ApprovalNeedsApproval)

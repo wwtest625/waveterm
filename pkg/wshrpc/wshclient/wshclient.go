@@ -6,20 +6,44 @@
 package wshclient
 
 import (
-	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
-	"github.com/wavetermdev/waveterm/pkg/wshutil"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wconfig"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wps"
-	"github.com/wavetermdev/waveterm/pkg/vdom"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
+	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
+	"github.com/wavetermdev/waveterm/pkg/vdom"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
+	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
 // command "activity", wshserver.ActivityCommand
 func ActivityCommand(w *wshutil.WshRpc, data wshrpc.ActivityUpdate, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "activity", data, opts)
 	return err
+}
+
+// command "agentauthenticate", wshserver.AgentAuthenticateCommand
+func AgentAuthenticateCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wshrpc.CommandAuthenticateRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.CommandAuthenticateRtnData](w, "agentauthenticate", nil, opts)
+	return resp, err
+}
+
+// command "agentgetcommandresult", wshserver.AgentGetCommandResultCommand
+func AgentGetCommandResultCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentGetCommandResultData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentGetCommandResultRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentGetCommandResultRtnData](w, "agentgetcommandresult", data, opts)
+	return resp, err
+}
+
+// command "agenttermscrollback", wshserver.AgentTermScrollbackCommand
+func AgentTermScrollbackCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentTermScrollbackData, opts *wshrpc.RpcOpts) (*wshrpc.CommandTermGetScrollbackLinesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandTermGetScrollbackLinesRtnData](w, "agenttermscrollback", data, opts)
+	return resp, err
+}
+
+// command "agentruncommand", wshserver.AgentRunCommandCommand
+func AgentRunCommandCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentRunCommandData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentRunCommandRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentRunCommandRtnData](w, "agentruncommand", data, opts)
+	return resp, err
 }
 
 // command "aisendmessage", wshserver.AiSendMessageCommand
@@ -1091,5 +1115,3 @@ func WslStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.ConnSta
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.ConnStatus](w, "wslstatus", nil, opts)
 	return resp, err
 }
-
-

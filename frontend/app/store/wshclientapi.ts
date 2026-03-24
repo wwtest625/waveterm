@@ -12,6 +12,16 @@ class RpcApiType {
         return client.wshRpcCall("activity", data, opts);
     }
 
+    // command "agentgetcommandresult" [call]
+    AgentGetCommandResultCommand(client: WshClient, data: CommandAgentGetCommandResultData, opts?: RpcOpts): Promise<CommandAgentGetCommandResultRtnData> {
+        return client.wshRpcCall("agentgetcommandresult", data, opts);
+    }
+
+    // command "agentruncommand" [call]
+    AgentRunCommandCommand(client: WshClient, data: CommandAgentRunCommandData, opts?: RpcOpts): Promise<CommandAgentRunCommandRtnData> {
+        return client.wshRpcCall("agentruncommand", data, opts);
+    }
+
     // command "aisendmessage" [call]
     AiSendMessageCommand(client: WshClient, data: AiMessageData, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("aisendmessage", data, opts);

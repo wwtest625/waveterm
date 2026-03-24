@@ -5,16 +5,19 @@ package cmd
 
 import (
 	"fmt"
-	"io"
-	"os"
-	"runtime/debug"
-
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"strings"
 )
 
 var (
@@ -91,6 +94,99 @@ func preRunSetupRpcClient(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return nil
+}
+
+func preRunSetupAgentRpcClient(cmd *cobra.Command, args []string) error {
+	var errs []string
+	for _, sockName := range resolveAgentSocketCandidates() {
+		var err error
+		RpcClient, err = wshutil.SetupDomainSocketRpcClient(sockName, nil, "wsh-agent")
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", sockName, err))
+			continue
+		}
+		authRtn, err := wshclient.AgentAuthenticateCommand(RpcClient, &wshrpc.RpcOpts{Route: wshutil.ControlRoute})
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", sockName, err))
+			RpcClient = nil
+			continue
+		}
+		if authRtn.RpcContext != nil {
+			RpcContext = *authRtn.RpcContext
+		} else {
+			RpcContext = wshrpc.RpcContext{RouteId: authRtn.RouteId}
+		}
+		RpcContext.SockName = sockName
+		return nil
+	}
+	return fmt.Errorf("error setting up agent rpc client: %s", strings.Join(errs, "; "))
+}
+
+func resolveAgentSocketName() string {
+	candidates := resolveAgentSocketCandidates()
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return ""
+}
+
+func resolveAgentWaveDataHome() string {
+	if dataHome := strings.TrimSpace(wavebase.GetWaveDataDir()); dataHome != "" {
+		return dataHome
+	}
+	if dataHome := strings.TrimSpace(os.Getenv(wavebase.WaveDataHomeEnvVar)); dataHome != "" {
+		return dataHome
+	}
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		if strings.EqualFold(filepath.Base(exeDir), wavebase.AppPathBinDir) {
+			parent := filepath.Dir(exeDir)
+			if strings.EqualFold(filepath.Base(parent), "Data") {
+				return parent
+			}
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); localAppData != "" {
+			return filepath.Join(localAppData, "waveterm", "Data")
+		}
+		return ""
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(homeDir, wavebase.RemoteWaveHomeDirName)
+}
+
+func resolveAgentSocketCandidates() []string {
+	var candidates []string
+	add := func(sockName string) {
+		sockName = strings.TrimSpace(sockName)
+		if sockName == "" {
+			return
+		}
+		sockName = wavebase.ExpandHomeDirSafe(sockName)
+		if !filepath.IsAbs(sockName) {
+			return
+		}
+		for _, existing := range candidates {
+			if strings.EqualFold(existing, sockName) {
+				return
+			}
+		}
+		candidates = append(candidates, sockName)
+	}
+	if dataHome := resolveAgentWaveDataHome(); dataHome != "" {
+		add(filepath.Join(dataHome, wavebase.DomainSocketBaseName))
+	}
+	if runtime.GOOS == "windows" {
+		if localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); localAppData != "" {
+			add(filepath.Join(localAppData, "waveterm-dev", "Data", wavebase.DomainSocketBaseName))
+			add(filepath.Join(localAppData, "waveterm", "Data", wavebase.DomainSocketBaseName))
+		}
+	}
+	return candidates
 }
 
 func getIsTty() bool {

@@ -79,7 +79,7 @@ func isReadOnlyAgentTool(toolName string) bool {
 		return true
 	}
 	switch toolName {
-	case "read_text_file", "read_dir", "capture_screenshot", "term_get_scrollback", "term_command_output", "builder_list_files":
+	case "read_text_file", "read_dir", "capture_screenshot", "term_get_scrollback", "term_command_output", "builder_list_files", "wave_get_command_result":
 		return true
 	default:
 		return false
@@ -88,7 +88,7 @@ func isReadOnlyAgentTool(toolName string) bool {
 
 func isMediumRiskAgentTool(toolName string) bool {
 	switch toolName {
-	case "write_text_file", "edit_text_file":
+	case "write_text_file", "edit_text_file", "wave_run_command":
 		return true
 	default:
 		return false

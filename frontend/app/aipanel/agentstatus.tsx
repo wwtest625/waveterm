@@ -59,9 +59,11 @@ function getToolUsePhase(toolName: string | undefined): Pick<AgentRuntimeStatusS
     switch (toolName) {
         case "term_get_scrollback":
         case "term_command_output":
+        case "wave_get_command_result":
             return { phase: "reading-terminal", phaseLabel: "Reading Terminal" };
         case "codex_command_execution":
         case "codex_dynamic_tool":
+        case "wave_run_command":
             return { phase: "executing-command", phaseLabel: "Executing Command" };
         default:
             return null;
@@ -77,6 +79,7 @@ function getToolProgressPhase(toolName: string | undefined, statusLine: string |
         case "codex_plan":
             return { phase: "thinking", phaseLabel: "Thinking" };
         case "codex_command_execution":
+        case "wave_run_command":
             return { phase: "executing-command", phaseLabel: "Executing Command", blockedReason: statusLine };
         case "codex_dynamic_tool":
             return { phase: "executing-command", phaseLabel: "Running Tool", blockedReason: statusLine };
@@ -84,6 +87,7 @@ function getToolProgressPhase(toolName: string | undefined, statusLine: string |
             return { phase: "executing-command", phaseLabel: "Applying Changes", blockedReason: statusLine };
         case "term_get_scrollback":
         case "term_command_output":
+        case "wave_get_command_result":
             return { phase: "reading-terminal", phaseLabel: "Reading Terminal", blockedReason: statusLine };
         case "codex_waiting_approval":
             return { phase: "waiting-approval", phaseLabel: "Waiting Approval", blockedReason: statusLine || "Waiting for tool approval" };
@@ -101,8 +105,10 @@ function isObservedTerminalToolName(toolName: unknown): boolean {
     return (
         toolName === "codex_wave_terminal_context_ok" ||
         toolName === "codex_command_execution" ||
+        toolName === "wave_run_command" ||
         toolName === "term_get_scrollback" ||
-        toolName === "term_command_output"
+        toolName === "term_command_output" ||
+        toolName === "wave_get_command_result"
     );
 }
 

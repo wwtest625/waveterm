@@ -676,6 +676,7 @@ func handleCodexAppServerNotification(ctx context.Context, client *codexAppServe
 }
 
 type codexAppServerSessionSpec struct {
+	Req                       *PostMessageRequest
 	ChatID                    string
 	CmdName                   string
 	Args                      []string
@@ -943,6 +944,7 @@ func buildCodexAppServerSessionSpec(req *PostMessageRequest) (codexAppServerSess
 		reasoningEffort,
 	)
 	return codexAppServerSessionSpec{
+		Req:                       req,
 		ChatID:                    chatID,
 		CmdName:                   cmdName,
 		Args:                      args,
@@ -972,17 +974,21 @@ func buildTerminalQuerySettingsInstructions(blockId string) string {
 Current terminal block ID: {{.BlockID}}
 
 ## Available Tools
-Use command execution to run real terminal commands. Prefer wsh commands for Wave-aware operations.
+Use command execution to run real terminal commands. Prefer Wave RPC execution for terminal/system queries, and use wsh commands when you specifically need Wave-aware metadata or file operations.
 
 ### Core Commands
-- Read latest terminal output: wsh termscrollback -b {{.BlockID}} --lastcommand
-- Get block metadata: wsh getmeta -b {{.BlockID}}
-- Read file (local/remote): wsh file cat <path-or-uri>
-- Write file from stdin: echo "content" | wsh file write <path-or-uri>
-- Send to AI analysis: echo "content" | wsh ai -s -m "analyze this"
-- Persistent variables: wsh setvar KEY=VALUE / wsh getvar KEY
+- Prefer direct shell commands for diagnostics and system inspection: lscpu, uname, ps, cat, top, df, free, lsblk, etc.
+- For terminal/system queries, execute the real command first and base your answer on the actual output.
+- Use this local Windows binary for Wave commands: ` + preferredWaveWSHPath + `
+- Never run bare wsh inside the remote shell. Run ` + preferredWaveWSHPath + ` from the local Windows side.
+- Read latest terminal output: ` + preferredWaveWSHPath + ` agent termscrollback -b {{.BlockID}} --lastcommand
+- Get block metadata: ` + preferredWaveWSHPath + ` agent getmeta -b {{.BlockID}}
+- Read file (local/remote): ` + preferredWaveWSHPath + ` file cat <path-or-uri>
+- Write file from stdin: echo "content" | ` + preferredWaveWSHPath + ` file write <path-or-uri>
+- Send to AI analysis: echo "content" | ` + preferredWaveWSHPath + ` ai -s -m "analyze this"
+- Persistent variables: ` + preferredWaveWSHPath + ` setvar KEY=VALUE / ` + preferredWaveWSHPath + ` getvar KEY
 - Run direct shell commands for diagnostics: lscpu, uname, ps, cat, top, etc.
-- Create a new command block only when needed: wsh run -- <command>
+- Create a new command block only when needed: ` + preferredWaveWSHPath + ` run -- <command>
 
 ### Current Block
 Use "-b {{.BlockID}}" where supported.
@@ -990,10 +996,12 @@ For ordinary shell commands, execute directly in the current terminal session.
 
 ### Constraints
 - File operations: max 10MB per operation
-- wsh only works inside Wave Terminal
+- Wave commands should go through ` + preferredWaveWSHPath + `
 - Permissions handled automatically by Wave
 
 ### Important
+- For terminal/system information requests, prefer real command execution over scrollback reads.
+- Use scrollback mainly to inspect prior output or recover context, not as the primary substitute for command execution.
 - Prefer wsh + real command output over invented tools
 - Do NOT rely on legacy tool names; execute real commands instead
 - Do NOT run direct ssh/scp from the local host for terminal-query tasks
@@ -1138,6 +1146,17 @@ func codexStartOrResumeThread(ctx context.Context, client *codexAppServerClient,
 
 func newCodexAppServerSession(ctx context.Context, _ *PostMessageRequest, spec codexAppServerSessionSpec, resumeThreadID string) (codexAppServerSessionRunner, error) {
 	cmd := exec.Command(spec.CmdName, spec.Args...)
+	cmd.Env = withLocalAgentPathEnv(os.Environ())
+	jwtEnv, jwtErr := makeLocalAgentJWTEnv(spec.Req)
+	if jwtErr != nil {
+		return nil, jwtErr
+	}
+	for _, entry := range jwtEnv {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) == 2 {
+			cmd.Env = withEnvVar(cmd.Env, parts[0], parts[1])
+		}
+	}
 	if strings.TrimSpace(spec.WorkingDir) != "" {
 		cmd.Dir = spec.WorkingDir
 	}

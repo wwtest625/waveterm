@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"maps"
+
 	"github.com/skratchdot/open-golang/open"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
@@ -27,6 +29,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
 	"github.com/wavetermdev/waveterm/pkg/buildercontroller"
+	"github.com/wavetermdev/waveterm/pkg/service/blockservice"
 	"github.com/wavetermdev/waveterm/pkg/filebackup"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/genconn"
@@ -1554,6 +1557,149 @@ func (ws *WshServer) JobControllerStartJobCommand(ctx context.Context, data wshr
 		TermSize: data.TermSize,
 	}
 	return jobcontroller.StartJob(ctx, params)
+}
+
+func (ws *WshServer) AgentRunCommandCommand(ctx context.Context, data wshrpc.CommandAgentRunCommandData) (*wshrpc.CommandAgentRunCommandRtnData, error) {
+	if strings.TrimSpace(data.ConnName) == "" {
+		return nil, fmt.Errorf("connection name is required")
+	}
+	if strings.TrimSpace(data.Cmd) == "" {
+		return nil, fmt.Errorf("command is required")
+	}
+	env := maps.Clone(data.Env)
+	if cwd := strings.TrimSpace(data.Cwd); cwd != "" {
+		if env == nil {
+			env = make(map[string]string)
+		}
+		env["WAVE_JANUS_CWD"] = cwd
+	}
+	jobId, err := jobcontroller.StartJob(ctx, jobcontroller.StartJobParams{
+		ConnName: data.ConnName,
+		JobKind:  jobcontroller.JobKind_Shell,
+		Cmd:      data.Cmd,
+		Args:     data.Args,
+		Env:      env,
+		TermSize: &waveobj.TermSize{Rows: 24, Cols: 80},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandAgentRunCommandRtnData{JobId: jobId}, nil
+}
+
+func (ws *WshServer) AgentGetCommandResultCommand(ctx context.Context, data wshrpc.CommandAgentGetCommandResultData) (*wshrpc.CommandAgentGetCommandResultRtnData, error) {
+	if strings.TrimSpace(data.JobId) == "" {
+		return nil, fmt.Errorf("jobid is required")
+	}
+	job, err := wstore.DBGet[*waveobj.Job](ctx, data.JobId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get job: %w", err)
+	}
+	if job == nil {
+		return nil, fmt.Errorf("job not found: %s", data.JobId)
+	}
+	result := &wshrpc.CommandAgentGetCommandResultRtnData{
+		JobId:      job.OID,
+		ExitCode:   job.CmdExitCode,
+		ExitSignal: job.CmdExitSignal,
+	}
+	switch job.JobManagerStatus {
+	case jobcontroller.JobManagerStatus_Init:
+		result.Status = "running"
+	case jobcontroller.JobManagerStatus_Running:
+		if job.CmdExitTs > 0 {
+			result.Status = "done"
+		} else {
+			result.Status = "running"
+		}
+	case jobcontroller.JobManagerStatus_Done:
+		if job.JobManagerStartupError != "" || job.CmdExitError != "" {
+			result.Status = "error"
+		} else {
+			result.Status = "done"
+		}
+	default:
+		result.Status = "running"
+	}
+	if job.JobManagerStartupError != "" {
+		result.Error = job.JobManagerStartupError
+	}
+	if result.Error == "" && job.CmdExitError != "" {
+		result.Error = job.CmdExitError
+	}
+	tailBytes := data.TailBytes
+	if tailBytes <= 0 {
+		tailBytes = 32768
+	}
+	waveFile, statErr := filestore.WFS.Stat(ctx, data.JobId, jobcontroller.JobOutputFileName)
+	if statErr == nil && waveFile != nil && waveFile.Size > 0 {
+		offset := waveFile.Size - tailBytes
+		if offset < 0 {
+			offset = 0
+		}
+		_, readData, readErr := filestore.WFS.ReadAt(ctx, data.JobId, jobcontroller.JobOutputFileName, offset, tailBytes)
+		if readErr == nil {
+			result.Output = string(readData)
+		}
+	}
+	return result, nil
+}
+
+func (ws *WshServer) AgentTermScrollbackCommand(ctx context.Context, data wshrpc.CommandAgentTermScrollbackData) (*wshrpc.CommandTermGetScrollbackLinesRtnData, error) {
+	if strings.TrimSpace(data.BlockId) == "" {
+		return nil, fmt.Errorf("blockid is required")
+	}
+	tabId, err := wstore.DBFindTabForBlockId(ctx, data.BlockId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find tab for block: %w", err)
+	}
+	if tabId == "" {
+		return nil, fmt.Errorf("no tab found for block %s", data.BlockId)
+	}
+	if data.LastCommand {
+		result, err := blockservice.BlockServiceInstance.GetTerminalCommandResult(ctx, blockservice.TerminalCommandResultRequest{
+			TabId:    tabId,
+			BlockId:  data.BlockId,
+			MaxLines: 1000,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &wshrpc.CommandTermGetScrollbackLinesRtnData{
+			TotalLines: len(result.Lines),
+			LineStart:  0,
+			Lines:      result.Lines,
+		}, nil
+	}
+	maxLines := data.LineEnd
+	if maxLines <= 0 {
+		maxLines = 200
+	}
+	result, err := blockservice.BlockServiceInstance.GetTerminalScrollback(ctx, blockservice.TerminalScrollbackRequest{
+		TabId:    tabId,
+		BlockId:  data.BlockId,
+		MaxLines: maxLines,
+		MaxBytes: 256 * 1024,
+	})
+	if err != nil {
+		return nil, err
+	}
+	lineStart := data.LineStart
+	if lineStart < 0 {
+		lineStart = 0
+	}
+	lineEnd := data.LineEnd
+	if lineEnd <= 0 || lineEnd > len(result.Lines) {
+		lineEnd = len(result.Lines)
+	}
+	if lineStart > lineEnd {
+		lineStart = lineEnd
+	}
+	return &wshrpc.CommandTermGetScrollbackLinesRtnData{
+		TotalLines: len(result.Lines),
+		LineStart:  lineStart,
+		Lines:      result.Lines[lineStart:lineEnd],
+	}, nil
 }
 
 func (ws *WshServer) JobControllerExitJobCommand(ctx context.Context, jobId string) error {

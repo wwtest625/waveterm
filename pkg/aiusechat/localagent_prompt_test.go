@@ -63,11 +63,14 @@ func TestLocalAgentPrompt_IncludesCommandExecutionGuidance(t *testing.T) {
 	if !strings.Contains(prompt, "Execute real terminal commands and use their actual output") {
 		t.Fatalf("expected prompt to require real command execution, got prompt:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "wsh termscrollback --lastcommand") {
+	if !strings.Contains(prompt, preferredWaveWSHPath+" agent termscrollback -b <blockid> --lastcommand") {
 		t.Fatalf("expected prompt to mention wsh termscrollback guidance, got prompt:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "wsh file write") {
+	if !strings.Contains(prompt, preferredWaveWSHPath+" file write") {
 		t.Fatalf("expected prompt to mention wsh file write guidance, got prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Run bare wsh inside the remote shell") {
+		t.Fatalf("expected prompt to forbid remote bare wsh usage, got prompt:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "tool-discovery detours") {
 		t.Fatalf("expected prompt to forbid tool-discovery detours, got prompt:\n%s", prompt)

@@ -197,6 +197,37 @@ declare global {
         newactivetabid?: string;
     };
 
+    // wshrpc.CommandAgentGetCommandResultData
+    type CommandAgentGetCommandResultData = {
+        jobid: string;
+        tailbytes?: number;
+        stdoutonly?: boolean;
+    };
+
+    // wshrpc.CommandAgentGetCommandResultRtnData
+    type CommandAgentGetCommandResultRtnData = {
+        jobid: string;
+        status: string;
+        output?: string;
+        exitcode?: number;
+        exitsignal?: string;
+        error?: string;
+    };
+
+    // wshrpc.CommandAgentRunCommandData
+    type CommandAgentRunCommandData = {
+        connname: string;
+        cwd?: string;
+        cmd: string;
+        args?: string[];
+        env?: {[key: string]: string};
+    };
+
+    // wshrpc.CommandAgentRunCommandRtnData
+    type CommandAgentRunCommandRtnData = {
+        jobid: string;
+    };
+
     // wshrpc.CommandAuthenticateJobManagerData
     type CommandAuthenticateJobManagerData = {
         jobid: string;

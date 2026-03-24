@@ -35,6 +35,7 @@ type MultiArg struct {
 
 type WshRpcInterface interface {
 	AuthenticateCommand(ctx context.Context, data string) (CommandAuthenticateRtnData, error)
+	AgentAuthenticateCommand(ctx context.Context) (CommandAuthenticateRtnData, error)
 	AuthenticateTokenCommand(ctx context.Context, data CommandAuthenticateTokenData) (CommandAuthenticateRtnData, error)
 	AuthenticateTokenVerifyCommand(ctx context.Context, data CommandAuthenticateTokenData) (CommandAuthenticateRtnData, error) // (special) validates token without binding, root router only
 	AuthenticateJobManagerCommand(ctx context.Context, data CommandAuthenticateJobManagerData) error
@@ -174,6 +175,9 @@ type WshRpcInterface interface {
 	// block focus
 	SetBlockFocusCommand(ctx context.Context, blockId string) error
 	GetFocusedBlockDataCommand(ctx context.Context) (*FocusedBlockData, error)
+	AgentRunCommandCommand(ctx context.Context, data CommandAgentRunCommandData) (*CommandAgentRunCommandRtnData, error)
+	AgentGetCommandResultCommand(ctx context.Context, data CommandAgentGetCommandResultData) (*CommandAgentGetCommandResultRtnData, error)
+	AgentTermScrollbackCommand(ctx context.Context, data CommandAgentTermScrollbackData) (*CommandTermGetScrollbackLinesRtnData, error)
 
 	// rtinfo
 	GetRTInfoCommand(ctx context.Context, data CommandGetRTInfoData) (*waveobj.ObjRTInfo, error)
@@ -1046,4 +1050,38 @@ type FocusedBlockData struct {
 	ConnStatus                 *ConnStatus         `json:"connstatus,omitempty"`
 	TermShellIntegrationStatus string              `json:"termshellintegrationstatus,omitempty"`
 	TermLastCommand            string              `json:"termlastcommand,omitempty"`
+}
+
+type CommandAgentRunCommandData struct {
+	ConnName string            `json:"connname"`
+	Cwd      string            `json:"cwd,omitempty"`
+	Cmd      string            `json:"cmd"`
+	Args     []string          `json:"args,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+}
+
+type CommandAgentRunCommandRtnData struct {
+	JobId string `json:"jobid"`
+}
+
+type CommandAgentGetCommandResultData struct {
+	JobId      string `json:"jobid"`
+	TailBytes  int64  `json:"tailbytes,omitempty"`
+	StdoutOnly bool   `json:"stdoutonly,omitempty"`
+}
+
+type CommandAgentGetCommandResultRtnData struct {
+	JobId      string `json:"jobid"`
+	Status     string `json:"status"`
+	Output     string `json:"output,omitempty"`
+	ExitCode   *int   `json:"exitcode,omitempty"`
+	ExitSignal string `json:"exitsignal,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type CommandAgentTermScrollbackData struct {
+	BlockId     string `json:"blockid"`
+	LineStart   int    `json:"linestart,omitempty"`
+	LineEnd     int    `json:"lineend,omitempty"`
+	LastCommand bool   `json:"lastcommand,omitempty"`
 }

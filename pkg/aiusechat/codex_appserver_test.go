@@ -110,10 +110,13 @@ func TestCodexUserAgentPrefersLegacyEnums(t *testing.T) {
 
 func TestBuildTerminalQuerySettingsInstructions_UsesPureWSHCommands(t *testing.T) {
 	instructions := buildTerminalQuerySettingsInstructions("block-123")
-	if !strings.Contains(instructions, "wsh termscrollback -b block-123 --lastcommand") {
+	if !strings.Contains(instructions, preferredWaveWSHPath+" agent termscrollback -b block-123 --lastcommand") {
 		t.Fatalf("expected termscrollback command guidance, got:\n%s", instructions)
 	}
-	if !strings.Contains(instructions, "echo \"content\" | wsh file write <path-or-uri>") {
+	if !strings.Contains(instructions, "Never run bare wsh inside the remote shell") {
+		t.Fatalf("expected local wsh path guidance, got:\n%s", instructions)
+	}
+	if !strings.Contains(instructions, "echo \"content\" | "+preferredWaveWSHPath+" file write <path-or-uri>") {
 		t.Fatalf("expected stdin-based wsh file write guidance, got:\n%s", instructions)
 	}
 	if strings.Contains(instructions, "wsh blocks scrollback") {

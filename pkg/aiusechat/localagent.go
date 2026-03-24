@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,7 +25,10 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/openaichat"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/web/sse"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
 const (
@@ -42,6 +47,7 @@ const (
 	localCodexAppServerBypassEnv  = "WAVETERM_LOCAL_AGENT_CODEX_APP_SERVER_BYPASS_APPROVALS_AND_SANDBOX"
 	localCodexAppServerEffortEnv  = "WAVETERM_LOCAL_AGENT_CODEX_APP_SERVER_REASONING_EFFORT"
 	localClaudeCmdEnvName         = "WAVETERM_LOCAL_AGENT_CLAUDE_CMD"
+	preferredWaveWSHPath          = `C:\Users\sys49169\.waveterm\wsh.exe`
 )
 
 type LocalAgentHealthResponse struct {
@@ -154,6 +160,101 @@ func toTOMLString(raw string) string {
 		return `""`
 	}
 	return string(quoted)
+}
+
+func getLocalAgentExtraPathEntries() []string {
+	var entries []string
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		if _, err := os.Stat(path); err != nil {
+			return
+		}
+		for _, existing := range entries {
+			if strings.EqualFold(existing, path) {
+				return
+			}
+		}
+		entries = append(entries, path)
+	}
+	add(wavebase.GetWaveAppPath())
+	add(wavebase.GetWaveAppBinPath())
+	if cwd, err := os.Getwd(); err == nil {
+		add(cwd)
+		add(filepath.Join(cwd, "dist", "bin"))
+	}
+	return entries
+}
+
+func withLocalAgentPathEnv(baseEnv []string) []string {
+	pathKey := "PATH"
+	if runtime.GOOS == "windows" {
+		pathKey = "Path"
+	}
+	extra := getLocalAgentExtraPathEntries()
+	if len(extra) == 0 {
+		return append([]string{}, baseEnv...)
+	}
+	env := append([]string{}, baseEnv...)
+	pathIdx := -1
+	pathVal := ""
+	for i, entry := range env {
+		lower := strings.ToLower(entry)
+		if strings.HasPrefix(lower, "path=") {
+			pathIdx = i
+			pathVal = entry[len(entry)-len(strings.TrimPrefix(lower, "path=")):]
+			pathVal = entry[len(entry)-len(pathVal):]
+			pathVal = strings.SplitN(entry, "=", 2)[1]
+			break
+		}
+	}
+	parts := append([]string{}, extra...)
+	if strings.TrimSpace(pathVal) != "" {
+		parts = append(parts, pathVal)
+	}
+	merged := strings.Join(parts, string(os.PathListSeparator))
+	if pathIdx >= 0 {
+		env[pathIdx] = pathKey + "=" + merged
+	} else {
+		env = append(env, pathKey+"="+merged)
+	}
+	return env
+}
+
+func withEnvVar(baseEnv []string, key string, value string) []string {
+	env := append([]string{}, baseEnv...)
+	if strings.TrimSpace(key) == "" {
+		return env
+	}
+	lowerKey := strings.ToLower(key)
+	for i, entry := range env {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) == 2 && strings.ToLower(parts[0]) == lowerKey {
+			env[i] = key + "=" + value
+			return env
+		}
+	}
+	return append(env, key+"="+value)
+}
+
+func makeLocalAgentJWTEnv(req *PostMessageRequest) ([]string, error) {
+	if req == nil || strings.TrimSpace(req.BlockId) == "" {
+		return nil, nil
+	}
+	rpcCtx := wshrpc.RpcContext{
+		RouteId:  wshutil.MakeFeBlockRouteId(req.BlockId),
+		SockName: wavebase.GetDomainSocketName(),
+		BlockId:  req.BlockId,
+	}
+	jwtToken, err := wshutil.MakeClientJWTToken(rpcCtx)
+	if err != nil {
+		return nil, fmt.Errorf("make local agent jwt: %w", err)
+	}
+	return []string{
+		wshutil.WaveJwtTokenVarName + "=" + jwtToken,
+	}, nil
 }
 
 func checkLocalAgentHealth(provider string) LocalAgentHealthResponse {
@@ -290,7 +391,7 @@ func buildLocalAgentPromptWithModeAndBudget(userText string, tabState string, hi
 		"CRITICAL TERMINAL QUERY RULES:\n" +
 		"When the user asks about system information (CPU, memory, disk, processes, network, files, etc.), you MUST:\n" +
 		"1. Execute real terminal commands and use their actual output in your answer\n" +
-		"2. Prefer Wave-aware wsh commands when helpful (wsh getmeta, wsh termscrollback, wsh file ...)\n" +
+		"2. Prefer Wave-aware wsh commands when helpful, and invoke " + preferredWaveWSHPath + " instead of bare wsh\n" +
 		"3. Use direct shell commands (lscpu, uname, ps, cat, etc.) when that is faster\n" +
 		"4. If one command fails, try a fallback command and report the real error briefly\n" +
 		"5. Format and present the result to the user\n" +
@@ -300,6 +401,7 @@ func buildLocalAgentPromptWithModeAndBudget(userText string, tabState string, hi
 		"- Invent non-existent tools or rely on tool-discovery detours\n" +
 		"- Claim \"host policy blocked\" or \"no terminal access\" without an actual command error\n" +
 		"- Use direct ssh/scp from the local host for terminal-query tasks\n" +
+		"- Run bare wsh inside the remote shell; use " + preferredWaveWSHPath + " from the local Windows side instead\n" +
 		"- Ask the user to run commands manually when command execution is available\n" +
 		"- Output shell code blocks as a substitute for executing commands\n" +
 		"- Dump internal debugging traces unless the user explicitly asked for debugging\n" +
@@ -309,8 +411,8 @@ func buildLocalAgentPromptWithModeAndBudget(userText string, tabState string, hi
 		"Assistant: [executes `lscpu | grep 'Model name' || sysctl -n machdep.cpu.brand_string`]\n" +
 		"CPU 型号: Intel Core i7-9700K\n" +
 		"\n" +
-		"Prefer `wsh termscrollback --lastcommand` when you need the latest terminal output.\n" +
-		"`wsh file write` expects content from stdin, e.g. `echo \"hello\" | wsh file write ./note.txt`.\n" +
+		"Prefer `" + preferredWaveWSHPath + " agent termscrollback -b <blockid> --lastcommand` when you need the latest terminal output.\n" +
+		"`" + preferredWaveWSHPath + " file write` expects content from stdin, e.g. `echo \"hello\" | " + preferredWaveWSHPath + " file write ./note.txt`.\n" +
 		"If command execution fails, summarize the failure in one short sentence instead of narrating internal debugging.\n" +
 		getModeAwareSystemPromptText(true, "", mode) + "\n"
 	tabBlock := ""
@@ -567,6 +669,17 @@ func runLocalAgentCommand(ctx context.Context, req *PostMessageRequest, provider
 
 	prompt = sanitizePromptForStdin(prompt)
 	cmd := exec.CommandContext(runCtx, cmdName, args...)
+	cmd.Env = withLocalAgentPathEnv(os.Environ())
+	jwtEnv, jwtErr := makeLocalAgentJWTEnv(req)
+	if jwtErr != nil {
+		return "", jwtErr
+	}
+	for _, entry := range jwtEnv {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) == 2 {
+			cmd.Env = withEnvVar(cmd.Env, parts[0], parts[1])
+		}
+	}
 	cmd.Stdin = strings.NewReader(prompt)
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -955,7 +1068,7 @@ func buildLocalAgentTerminalRetryPrompt(prompt string) string {
 		localAgentTerminalRetrySentinel + "\n" +
 		"Your previous response did NOT execute any terminal command.\n" +
 		"You MUST execute at least one real command and use its output.\n" +
-		"Prefer wsh commands in Wave (for example: wsh getmeta -b this, wsh termscrollback --lastcommand).\n" +
+		"Prefer Wave commands through " + preferredWaveWSHPath + " (for example: " + preferredWaveWSHPath + " agent getmeta -b <blockid>, " + preferredWaveWSHPath + " agent termscrollback -b <blockid> --lastcommand).\n" +
 		"Use direct shell commands when needed (for example: lscpu, uname, cat, ps).\n" +
 		"Do NOT run ssh/scp directly from the local host for this task.\n" +
 		"Do NOT spend turns probing tool registries or capability listings.\n" +
