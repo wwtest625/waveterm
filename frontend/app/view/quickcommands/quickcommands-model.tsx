@@ -3,6 +3,7 @@
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import type { TabModel } from "@/app/store/tab-model";
+import { getWidgetWidthMenuItems } from "@/app/workspace/widgetsettings";
 import { atom } from "jotai";
 import { QuickCommandsView } from "./quickcommands";
 
@@ -20,6 +21,17 @@ class QuickCommandsViewModel implements ViewModel {
         this.nodeModel = nodeModel;
         this.tabModel = tabModel;
         this.viewType = "quickcommands";
+    }
+
+    getSettingsMenuItems(): ContextMenuItem[] {
+        const widthSubMenu = getWidgetWidthMenuItems({
+            blockId: this.blockId,
+            tabModel: this.tabModel,
+        });
+        if (widthSubMenu.length === 0) {
+            return [];
+        }
+        return [{ label: "Width", submenu: widthSubMenu }];
     }
 
     get viewComponent(): ViewComponent {

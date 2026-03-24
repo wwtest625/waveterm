@@ -7,6 +7,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import type { TabModel } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { getWidgetWidthMenuItems } from "@/app/workspace/widgetsettings";
 import { WOS } from "@/store/global";
 import { sendCommandToFocusedTerminal } from "@/util/previewutil";
 import clsx from "clsx";
@@ -1018,6 +1019,17 @@ export class TmuxViewModel implements ViewModel {
         this.blockId = blockId;
         this.nodeModel = nodeModel;
         this.tabModel = tabModel;
+    }
+
+    getSettingsMenuItems(): ContextMenuItem[] {
+        const widthSubMenu = getWidgetWidthMenuItems({
+            blockId: this.blockId,
+            tabModel: this.tabModel,
+        });
+        if (widthSubMenu.length === 0) {
+            return [];
+        }
+        return [{ label: "Width", submenu: widthSubMenu }];
     }
 
     get viewComponent(): ViewComponent {
