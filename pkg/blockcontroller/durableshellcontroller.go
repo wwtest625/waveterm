@@ -7,11 +7,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io/fs"
 	"log"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
 	"github.com/wavetermdev/waveterm/pkg/remote"
 	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
@@ -142,6 +144,19 @@ func (dsc *DurableShellController) Start(ctx context.Context, blockMeta waveobj.
 
 	if conncontroller.IsLocalConnName(dsc.ConnName) {
 		return fmt.Errorf("durable shell controller requires a remote connection")
+	}
+
+	fileCtx, cancelFn := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelFn()
+	fsErr := filestore.WFS.MakeFile(
+		fileCtx,
+		dsc.BlockId,
+		wavebase.BlockFile_Term,
+		nil,
+		wshrpc.FileOpts{MaxSize: DefaultTermMaxFileSize, Circular: true},
+	)
+	if fsErr != nil && fsErr != fs.ErrExist {
+		return fmt.Errorf("error creating durable blockfile: %w", fsErr)
 	}
 
 	var jobId string

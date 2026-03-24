@@ -68,10 +68,7 @@ async function initBare() {
     getApi().onZoomFactorChange((zoomFactor) => {
         updateZoomFactor(zoomFactor);
     });
-    document.fonts.ready.then(() => {
-        console.log("Init Bare Done");
-        getApi().setWindowInitStatus("ready");
-    });
+    getApi().setWindowInitStatus("ready");
 }
 
 document.addEventListener("DOMContentLoaded", initBare);
