@@ -28,9 +28,18 @@ export function buildTmuxEnterSessionCommand(sessionName: string): string {
     return `tmux switch-client -t ${target} || tmux attach-session -t ${target}`;
 }
 
+export function buildTmuxPromptEnterSessionCommand(sessionName: string): string {
+    return `switch-client -t ${shellQuote([sessionName])}`;
+}
+
 export function buildTmuxEnterOrCreateSessionCommand(sessionName: string): string {
     const target = shellQuote([sessionName]);
     return `tmux new-session -Ad -s ${target}; ${buildTmuxEnterSessionCommand(sessionName)}`;
+}
+
+export function buildTmuxPromptEnterOrCreateSessionCommand(sessionName: string): string {
+    const target = shellQuote([sessionName]);
+    return `new-session -Ad -s ${target} ; ${buildTmuxPromptEnterSessionCommand(sessionName)}`;
 }
 
 export function buildTmuxCreateSessionCommand(sessionName: string): string {
@@ -55,6 +64,11 @@ export function buildTmuxEnterWindowCommand(sessionName: string, windowIndex: nu
     return `tmux select-window -t ${target}; ${buildTmuxEnterSessionCommand(sessionName)}`;
 }
 
+export function buildTmuxPromptEnterWindowCommand(sessionName: string, windowIndex: number): string {
+    const target = shellQuote([`${sessionName}:${windowIndex}`]);
+    return `select-window -t ${target} ; ${buildTmuxPromptEnterSessionCommand(sessionName)}`;
+}
+
 export function buildTmuxCreateWindowCommand(sessionName: string, windowName?: string): string {
     const trimmedName = trimNameInput(windowName);
     const sessionTarget = shellQuote([sessionName]);
@@ -74,6 +88,57 @@ export function buildTmuxRenameWindowCommand(sessionName: string, windowIndex: n
 export function buildTmuxKillWindowCommand(sessionName: string, windowIndex: number): string {
     const target = shellQuote([`${sessionName}:${windowIndex}`]);
     return `tmux kill-window -t ${target}`;
+}
+
+export function tmuxPrefixToBytes(prefix: string): Uint8Array | null {
+    const normalized = (prefix ?? "").trim();
+    if (normalized === "" || normalized.toLowerCase() === "none") {
+        return null;
+    }
+    const ctrlMatch = normalized.match(/^C-(.)$/i);
+    if (ctrlMatch) {
+        const key = ctrlMatch[1];
+        const upper = key.toUpperCase();
+        if (upper >= "A" && upper <= "Z") {
+            return new Uint8Array([upper.charCodeAt(0) - 64]);
+        }
+        switch (key) {
+            case "@":
+                return new Uint8Array([0x00]);
+            case "[":
+                return new Uint8Array([0x1b]);
+            case "\\":
+                return new Uint8Array([0x1c]);
+            case "]":
+                return new Uint8Array([0x1d]);
+            case "^":
+                return new Uint8Array([0x1e]);
+            case "_":
+                return new Uint8Array([0x1f]);
+            case "?":
+                return new Uint8Array([0x7f]);
+            default:
+                return null;
+        }
+    }
+    return null;
+}
+
+export function resolveTmuxPrefix(config?: TmuxGetConfigResponse | null): string | null {
+    const candidates = [config?.prefix, config?.prefix2];
+    for (const candidate of candidates) {
+        if (candidate == null || candidate.trim() === "") {
+            continue;
+        }
+        if (tmuxPrefixToBytes(candidate) != null) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+export function buildTmuxCommandPromptBytes(command: string): Uint8Array {
+    return new TextEncoder().encode(`:${command}\r`);
 }
 
 export function getTmuxErrorHeadline(error?: TmuxError | null): string {

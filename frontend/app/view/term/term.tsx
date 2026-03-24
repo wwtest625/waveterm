@@ -327,6 +327,14 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
             termWrap.handleResize_debounced();
         });
         rszObs.observe(connectElemRef.current);
+        // New split panes can mount before the layout has fully settled, especially
+        // in side-by-side splits. Kick a few follow-up resizes so xterm/controller
+        // both converge on the final pane size.
+        const resizeRecoveryTimers = [0, 120, 300].map((delay) =>
+            window.setTimeout(() => {
+                termWrap.handleResize();
+            }, delay)
+        );
         termWrap.onSearchResultsDidChange = (results) => {
             globalStore.set(searchProps.resultsIndex, results.resultIndex);
             globalStore.set(searchProps.resultsCount, results.resultCount);
@@ -339,6 +347,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         }
         return () => {
             model.attachToTermWrap(null);
+            resizeRecoveryTimers.forEach((timerId) => window.clearTimeout(timerId));
             termWrap.dispose();
             rszObs.disconnect();
             setTermWrapInst(null);

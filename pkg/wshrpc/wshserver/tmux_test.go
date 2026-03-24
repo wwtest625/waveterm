@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os/exec"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
 func TestParseTmuxSessionSummaries(t *testing.T) {
@@ -161,5 +163,104 @@ func TestIsNoTmuxServerError(t *testing.T) {
 				t.Fatalf("expected %v, got %v", tc.expect, result)
 			}
 		})
+	}
+}
+
+func TestBuildTmuxActionArgs(t *testing.T) {
+	tests := []struct {
+		name        string
+		req         wshrpc.TmuxActionRequest
+		wantArgs    []string
+		wantErrCode string
+	}{
+		{
+			name: "create session",
+			req: wshrpc.TmuxActionRequest{
+				Action:  "create_session",
+				Session: "main",
+			},
+			wantArgs: []string{"new-session", "-A", "-d", "-s", "main"},
+		},
+		{
+			name: "create named window",
+			req: wshrpc.TmuxActionRequest{
+				Action:     "create_window",
+				Session:    "main",
+				WindowName: "web",
+			},
+			wantArgs: []string{"new-window", "-t", "main", "-n", "web"},
+		},
+		{
+			name: "rename window",
+			req: wshrpc.TmuxActionRequest{
+				Action:      "rename_window",
+				Session:     "main",
+				WindowIndex: 2,
+				NewName:     "logs",
+			},
+			wantArgs: []string{"rename-window", "-t", "main:2", "logs"},
+		},
+		{
+			name: "kill window",
+			req: wshrpc.TmuxActionRequest{
+				Action:      "kill_window",
+				Session:     "main",
+				WindowIndex: 3,
+			},
+			wantArgs: []string{"kill-window", "-t", "main:3"},
+		},
+		{
+			name: "missing session",
+			req: wshrpc.TmuxActionRequest{
+				Action: "kill_session",
+			},
+			wantErrCode: "invalid_request",
+		},
+		{
+			name: "unsupported action",
+			req: wshrpc.TmuxActionRequest{
+				Action: "enter_session",
+			},
+			wantErrCode: "invalid_request",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args, tmuxErr := buildTmuxActionArgs(tc.req)
+			if tc.wantErrCode != "" {
+				if tmuxErr == nil {
+					t.Fatalf("expected error %q, got nil", tc.wantErrCode)
+				}
+				if tmuxErr.Code != tc.wantErrCode {
+					t.Fatalf("expected error code %q, got %q", tc.wantErrCode, tmuxErr.Code)
+				}
+				return
+			}
+			if tmuxErr != nil {
+				t.Fatalf("unexpected error: %+v", tmuxErr)
+			}
+			if len(args) != len(tc.wantArgs) {
+				t.Fatalf("expected %d args, got %d (%v)", len(tc.wantArgs), len(args), args)
+			}
+			for i := range args {
+				if args[i] != tc.wantArgs[i] {
+					t.Fatalf("arg %d: expected %q, got %q", i, tc.wantArgs[i], args[i])
+				}
+			}
+		})
+	}
+}
+
+func TestTmuxShowOptionArgs(t *testing.T) {
+	args := tmuxShowOptionArgs("prefix")
+	expected := []string{"show-options", "-gqv", "prefix"}
+	if len(args) != len(expected) {
+		t.Fatalf("expected %d args, got %d", len(expected), len(args))
+	}
+	for i := range args {
+		if args[i] != expected[i] {
+			t.Fatalf("arg %d: expected %q, got %q", i, expected[i], args[i])
+		}
 	}
 }

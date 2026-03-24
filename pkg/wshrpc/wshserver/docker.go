@@ -4,7 +4,6 @@
 package wshserver
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,12 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wavetermdev/waveterm/pkg/genconn"
-	"github.com/wavetermdev/waveterm/pkg/remote"
-	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
-	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wslconn"
 )
 
 const dockerFieldSep = "\t"
@@ -124,68 +118,7 @@ func dockerListImagesArgs() []string {
 }
 
 func runDockerCLI(ctx context.Context, connName string, args []string) (string, string, error) {
-	if conncontroller.IsLocalConnName(connName) {
-		return runLocalDockerCLI(ctx, args)
-	}
-	if conncontroller.IsWslConnName(connName) {
-		distroName := strings.TrimPrefix(connName, "wsl://")
-		if err := wslconn.EnsureConnection(ctx, distroName); err != nil {
-			return "", "", err
-		}
-		conn := wslconn.GetWslConn(distroName)
-		if conn == nil {
-			return "", "", fmt.Errorf("wsl connection not found: %s", connName)
-		}
-		client := conn.GetClient()
-		if client == nil {
-			return "", "", fmt.Errorf("wsl client unavailable: %s", connName)
-		}
-		return runShellDockerCLI(ctx, genconn.MakeWSLShellClient(client), args)
-	}
-
-	if err := conncontroller.EnsureConnection(ctx, connName); err != nil {
-		return "", "", err
-	}
-	connOpts, err := remote.ParseOpts(connName)
-	if err != nil {
-		return "", "", fmt.Errorf("invalid ssh connection %q: %w", connName, err)
-	}
-	conn := conncontroller.GetConn(connOpts)
-	if conn == nil {
-		return "", "", fmt.Errorf("ssh connection not found: %s", connName)
-	}
-	client := conn.GetClient()
-	if client == nil {
-		return "", "", fmt.Errorf("ssh client unavailable: %s", connName)
-	}
-	return runShellDockerCLI(ctx, genconn.MakeSSHShellClient(client), args)
-}
-
-func runLocalDockerCLI(ctx context.Context, args []string) (string, string, error) {
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	var stdoutBuf bytes.Buffer
-	var stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
-	err := cmd.Run()
-	return stdoutBuf.String(), stderrBuf.String(), err
-}
-
-func runShellDockerCLI(ctx context.Context, client genconn.ShellClient, args []string) (string, string, error) {
-	stdout, stderr, err := genconn.RunSimpleCommand(ctx, client, genconn.CommandSpec{
-		Cmd: buildDockerShellCommand(args),
-	})
-	return stdout, stderr, err
-}
-
-func buildDockerShellCommand(args []string) string {
-	var b strings.Builder
-	b.WriteString("docker")
-	for _, arg := range args {
-		b.WriteByte(' ')
-		b.WriteString(shellutil.HardQuote(arg))
-	}
-	return b.String()
+	return runCLI(ctx, connName, "docker", args)
 }
 
 func parseDockerContainerSummaries(output string) ([]wshrpc.DockerContainerSummary, error) {

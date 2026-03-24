@@ -4,7 +4,6 @@
 package wshserver
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,15 +11,25 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wavetermdev/waveterm/pkg/genconn"
-	"github.com/wavetermdev/waveterm/pkg/remote"
-	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
-	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wslconn"
 )
 
 const tmuxFieldSep = "\t"
+
+func (ws *WshServer) TmuxGetConfigCommand(ctx context.Context, data wshrpc.TmuxGetConfigRequest) (wshrpc.TmuxGetConfigResponse, error) {
+	prefix, errResp := readTmuxOption(ctx, data.Connection, "prefix")
+	if errResp != nil {
+		return wshrpc.TmuxGetConfigResponse{Error: errResp}, nil
+	}
+	prefix2, errResp := readTmuxOption(ctx, data.Connection, "prefix2")
+	if errResp != nil {
+		return wshrpc.TmuxGetConfigResponse{Error: errResp}, nil
+	}
+	return wshrpc.TmuxGetConfigResponse{
+		Prefix:  prefix,
+		Prefix2: prefix2,
+	}, nil
+}
 
 func (ws *WshServer) TmuxListSessionsCommand(ctx context.Context, data wshrpc.TmuxListSessionsRequest) (wshrpc.TmuxListSessionsResponse, error) {
 	stdout, stderr, err := runTmuxCLI(ctx, data.Connection, tmuxListSessionsArgs())
@@ -86,12 +95,83 @@ func (ws *WshServer) TmuxListWindowsCommand(ctx context.Context, data wshrpc.Tmu
 	return wshrpc.TmuxListWindowsResponse{Windows: windows}, nil
 }
 
+func (ws *WshServer) TmuxActionCommand(ctx context.Context, data wshrpc.TmuxActionRequest) (wshrpc.TmuxActionResponse, error) {
+	args, reqErr := buildTmuxActionArgs(data)
+	if reqErr != nil {
+		return wshrpc.TmuxActionResponse{Error: reqErr}, nil
+	}
+	stdout, stderr, err := runTmuxCLI(ctx, data.Connection, args)
+	if err != nil {
+		return wshrpc.TmuxActionResponse{Error: makeTmuxError(err, stdout, stderr)}, nil
+	}
+	return wshrpc.TmuxActionResponse{}, nil
+}
+
+func buildTmuxActionArgs(data wshrpc.TmuxActionRequest) ([]string, *wshrpc.TmuxError) {
+	switch data.Action {
+	case "create_session":
+		sessionName := strings.TrimSpace(data.Session)
+		if sessionName == "" {
+			return nil, invalidTmuxRequest("Session is required when creating a tmux session.")
+		}
+		return []string{"new-session", "-A", "-d", "-s", sessionName}, nil
+	case "create_window":
+		sessionName := strings.TrimSpace(data.Session)
+		if sessionName == "" {
+			return nil, invalidTmuxRequest("Session is required when creating a tmux window.")
+		}
+		windowName := strings.TrimSpace(data.WindowName)
+		if windowName == "" {
+			return []string{"new-window", "-t", sessionName}, nil
+		}
+		return []string{"new-window", "-t", sessionName, "-n", windowName}, nil
+	case "rename_session":
+		sessionName := strings.TrimSpace(data.Session)
+		newName := strings.TrimSpace(data.NewName)
+		if sessionName == "" || newName == "" {
+			return nil, invalidTmuxRequest("Session and newName are required when renaming a tmux session.")
+		}
+		return []string{"rename-session", "-t", sessionName, newName}, nil
+	case "rename_window":
+		sessionName := strings.TrimSpace(data.Session)
+		newName := strings.TrimSpace(data.NewName)
+		if sessionName == "" || newName == "" {
+			return nil, invalidTmuxRequest("Session and newName are required when renaming a tmux window.")
+		}
+		return []string{"rename-window", "-t", tmuxWindowTarget(sessionName, data.WindowIndex), newName}, nil
+	case "detach_session":
+		sessionName := strings.TrimSpace(data.Session)
+		if sessionName == "" {
+			return nil, invalidTmuxRequest("Session is required when detaching a tmux session.")
+		}
+		return []string{"detach-client", "-s", sessionName}, nil
+	case "kill_session":
+		sessionName := strings.TrimSpace(data.Session)
+		if sessionName == "" {
+			return nil, invalidTmuxRequest("Session is required when killing a tmux session.")
+		}
+		return []string{"kill-session", "-t", sessionName}, nil
+	case "kill_window":
+		sessionName := strings.TrimSpace(data.Session)
+		if sessionName == "" {
+			return nil, invalidTmuxRequest("Session is required when killing a tmux window.")
+		}
+		return []string{"kill-window", "-t", tmuxWindowTarget(sessionName, data.WindowIndex)}, nil
+	default:
+		return nil, invalidTmuxRequest(fmt.Sprintf("Unsupported tmux action %q.", data.Action))
+	}
+}
+
 func tmuxListSessionsArgs() []string {
 	return []string{
 		"list-sessions",
 		"-F",
 		fmt.Sprintf("#{session_name}%s#{session_windows}%s#{session_attached}", tmuxFieldSep, tmuxFieldSep),
 	}
+}
+
+func tmuxShowOptionArgs(option string) []string {
+	return []string{"show-options", "-gqv", option}
 }
 
 func tmuxListWindowsArgs(session string) []string {
@@ -105,67 +185,19 @@ func tmuxListWindowsArgs(session string) []string {
 }
 
 func runTmuxCLI(ctx context.Context, connName string, args []string) (string, string, error) {
-	if conncontroller.IsLocalConnName(connName) {
-		return runLocalTmuxCLI(ctx, args)
-	}
-	if conncontroller.IsWslConnName(connName) {
-		distroName := strings.TrimPrefix(connName, "wsl://")
-		if err := wslconn.EnsureConnection(ctx, distroName); err != nil {
-			return "", "", err
-		}
-		conn := wslconn.GetWslConn(distroName)
-		if conn == nil {
-			return "", "", fmt.Errorf("wsl connection not found: %s", connName)
-		}
-		client := conn.GetClient()
-		if client == nil {
-			return "", "", fmt.Errorf("wsl client unavailable: %s", connName)
-		}
-		return runShellTmuxCLI(ctx, genconn.MakeWSLShellClient(client), args)
-	}
-	if err := conncontroller.EnsureConnection(ctx, connName); err != nil {
-		return "", "", err
-	}
-	connOpts, err := remote.ParseOpts(connName)
+	return runCLI(ctx, connName, "tmux", args)
+}
+
+func readTmuxOption(ctx context.Context, connName string, option string) (string, *wshrpc.TmuxError) {
+	stdout, stderr, err := runTmuxCLI(ctx, connName, tmuxShowOptionArgs(option))
 	if err != nil {
-		return "", "", fmt.Errorf("invalid ssh connection %q: %w", connName, err)
+		return "", makeTmuxError(err, stdout, stderr)
 	}
-	conn := conncontroller.GetConn(connOpts)
-	if conn == nil {
-		return "", "", fmt.Errorf("ssh connection not found: %s", connName)
-	}
-	client := conn.GetClient()
-	if client == nil {
-		return "", "", fmt.Errorf("ssh client unavailable: %s", connName)
-	}
-	return runShellTmuxCLI(ctx, genconn.MakeSSHShellClient(client), args)
+	return strings.TrimSpace(stdout), nil
 }
 
-func runLocalTmuxCLI(ctx context.Context, args []string) (string, string, error) {
-	cmd := exec.CommandContext(ctx, "tmux", args...)
-	var stdoutBuf bytes.Buffer
-	var stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
-	err := cmd.Run()
-	return stdoutBuf.String(), stderrBuf.String(), err
-}
-
-func runShellTmuxCLI(ctx context.Context, client genconn.ShellClient, args []string) (string, string, error) {
-	stdout, stderr, err := genconn.RunSimpleCommand(ctx, client, genconn.CommandSpec{
-		Cmd: buildTmuxShellCommand(args),
-	})
-	return stdout, stderr, err
-}
-
-func buildTmuxShellCommand(args []string) string {
-	var b strings.Builder
-	b.WriteString("tmux")
-	for _, arg := range args {
-		b.WriteByte(' ')
-		b.WriteString(shellutil.HardQuote(arg))
-	}
-	return b.String()
+func tmuxWindowTarget(session string, windowIndex int) string {
+	return fmt.Sprintf("%s:%d", session, windowIndex)
 }
 
 func parseTmuxSessionSummaries(output string) ([]wshrpc.TmuxSessionSummary, error) {
@@ -282,5 +314,12 @@ func makeTmuxError(err error, stdout string, stderr string) *wshrpc.TmuxError {
 			Message: "tmux command failed.",
 			Detail:  detail,
 		}
+	}
+}
+
+func invalidTmuxRequest(message string) *wshrpc.TmuxError {
+	return &wshrpc.TmuxError{
+		Code:    "invalid_request",
+		Message: message,
 	}
 }

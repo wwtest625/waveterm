@@ -13,16 +13,9 @@ import clsx from "clsx";
 import { atom } from "jotai";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    buildTmuxCreateSessionCommand,
-    buildTmuxCreateWindowCommand,
-    buildTmuxDetachSessionCommand,
     buildTmuxEnterOrCreateSessionCommand,
     buildTmuxEnterSessionCommand,
     buildTmuxEnterWindowCommand,
-    buildTmuxKillSessionCommand,
-    buildTmuxKillWindowCommand,
-    buildTmuxRenameSessionCommand,
-    buildTmuxRenameWindowCommand,
     formatDangerConfirmText,
     getNextSuffixName,
     getTmuxErrorHeadline,
@@ -293,7 +286,7 @@ function TmuxTreeView({
     );
 
     return (
-        <div ref={containerRef} className="flex-1 overflow-y-auto p-3" onKeyDown={handleKeyDown} tabIndex={0}>
+        <div ref={containerRef} className="min-h-0 flex-1 overflow-y-auto p-3" onKeyDown={handleKeyDown} tabIndex={0}>
             {sessions.length === 0 ? (
                 <div className="flex h-48 flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-zinc-800 bg-zinc-900/50 text-sm">
                     <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800/50">
@@ -405,15 +398,13 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 setSessions(nextSessions);
                 setLoadingError(null);
 
+                const hasCurrentSelection = nextSessions.some((session) => session.name === selectedSession);
                 // Keep current selection if still valid, otherwise select first
-                const nextSelectedSession =
-                    nextSessions.find((session) => session.name === selectedSession)?.name ??
-                    nextSessions[0]?.name ??
-                    "";
+                const nextSelectedSession = hasCurrentSelection ? selectedSession : nextSessions[0]?.name ?? "";
                 setSelectedSession(nextSelectedSession);
 
-                // Auto-expand the selected session
-                if (nextSelectedSession) {
+                // Only auto-expand when we had to pick a new selected session.
+                if (!hasCurrentSelection && nextSelectedSession) {
                     setExpandedSessionIds((prev) => new Set([...prev, nextSelectedSession]));
                 }
 
@@ -491,6 +482,30 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
         [connection, refreshData]
     );
 
+    const runTmuxAction = useCallback(
+        async (request: TmuxActionRequest, actionLabel: string) => {
+            setPendingAction(actionLabel);
+            setActionError(null);
+            setStatusMessage(null);
+            try {
+                const resp = await RpcApi.TmuxActionCommand(TabRpcClient, request);
+                if (resp?.error) {
+                    setActionError(getTmuxErrorHeadline(resp.error));
+                    return false;
+                }
+                setStatusMessage(actionLabel);
+                await refreshData(false);
+                return true;
+            } catch (err) {
+                setActionError(`tmux 操作失败：${err instanceof Error ? err.message : String(err)}`);
+                return false;
+            } finally {
+                setPendingAction(null);
+            }
+        },
+        [refreshData]
+    );
+
     const enterSession = useCallback(
         async (sessionName: string) => {
             if (pendingAction != null) {
@@ -543,12 +558,22 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
     const createSession = useCallback(async () => {
         const baseName = baseSessionName;
         const resolvedName = resolvedSessionName;
-        const ok = await sendCommand(buildTmuxCreateSessionCommand(resolvedName), `创建并进入 Session ${resolvedName}`);
-        if (ok) {
-            setNewSessionName(baseName);
-            setSelectedSession(resolvedName);
+        const created = await runTmuxAction(
+            {
+                connection,
+                action: "create_session",
+                session: resolvedName,
+            },
+            `已创建 Session ${resolvedName}`
+        );
+        if (!created) {
+            return;
         }
-    }, [baseSessionName, resolvedSessionName, sendCommand]);
+        setNewSessionName(baseName);
+        setSelectedSession(resolvedName);
+        setExpandedSessionIds((prev) => new Set([...prev, resolvedName]));
+        setStatusMessage(`已创建 Session ${resolvedName}`);
+    }, [baseSessionName, connection, resolvedSessionName, runTmuxAction]);
 
     const createWindow = useCallback(async () => {
         if (selectedSession === "") {
@@ -556,15 +581,51 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             return;
         }
         const trimmedWindowName = trimNameInput(newWindowName);
-        const label =
+        const createLabel =
             trimmedWindowName === ""
-                ? `在 ${selectedSession} 新建并进入 Window`
-                : `在 ${selectedSession} 新建并进入 Window ${trimmedWindowName}`;
-        const ok = await sendCommand(buildTmuxCreateWindowCommand(selectedSession, trimmedWindowName), label);
-        if (ok) {
-            setNewWindowName("");
+                ? `已在 ${selectedSession} 创建 Window`
+                : `已在 ${selectedSession} 创建 Window ${trimmedWindowName}`;
+        const created = await runTmuxAction(
+            {
+                connection,
+                action: "create_window",
+                session: selectedSession,
+                windowName: trimmedWindowName,
+            },
+            createLabel
+        );
+        if (!created) {
+            return;
         }
-    }, [newWindowName, selectedSession, sendCommand]);
+        setNewWindowName("");
+        const latestWindowResp = await RpcApi.TmuxListWindowsCommand(TabRpcClient, {
+            connection,
+            session: selectedSession,
+        });
+        const latestWindows = latestWindowResp?.windows ?? [];
+        const nextWindow =
+            trimmedWindowName === ""
+                ? latestWindows.reduce<TmuxWindowSummary | null>(
+                      (candidate, windowItem) => (candidate == null || windowItem.index > candidate.index ? windowItem : candidate),
+                      null
+                  )
+                : latestWindows.find((windowItem) => windowItem.name === trimmedWindowName) ?? null;
+        if (nextWindow == null) {
+            setStatusMessage(
+                trimmedWindowName === ""
+                    ? `Window 已创建，但未能确定新窗口编号。`
+                    : `Window ${trimmedWindowName} 已创建，但未能自动进入。`
+            );
+            return;
+        }
+        const entered = await sendCommand(
+            buildTmuxEnterWindowCommand(selectedSession, nextWindow.index),
+            `进入 Window ${nextWindow.index}:${nextWindow.name}`
+        );
+        if (!entered) {
+            setStatusMessage(`Window ${nextWindow.index}:${nextWindow.name} 已创建，但未能自动进入。`);
+        }
+    }, [connection, newWindowName, runTmuxAction, selectedSession, sendCommand]);
 
     const renameSession = useCallback(
         async (sessionName: string) => {
@@ -572,12 +633,20 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             if (nextName === "" || nextName === sessionName) {
                 return;
             }
-            await sendCommand(
-                buildTmuxRenameSessionCommand(sessionName, nextName),
-                `重命名 Session ${sessionName} -> ${nextName}`
+            const ok = await runTmuxAction(
+                {
+                    connection,
+                    action: "rename_session",
+                    session: sessionName,
+                    newName: nextName,
+                },
+                `已重命名 Session ${sessionName} -> ${nextName}`
             );
+            if (ok && selectedSession === sessionName) {
+                setSelectedSession(nextName);
+            }
         },
-        [sendCommand]
+        [connection, runTmuxAction, selectedSession]
     );
 
     const renameWindow = useCallback(
@@ -588,12 +657,18 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             if (nextName === "" || nextName === windowItem.name) {
                 return;
             }
-            await sendCommand(
-                buildTmuxRenameWindowCommand(sessionName, windowItem.index, nextName),
-                `重命名 Window ${windowItem.name} -> ${nextName}`
+            await runTmuxAction(
+                {
+                    connection,
+                    action: "rename_window",
+                    session: sessionName,
+                    windowIndex: windowItem.index,
+                    newName: nextName,
+                },
+                `已重命名 Window ${windowItem.name} -> ${nextName}`
             );
         },
-        [sendCommand]
+        [connection, runTmuxAction]
     );
 
     const detachSession = useCallback(
@@ -601,9 +676,16 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             if (!confirmDangerousAction("Detach", sessionName)) {
                 return;
             }
-            await sendCommand(buildTmuxDetachSessionCommand(sessionName), `Detach Session ${sessionName}`);
+            await runTmuxAction(
+                {
+                    connection,
+                    action: "detach_session",
+                    session: sessionName,
+                },
+                `已 Detach Session ${sessionName}`
+            );
         },
-        [confirmDangerousAction, sendCommand]
+        [confirmDangerousAction, connection, runTmuxAction]
     );
 
     const killSession = useCallback(
@@ -611,9 +693,16 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             if (!confirmDangerousAction("Kill Session", sessionName)) {
                 return;
             }
-            await sendCommand(buildTmuxKillSessionCommand(sessionName), `Kill Session ${sessionName}`);
+            await runTmuxAction(
+                {
+                    connection,
+                    action: "kill_session",
+                    session: sessionName,
+                },
+                `已 Kill Session ${sessionName}`
+            );
         },
-        [confirmDangerousAction, sendCommand]
+        [confirmDangerousAction, connection, runTmuxAction]
     );
 
     const killWindow = useCallback(
@@ -622,9 +711,17 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             if (!confirmDangerousAction("Kill Window", sessionName, windowTitle)) {
                 return;
             }
-            await sendCommand(buildTmuxKillWindowCommand(sessionName, windowItem.index), `Kill Window ${windowTitle}`);
+            await runTmuxAction(
+                {
+                    connection,
+                    action: "kill_window",
+                    session: sessionName,
+                    windowIndex: windowItem.index,
+                },
+                `已 Kill Window ${windowTitle}`
+            );
         },
-        [confirmDangerousAction, sendCommand]
+        [confirmDangerousAction, connection, runTmuxAction]
     );
 
     // ============================================================================
@@ -733,7 +830,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
     }
 
     return (
-        <div className="flex h-full w-full min-w-0 flex-col bg-gradient-to-b from-zinc-900 via-zinc-900 to-zinc-950 text-zinc-100">
+        <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-gradient-to-b from-zinc-900 via-zinc-900 to-zinc-950 text-zinc-100">
             {/* Error/Status Messages */}
             <div className="shrink-0 p-4 pb-0">
                 {loadingError ? (
@@ -805,44 +902,9 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                             </Button>
                         </div>
                     </div>
-                </div>
-            </div>
-
-            {/* Tree View */}
-            <div className="mx-4 mt-4 flex flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/50 backdrop-blur-sm">
-                <div className="flex items-center justify-between border-b border-zinc-800/80 px-5 py-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-zinc-400">
-                        <i className="fa-solid fa-layer-group text-accent" />
-                        Sessions & Windows
-                    </div>
-                    <div className="text-xs text-zinc-600">
-                        {sessions.length} session{sessions.length !== 1 ? "s" : ""}
-                    </div>
-                </div>
-                <TmuxTreeView
-                    sessions={sessions}
-                    windowsBySession={windowsBySession}
-                    expandedSessionIds={expandedSessionIds}
-                    selectedNodeId={selectedNodeId}
-                    onToggleSession={toggleSession}
-                    onSelectNode={selectNode}
-                    onEnterNode={enterNode}
-                    onSessionContextMenu={showSessionContextMenu}
-                    onWindowContextMenu={showWindowContextMenu}
-                />
-            </div>
-
-            {/* Create Section */}
-            <div className="mx-4 mb-4 mt-4 shrink-0">
-                <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/50 p-5 backdrop-blur-sm">
-                    <div className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-400">
-                        <i className="fa-solid fa-plus-circle text-emerald-500" />
-                        Create New
-                    </div>
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                        {/* Session Input */}
-                        <div className="flex flex-col gap-2">
-                            <label className="flex items-center gap-2 text-xs font-medium text-zinc-500">
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                        <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/45 p-4">
+                            <label className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-500">
                                 <i className="fa-solid fa-folder text-amber-500/70" />
                                 Session Name
                             </label>
@@ -864,25 +926,19 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                                     disabled={pendingAction != null}
                                 >
                                     <i className="fa-solid fa-plus" />
-                                    <span className="hidden lg:inline">创建</span>
+                                    <span className="hidden lg:inline">创建 Session</span>
                                 </Button>
                             </div>
                             {willAutoSuffixSessionName && (
-                                <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                                <div className="mt-2 flex items-center gap-1.5 text-xs text-zinc-500">
                                     <i className="fa-solid fa-info-circle text-amber-500/70" />
                                     Will create: "{resolvedSessionName}"
                                 </div>
                             )}
                         </div>
 
-                        {/* Divider */}
-                        <div className="hidden lg:flex items-center justify-center">
-                            <div className="h-10 w-px bg-zinc-800" />
-                        </div>
-
-                        {/* Window Input */}
-                        <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-2">
-                            <label className="flex items-center gap-2 text-xs font-medium text-zinc-500">
+                        <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/45 p-4">
+                            <label className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-500">
                                 <i className="fa-solid fa-window-maximize text-emerald-500/70" />
                                 Window Name <span className="text-zinc-600">(optional)</span>
                             </label>
@@ -905,11 +961,11 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                                     disabled={selectedSession === "" || pendingAction != null}
                                 >
                                     <i className="fa-solid fa-plus" />
-                                    <span className="hidden lg:inline">创建</span>
+                                    <span className="hidden lg:inline">创建 Window</span>
                                 </Button>
                             </div>
                             {selectedSession === "" && (
-                                <div className="flex items-center gap-1.5 text-xs text-zinc-600">
+                                <div className="mt-2 flex items-center gap-1.5 text-xs text-zinc-600">
                                     <i className="fa-solid fa-lock" />
                                     Select a session first
                                 </div>
@@ -918,6 +974,31 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                     </div>
                 </div>
             </div>
+
+            {/* Tree View */}
+            <div className="mx-4 mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/50 backdrop-blur-sm">
+                <div className="flex items-center justify-between border-b border-zinc-800/80 px-5 py-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-zinc-400">
+                        <i className="fa-solid fa-layer-group text-accent" />
+                        Sessions & Windows
+                    </div>
+                    <div className="text-xs text-zinc-600">
+                        {sessions.length} session{sessions.length !== 1 ? "s" : ""}
+                    </div>
+                </div>
+                <TmuxTreeView
+                    sessions={sessions}
+                    windowsBySession={windowsBySession}
+                    expandedSessionIds={expandedSessionIds}
+                    selectedNodeId={selectedNodeId}
+                    onToggleSession={toggleSession}
+                    onSelectNode={selectNode}
+                    onEnterNode={enterNode}
+                    onSessionContextMenu={showSessionContextMenu}
+                    onWindowContextMenu={showWindowContextMenu}
+                />
+            </div>
+
         </div>
     );
 }

@@ -15,7 +15,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { startDownloadTransfer } from "@/app/transfer/transfer-store";
 import { quote as shellQuote } from "shell-quote";
-import { fireAndForget, stringToBase64 } from "./util";
+import { arrayToBase64, fireAndForget, stringToBase64 } from "./util";
 import { formatRemoteUri } from "./waveutil";
 
 export async function openPreviewInNewBlock(filePath: string, conn: string, currentBlockId?: string): Promise<string> {
@@ -158,6 +158,24 @@ async function sendTextToTerminalBlock(blockId: string, text: string): Promise<v
     throw lastError;
 }
 
+async function sendBytesToTerminalBlock(blockId: string, bytes: Uint8Array): Promise<void> {
+    const inputdata64 = arrayToBase64(bytes);
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 8; attempt++) {
+        try {
+            await RpcApi.ControllerInputCommand(TabRpcClient, {
+                blockid: blockId,
+                inputdata64,
+            });
+            return;
+        } catch (err) {
+            lastError = err;
+            await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+    }
+    throw lastError;
+}
+
 export async function sendCommandToTerminal(command: string, conn: string, currentBlockId?: string): Promise<string> {
     const existingTerminalBlockId = findShellTerminalBlockId(conn);
     if (existingTerminalBlockId != null) {
@@ -221,6 +239,60 @@ export async function sendCommandToFocusedTerminal(
     if (matchedTerminalBlockId != null) {
         const payload = /[\r\n]$/.test(command) ? command : `${command}\n`;
         await sendTextToTerminalBlock(matchedTerminalBlockId, payload);
+        return {
+            ok: true,
+            blockId: matchedTerminalBlockId,
+            connection: expected,
+        };
+    }
+
+    const candidateTerminalBlockId = findAnyShellTerminalBlockId();
+    if (candidateTerminalBlockId != null) {
+        const candidateAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", candidateTerminalBlockId));
+        const candidateBlockData = globalStore.get(candidateAtom);
+        const candidateConn = normalizeConnectionName(candidateBlockData?.meta?.connection as string);
+        return {
+            ok: false,
+            code: "connection_mismatch",
+            message: "没有与面板连接一致的普通终端，请先聚焦或切换到同连接终端。",
+            expectedConnection: expected,
+            terminalConnection: candidateConn,
+        };
+    }
+
+    return {
+        ok: false,
+        code: "no_focused_terminal",
+        message: "没有可用终端。请先打开一个普通终端块。",
+    };
+}
+
+export async function sendBytesToFocusedTerminal(
+    bytes: Uint8Array,
+    expectedConnection?: string
+): Promise<SendCommandToFocusedTerminalResult> {
+    const expected = normalizeConnectionName(expectedConnection);
+    const focusedBlockId = getFocusedBlockId();
+    if (focusedBlockId != null) {
+        const focusedAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", focusedBlockId));
+        const focusedBlockData = globalStore.get(focusedAtom);
+        const focusedMeta = focusedBlockData?.meta;
+        if (focusedMeta?.view === "term" && focusedMeta?.controller === "shell") {
+            const focusedConn = normalizeConnectionName(focusedMeta?.connection as string);
+            if (focusedConn === expected) {
+                await sendBytesToTerminalBlock(focusedBlockId, bytes);
+                return {
+                    ok: true,
+                    blockId: focusedBlockId,
+                    connection: focusedConn,
+                };
+            }
+        }
+    }
+
+    const matchedTerminalBlockId = findShellTerminalBlockId(expected);
+    if (matchedTerminalBlockId != null) {
+        await sendBytesToTerminalBlock(matchedTerminalBlockId, bytes);
         return {
             ok: true,
             blockId: matchedTerminalBlockId,

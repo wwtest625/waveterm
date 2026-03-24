@@ -938,6 +938,18 @@ func TestMultiArgCommand(w *wshutil.WshRpc, arg1 string, arg2 int, arg3 bool, op
 	return resp, err
 }
 
+// command "tmuxaction", wshserver.TmuxActionCommand
+func TmuxActionCommand(w *wshutil.WshRpc, data wshrpc.TmuxActionRequest, opts *wshrpc.RpcOpts) (wshrpc.TmuxActionResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.TmuxActionResponse](w, "tmuxaction", data, opts)
+	return resp, err
+}
+
+// command "tmuxgetconfig", wshserver.TmuxGetConfigCommand
+func TmuxGetConfigCommand(w *wshutil.WshRpc, data wshrpc.TmuxGetConfigRequest, opts *wshrpc.RpcOpts) (wshrpc.TmuxGetConfigResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.TmuxGetConfigResponse](w, "tmuxgetconfig", data, opts)
+	return resp, err
+}
+
 // command "tmuxlistsessions", wshserver.TmuxListSessionsCommand
 func TmuxListSessionsCommand(w *wshutil.WshRpc, data wshrpc.TmuxListSessionsRequest, opts *wshrpc.RpcOpts) (wshrpc.TmuxListSessionsResponse, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.TmuxListSessionsResponse](w, "tmuxlistsessions", data, opts)

@@ -507,7 +507,6 @@ function sortByDisplayOrder<T extends { "display:order"?: number; "display:name"
 }
 
 export {
-    arrayToBase64,
     atomWithDebounce,
     atomWithThrottle,
     base64ToArray,
@@ -538,6 +537,7 @@ export {
     parseDataUrl,
     sleep,
     sortByDisplayOrder,
+    arrayToBase64,
     stringToBase64,
     useAtomValueSafe,
 };

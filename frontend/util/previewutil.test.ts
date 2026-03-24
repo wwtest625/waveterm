@@ -26,6 +26,7 @@ describe("openPreviewInNewBlock", () => {
             makeNativeLabel: vi.fn(),
         }));
         vi.doMock("./util", () => ({
+            arrayToBase64: (value: Uint8Array) => Buffer.from(value).toString("base64"),
             fireAndForget: (fn: () => unknown) => fn(),
             lazy: (fn: () => unknown) => fn(),
             stringToBase64: (value: string) => Buffer.from(value).toString("base64"),
@@ -79,6 +80,7 @@ describe("openPreviewInNewBlock", () => {
             makeNativeLabel: vi.fn(),
         }));
         vi.doMock("./util", () => ({
+            arrayToBase64: (value: Uint8Array) => Buffer.from(value).toString("base64"),
             fireAndForget: (fn: () => unknown) => fn(),
             lazy: (fn: () => unknown) => fn(),
             stringToBase64: (value: string) => Buffer.from(value).toString("base64"),
@@ -125,6 +127,7 @@ describe("openPreviewInNewBlock", () => {
             TabRpcClient: "tab-rpc-client",
         }));
         vi.doMock("./util", () => ({
+            arrayToBase64: (value: Uint8Array) => Buffer.from(value).toString("base64"),
             fireAndForget: (fn: () => unknown) => fn(),
             lazy: (fn: () => unknown) => fn(),
             stringToBase64: (value: string) => Buffer.from(value).toString("base64"),
@@ -205,6 +208,7 @@ describe("openPreviewInNewBlock", () => {
             TabRpcClient: "tab-rpc-client",
         }));
         vi.doMock("./util", () => ({
+            arrayToBase64: (value: Uint8Array) => Buffer.from(value).toString("base64"),
             fireAndForget: (fn: () => unknown) => fn(),
             lazy: (fn: () => unknown) => fn(),
             stringToBase64: (value: string) => Buffer.from(value).toString("base64"),
@@ -591,5 +595,63 @@ describe("sendCommandToFocusedTerminal", () => {
             terminalConnection: "ssh://other",
         });
         expect(ControllerInputCommand).not.toHaveBeenCalled();
+    });
+
+    it("sends raw bytes to focused shell terminal when connection matches", async () => {
+        const ControllerInputCommand = vi.fn().mockResolvedValue(undefined);
+
+        vi.resetModules();
+        vi.doMock("@/app/store/tab-model", () => ({
+            getActiveTabModel: vi.fn(),
+        }));
+        vi.doMock("@/app/store/global", () => ({
+            createBlock: vi.fn(),
+            createBlockSplitHorizontally: vi.fn(),
+            getApi: vi.fn(),
+            getFocusedBlockId: () => "term-1",
+            globalStore: {
+                get: (atom: unknown) => {
+                    if (atom === "block:term-1") {
+                        return { meta: { view: "term", controller: "shell", connection: "ssh://devbox" } };
+                    }
+                    return null;
+                },
+            },
+            refocusNode: vi.fn(),
+            WOS: {
+                makeORef: (_type: string, id: string) => `block:${id}`,
+                getWaveObjectAtom: (oref: string) => oref,
+            },
+        }));
+        vi.doMock("@/app/store/wshclientapi", () => ({
+            RpcApi: {
+                ControllerInputCommand,
+            },
+        }));
+        vi.doMock("@/app/store/wshrpcutil", () => ({
+            TabRpcClient: "tab-rpc-client",
+        }));
+        vi.doMock("./util", () => ({
+            arrayToBase64: (value: Uint8Array) => Buffer.from(value).toString("base64"),
+            fireAndForget: (fn: () => unknown) => fn(),
+            lazy: (fn: () => unknown) => fn(),
+            stringToBase64: (value: string) => Buffer.from(value).toString("base64"),
+        }));
+        vi.doMock("./waveutil", () => ({
+            formatRemoteUri: vi.fn(),
+        }));
+        vi.doMock("@/app/transfer/transfer-store", () => ({
+            startDownloadTransfer: vi.fn(),
+        }));
+
+        const { sendBytesToFocusedTerminal } = await import("./previewutil");
+        const bytes = new Uint8Array([0x02, 0x3a, 0x0d]);
+        const result = await sendBytesToFocusedTerminal(bytes, "ssh://devbox");
+
+        expect(result).toEqual({ ok: true, blockId: "term-1", connection: "ssh://devbox" });
+        expect(ControllerInputCommand).toHaveBeenCalledWith("tab-rpc-client", {
+            blockid: "term-1",
+            inputdata64: Buffer.from(bytes).toString("base64"),
+        });
     });
 });

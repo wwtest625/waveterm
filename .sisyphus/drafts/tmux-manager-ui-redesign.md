@@ -147,235 +147,263 @@
 
 ## 10. 已知问题与解决方案
 
-### 10.1 Bug：终端被服务占用导致命令无效
+### 10.1 Bug：终端被前台进程占用导致动作不可靠
 
 #### 问题描述
 
-当 tmux Window 中正在运行服务（如 `node server.js`、`python app.py`、`npm run dev` 等）时，通过 Tmux Manager 点击切换 Session 或 Window 会失败。
+当目标终端正在运行前台程序时，Tmux Manager 发送的 tmux 命令不一定会被 shell 接收和执行。
+
+典型场景包括：
+
+- `node server.js`
+- `python app.py`
+- `npm run dev`
+- `vim`
+- `less`
+- 任何正在占用前台输入的交互式程序
+
+#### 当前实现现状
+
+当前 Tmux Manager 采用“**读状态走 RPC，写动作走终端输入**”的模式：
+
+- Session / Window 列表：通过 RPC 从后端读取
+- 进入 / 创建 / 重命名 / Detach / Kill：通过 `sendCommandToFocusedTerminal` 把 tmux 命令写入普通 shell 终端
+
+这种设计的优点是 MVP 简单直观，但它依赖“目标终端此刻正停在 shell 提示符”这一前提。
 
 #### 问题原因
 
-当前的命令发送机制是通过 `sendCommandToFocusedTerminal` 函数实现的，该函数的工作原理是：
+当前动作链路可以概括为：
 
-1. 找到一个空闲的 shell 终端块
-2. 向该终端发送按键数据（tmux 命令）
-3. 终端接收并执行命令
+1. 面板构造 tmux 命令字符串
+2. 找到一个同连接的普通 shell 终端块
+3. 通过 `ControllerInputCommand` 向该终端写入文本
+4. 由该终端当前前台程序决定如何处理这段输入
 
-**问题在于**：如果目标终端正在运行前台服务，发送的命令会被该服务进程接收和处理，而不是被 tmux 本身解释。
+**问题在于**：终端输入只保证“字符被送进 PTY”，不保证“由 shell 解释为 tmux 命令”。
 
 ```
 用户点击「进入 Session」
     ↓
 Tmux Manager 发送命令: tmux switch-client -t session
     ↓
-命令发送到终端
+命令被写入终端 PTY
     ↓
-终端正在运行 node server.js
+当前前台进程是 node / vim / less / python ...
     ↓
-命令被 node 进程接收（无效）
+输入被前台进程消费，而不是被 shell 执行
     ↓
-切换失败 ❌
+动作失败或表现异常 ❌
 ```
 
 #### 影响范围
 
-- 所有 tmux 命令都可能受影响：
-  - 进入 Session
-  - 进入 Window
-  - 创建 Session
-  - 创建 Window
-  - 重命名
-  - Detach
-  - Kill
+理论上所有“写动作”都会受到影响：
+
+- 进入 Session
+- 进入 Window
+- 创建并进入 Session
+- 创建并进入 Window
+- 重命名 Session / Window
+- Detach Session
+- Kill Session / Window
+
+其中最敏感的是“进入类动作”，因为它们直接依赖 tmux client 的切换语义。
 
 #### 复现步骤
 
 1. 在 tmux 中创建一个 Session
-2. 在该 Session 的某个 Window 中运行一个前台服务（如 `node server.js`）
+2. 在某个 Window 内运行前台程序，例如 `node server.js`
 3. 打开 Tmux Manager
-4. 尝试切换到其他 Session 或 Window
-5. 观察：命令无效，无法切换
+4. 点击「进入 Session」或「进入 Window」
+5. 观察：动作可能无效，或没有切到预期目标
 
 ---
 
-### 10.2 解决方案：专用隐藏终端
+### 10.2 方案评估：专用隐藏终端
 
 #### 方案概述
 
-为 Tmux Manager 创建一个专用的、对用户不可见的隐藏终端块，专门用于发送 tmux 控制命令。
+创建一个专用的隐藏 shell 终端，Tmux Manager 始终把 tmux 命令发送到这个终端，而不是发送到用户当前正在使用的终端。
 
-#### 工作原理
+#### 这个方案能解决什么
 
-```
-用户点击「进入 Session」
-    ↓
-Tmux Manager 获取专用命令终端
-    ↓
-向专用终端发送命令: tmux switch-client -t session
-    ↓
-专用终端始终处于 shell 状态（无前台进程）
-    ↓
-命令被 tmux 正确解释
-    ↓
-切换成功 ✅
-```
+它可以缓解一类问题：
 
-#### 技术实现
+- 隐藏终端通常停留在 shell 提示符
+- 不容易被用户手动占用
+- 对“纯管理类命令”更可靠，例如重命名、Kill、部分创建动作
 
-**1. 添加状态管理**
+#### 这个方案解决不了什么
 
-```typescript
-const [commandTerminalBlockId, setCommandTerminalBlockId] = useState<string | null>(null);
-```
+它**不能作为通用主方案**，原因是 tmux 有一部分动作不是普通后台命令，而是和“当前 tmux client / 当前终端上下文”强绑定。
 
-**2. 创建/获取命令终端函数**
+尤其是以下动作：
 
-```typescript
-const getOrCreateCommandTerminal = useCallback(
-  async (connection: string): Promise<string> => {
-    // 检查现有终端是否有效
-    if (commandTerminalBlockId) {
-      const blockAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", commandTerminalBlockId));
-      const blockData = globalStore.get(blockAtom);
-      if (
-        blockData?.meta?.view === "term" &&
-        blockData?.meta?.controller === "shell" &&
-        blockData?.meta?.connection === connection
-      ) {
-        return commandTerminalBlockId;
-      }
-      setCommandTerminalBlockId(null);
-    }
+- 进入 Session
+- 进入 Window
+- 创建并进入 Session
+- 创建并进入 Window
 
-    // 创建新的隐藏终端
-    const termBlockDef: BlockDef = {
-      meta: {
-        view: "term",
-        controller: "shell",
-        connection: connection,
-      },
-    };
+这些动作常见实现依赖：
 
-    const blockId = await createBlock(termBlockDef);
-    setCommandTerminalBlockId(blockId);
-    return blockId;
-  },
-  [commandTerminalBlockId]
-);
-```
+- `tmux switch-client`
+- `tmux attach-session`
+- `tmux select-window`
 
-**3. 发送 tmux 命令函数**
+如果命令从隐藏终端发出，风险包括：
 
-```typescript
-const sendTmuxCommand = useCallback(
-  async (command: string, connection: string): Promise<boolean> => {
-    try {
-      const terminalId = await getOrCreateCommandTerminal(connection);
-      const inputdata64 = stringToBase64(`${command}\n`);
-      await RpcApi.ControllerInputCommand(TabRpcClient, {
-        blockid: terminalId,
-        inputdata64,
-      });
-      return true;
-    } catch (err) {
-      console.error("Failed to send tmux command:", err);
-      return false;
-    }
-  },
-  [getOrCreateCommandTerminal]
-);
-```
+- 切换的是隐藏终端对应的 tmux client，而不是用户当前可见终端
+- `attach-session` 把会话附着到隐藏终端
+- `switch-client` 在缺少正确 client 上下文时失败
 
-**4. 替换现有命令发送**
+也就是说，隐藏终端适合作为“执行器”，但不天然适合作为“用户当前 tmux client 的代表”。
 
-将所有 tmux 相关的命令发送从 `sendCommand` 替换为 `sendTmuxCommand`：
+#### 结论
 
-```typescript
-// 原来的
-const ok = await sendCommand(buildTmuxEnterSessionCommand(sessionName), `进入 Session ${sessionName}`);
-
-// 改为
-const ok = await sendTmuxCommand(buildTmuxEnterSessionCommand(sessionName), connection);
-```
-
-需要修改的函数：
-
-- `enterSession`
-- `enterWindow`
-- `createSession`
-- `createWindow`
-- `renameSession`
-- `renameWindow`
-- `detachSession`
-- `killSession`
-- `killWindow`
-
-#### 优势
-
-| 优势       | 说明                                                        |
-| ---------- | ----------------------------------------------------------- |
-| **隔离性** | 命令终端只用于发送 tmux 命令，不会有用户在上面运行其他程序  |
-| **可靠性** | 终端始终处于 shell 提示符状态，能够正确接收和解释 tmux 命令 |
-| **透明性** | 对用户完全不可见，不影响他们的工作流程                      |
-| **效率**   | 复用同一个终端块，避免频繁创建/销毁                         |
-
-#### 注意事项
-
-1. **终端清理**：组件卸载时是否需要清理命令终端（可选）
-2. **连接变更**：如果连接发生变化，需要重新创建命令终端
-3. **错误处理**：命令发送失败时的降级策略
+专用隐藏终端可以作为**局部兜底方案**或**过渡方案**考虑，但不应作为默认主方案，更不应假设它能正确覆盖所有 enter 类动作。
 
 ---
 
-### 10.3 备选方案（不推荐）
+### 10.3 更合理的方向：Tmux Action RPC
+
+#### 方案概述
+
+在现有 tmux RPC 基础上，补充“写动作 RPC”，让前端不再把原始命令字符串塞进终端，而是调用后端的结构化 tmux 动作接口。
+
+#### 为什么这个方向更合适
+
+当前项目已经具备 tmux 读取能力：
+
+- `TmuxListSessionsCommand`
+- `TmuxListWindowsCommand`
+
+说明：
+
+- tmux 连接解析已存在
+- 本地 / WSL / SSH 的 tmux CLI 调用链路已存在
+- 错误建模（如 `missing_cli`、`no_server`）已存在
+
+因此新增“写动作 RPC”不是从零开始，而是在现有 tmux RPC 体系上继续扩展。
+
+#### 不建议的接口形式
+
+不建议增加一个过于宽泛的：
+
+```typescript
+TmuxRunCommand(command: string)
+```
+
+原因：
+
+- 前端仍要手写 shell 字符串
+- quoting / 注入风险仍然存在
+- 动作语义不清晰，测试粒度差
+- 后端难以对不同动作做精确错误处理
+
+#### 更推荐的接口形式
+
+推荐新增结构化 action RPC，例如：
+
+- `TmuxCreateSession`
+- `TmuxRenameSession`
+- `TmuxKillSession`
+- `TmuxCreateWindow`
+- `TmuxRenameWindow`
+- `TmuxKillWindow`
+- `TmuxDetachSession`
+- `TmuxEnterSession`
+- `TmuxEnterWindow`
+
+或者提供统一的：
+
+```typescript
+TmuxActionCommand({
+  connection,
+  action,
+  session,
+  windowIndex,
+  newName,
+  targetBlockId,
+})
+```
+
+其中 `action` 必须是受控枚举，而不是原始 shell 命令。
+
+---
+
+### 10.4 动作分层建议
+
+#### A 类：适合优先 RPC 化的动作
+
+这些动作更接近“tmux server 管理动作”，优先级最高：
+
+- 重命名 Session / Window
+- Kill Session / Window
+- Detach Session
+- 创建 Session
+- 创建 Window
+
+这类动作即使脱离用户当前可见终端，也通常仍有明确语义。
+
+#### B 类：需要额外设计上下文的动作
+
+这些动作不能简单理解为“在服务器上执行一条 tmux 命令”：
+
+- 进入 Session
+- 进入 Window
+- 创建并进入 Session
+- 创建并进入 Window
+
+原因是它们依赖“目标 tmux client 是谁”。
+
+如果未来要将这些动作也 RPC 化，需要额外传递能标识目标终端上下文的信息，例如：
+
+- 当前可见 terminal block id
+- 与该 terminal block 关联的 tmux client 标识
+- 或其他足以让后端定位“要切换哪个 client”的上下文
+
+在这部分设计完成前，不应假设“后台 RPC 直接执行 tmux 命令”就能正确替代当前终端执行。
+
+---
+
+### 10.5 不推荐方案
 
 #### 方案 B：发送 Ctrl+C 中断前台进程
 
 ```typescript
 const sendTmuxCommandSafe = async (command: string, connection: string) => {
-  // 发送 Ctrl+C 中断可能的前台进程
   await sendCommand("C-c", connection);
-  // 等待中断生效
   await new Promise((resolve) => setTimeout(resolve, 100));
-  // 发送实际命令
   return await sendCommand(command, connection);
 };
 ```
 
 **风险**：
 
-- 如果用户正在编辑文件，可能导致数据丢失
-- 如果用户正在执行重要操作，可能造成意外中断
-- 不推荐在生产环境使用
+- 可能中断用户正在运行的重要程序
+- 可能破坏编辑器、REPL、交互式任务现场
+- 有潜在数据丢失风险
 
-#### 方案 C：RPC 直接执行（需要后端支持）
+不建议在产品中采用。
 
-通过 RPC 直接在服务器上执行 tmux 命令，不依赖终端。
+#### 方案 C：隐藏终端作为通用执行器
 
-**优点**：
-
-- 最可靠，完全绕过终端
-- 不受任何前台进程影响
-
-**缺点**：
-
-- 需要后端添加新的 RPC 接口
-- 需要修改 Go 代码
-- 实现复杂度较高
-
-**实现步骤**：
-
-1. 在 `pkg/wshrpc/wshserver/tmux.go` 中添加 `TmuxRunCommand` 方法
-2. 在 `pkg/wshrpc/wshrpctypes.go` 中添加请求/响应类型
-3. 在 `frontend/app/store/wshclientapi.ts` 中添加客户端函数
-4. 修改前端使用新的 RPC
+可作为过渡手段验证部分管理动作，但不适合作为 enter 类动作的最终方案。
 
 ---
 
-### 10.4 推荐实施计划
+### 10.6 推荐实施计划
 
-| 阶段        | 任务                                     | 优先级 |
-| ----------- | ---------------------------------------- | ------ |
-| **Phase 1** | 实现专用隐藏终端方案                     | 高     |
-| **Phase 2** | 测试各种场景（服务运行中、编辑器打开等） | 高     |
-| **Phase 3** | 考虑添加 RPC 直接执行（可选）            | 低     |
+| 阶段        | 任务                                                         | 优先级 |
+| ----------- | ------------------------------------------------------------ | ------ |
+| **Phase 1** | 文档与实现对齐：明确当前是“读 RPC / 写终端输入”             | 高     |
+| **Phase 2** | 新增 Tmux Action RPC，先覆盖 Rename / Kill / Detach / Create | 高     |
+| **Phase 3** | 为 Enter 类动作设计目标 client / targetBlock 上下文         | 高     |
+| **Phase 4** | 评估是否还需要隐藏终端作为局部 fallback                      | 中     |
+
+#### 推荐结论
+
+- **短期**：不要把“隐藏终端”作为主方案写进实施计划
+- **中期**：优先补结构化 tmux action RPC
+- **长期**：针对 enter 类动作单独设计“目标 client”语义，再决定是否完全替换当前终端执行模式

@@ -102,8 +102,10 @@ type WshRpcInterface interface {
 	DockerImageActionCommand(ctx context.Context, data DockerImageActionRequest) (DockerActionResponse, error)
 
 	// tmux
+	TmuxGetConfigCommand(ctx context.Context, data TmuxGetConfigRequest) (TmuxGetConfigResponse, error)
 	TmuxListSessionsCommand(ctx context.Context, data TmuxListSessionsRequest) (TmuxListSessionsResponse, error)
 	TmuxListWindowsCommand(ctx context.Context, data TmuxListWindowsRequest) (TmuxListWindowsResponse, error)
+	TmuxActionCommand(ctx context.Context, data TmuxActionRequest) (TmuxActionResponse, error)
 
 	// connection functions
 	ConnStatusCommand(ctx context.Context) ([]ConnStatus, error)
@@ -492,9 +494,22 @@ type TmuxListSessionsRequest struct {
 	Connection string `json:"connection,omitempty"`
 }
 
+type TmuxGetConfigRequest struct {
+	Connection string `json:"connection,omitempty"`
+}
+
 type TmuxListWindowsRequest struct {
 	Connection string `json:"connection,omitempty"`
 	Session    string `json:"session"`
+}
+
+type TmuxActionRequest struct {
+	Connection  string `json:"connection,omitempty"`
+	Action      string `json:"action"`
+	Session     string `json:"session,omitempty"`
+	WindowIndex int    `json:"windowIndex,omitempty"`
+	NewName     string `json:"newName,omitempty"`
+	WindowName  string `json:"windowName,omitempty"`
 }
 
 type TmuxSessionSummary struct {
@@ -521,9 +536,19 @@ type TmuxListSessionsResponse struct {
 	Error         *TmuxError           `json:"error,omitempty"`
 }
 
+type TmuxGetConfigResponse struct {
+	Prefix  string     `json:"prefix,omitempty"`
+	Prefix2 string     `json:"prefix2,omitempty"`
+	Error   *TmuxError `json:"error,omitempty"`
+}
+
 type TmuxListWindowsResponse struct {
 	Windows []TmuxWindowSummary `json:"windows"`
 	Error   *TmuxError          `json:"error,omitempty"`
+}
+
+type TmuxActionResponse struct {
+	Error *TmuxError `json:"error,omitempty"`
 }
 
 const (

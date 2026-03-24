@@ -1799,11 +1799,38 @@ declare global {
         values: {[key: string]: number};
     };
 
+    // wshrpc.TmuxActionRequest
+    type TmuxActionRequest = {
+        connection?: string;
+        action: string;
+        session?: string;
+        windowIndex?: number;
+        newName?: string;
+        windowName?: string;
+    };
+
+    // wshrpc.TmuxActionResponse
+    type TmuxActionResponse = {
+        error?: TmuxError;
+    };
+
     // wshrpc.TmuxError
     type TmuxError = {
         code: string;
         message: string;
         detail?: string;
+    };
+
+    // wshrpc.TmuxGetConfigRequest
+    type TmuxGetConfigRequest = {
+        connection?: string;
+    };
+
+    // wshrpc.TmuxGetConfigResponse
+    type TmuxGetConfigResponse = {
+        prefix?: string;
+        prefix2?: string;
+        error?: TmuxError;
     };
 
     // wshrpc.TmuxListSessionsRequest
