@@ -43,6 +43,9 @@ export function blockViewToIcon(view: string): string {
     if (view == "docker") {
         return "brands@docker";
     }
+    if (view == "network") {
+        return "network-wired";
+    }
     return "square";
 }
 
@@ -79,6 +82,9 @@ export function blockViewToName(view: string): string {
     }
     if (view == "docker") {
         return "容器";
+    }
+    if (view == "network") {
+        return "网络";
     }
     return view;
 }

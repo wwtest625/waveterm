@@ -6,14 +6,14 @@
 package wshclient
 
 import (
-	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
-	"github.com/wavetermdev/waveterm/pkg/vdom"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wconfig"
-	"github.com/wavetermdev/waveterm/pkg/wps"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/vdom"
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 )
 
 // command "activity", wshserver.ActivityCommand
@@ -34,15 +34,15 @@ func AgentGetCommandResultCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentGet
 	return resp, err
 }
 
-// command "agenttermscrollback", wshserver.AgentTermScrollbackCommand
-func AgentTermScrollbackCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentTermScrollbackData, opts *wshrpc.RpcOpts) (*wshrpc.CommandTermGetScrollbackLinesRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandTermGetScrollbackLinesRtnData](w, "agenttermscrollback", data, opts)
-	return resp, err
-}
-
 // command "agentruncommand", wshserver.AgentRunCommandCommand
 func AgentRunCommandCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentRunCommandData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentRunCommandRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentRunCommandRtnData](w, "agentruncommand", data, opts)
+	return resp, err
+}
+
+// command "agenttermscrollback", wshserver.AgentTermScrollbackCommand
+func AgentTermScrollbackCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentTermScrollbackData, opts *wshrpc.RpcOpts) (*wshrpc.CommandTermGetScrollbackLinesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandTermGetScrollbackLinesRtnData](w, "agenttermscrollback", data, opts)
 	return resp, err
 }
 
@@ -668,6 +668,24 @@ func MessageCommand(w *wshutil.WshRpc, data wshrpc.CommandMessageData, opts *wsh
 	return err
 }
 
+// command "networkaction", wshserver.NetworkActionCommand
+func NetworkActionCommand(w *wshutil.WshRpc, data wshrpc.NetworkActionRequest, opts *wshrpc.RpcOpts) (wshrpc.NetworkActionResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.NetworkActionResponse](w, "networkaction", data, opts)
+	return resp, err
+}
+
+// command "networkconfigure", wshserver.NetworkConfigureCommand
+func NetworkConfigureCommand(w *wshutil.WshRpc, data wshrpc.NetworkConfigureRequest, opts *wshrpc.RpcOpts) (wshrpc.NetworkConfigureResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.NetworkConfigureResponse](w, "networkconfigure", data, opts)
+	return resp, err
+}
+
+// command "networklist", wshserver.NetworkListCommand
+func NetworkListCommand(w *wshutil.WshRpc, data wshrpc.NetworkListRequest, opts *wshrpc.RpcOpts) (wshrpc.NetworkListResponse, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.NetworkListResponse](w, "networklist", data, opts)
+	return resp, err
+}
+
 // command "networkonline", wshserver.NetworkOnlineCommand
 func NetworkOnlineCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (bool, error) {
 	resp, err := sendRpcRequestCallHelper[bool](w, "networkonline", nil, opts)
@@ -1115,3 +1133,5 @@ func WslStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.ConnSta
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.ConnStatus](w, "wslstatus", nil, opts)
 	return resp, err
 }
+
+

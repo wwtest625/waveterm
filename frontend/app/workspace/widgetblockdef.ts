@@ -26,6 +26,12 @@ export function buildWidgetBlockDef(widget: WidgetConfigType, focusedBlock?: Foc
         }
     }
 
+    if (meta.view === "network" && focusedBlock?.view === "term") {
+        if (focusedBlock.connection != null && focusedBlock.connection !== "") {
+            meta.connection = focusedBlock.connection;
+        }
+    }
+
     if (meta.view === "tmux" && focusedBlock?.view === "term") {
         if (focusedBlock.connection != null && focusedBlock.connection !== "") {
             meta.connection = focusedBlock.connection;

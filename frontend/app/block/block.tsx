@@ -14,6 +14,7 @@ import { useTabModel } from "@/app/store/tab-model";
 import { AiFileDiffViewModel } from "@/app/view/aifilediff/aifilediff";
 import { DockerViewModel } from "@/app/view/docker/docker";
 import { LauncherViewModel } from "@/app/view/launcher/launcher";
+import { NetworkViewModel } from "@/app/view/network/network";
 import { PreviewModel } from "@/app/view/preview/preview-model";
 import { QuickCommandsViewModel } from "@/app/view/quickcommands/quickcommands-model";
 import { SysinfoViewModel } from "@/app/view/sysinfo/sysinfo";
@@ -67,6 +68,7 @@ BlockRegistry.set("connectionsmanager", ConnectionsManagerViewModel);
 BlockRegistry.set("quickcommands", QuickCommandsViewModel);
 BlockRegistry.set("transfer", TransferViewModel);
 BlockRegistry.set("docker", DockerViewModel);
+BlockRegistry.set("network", NetworkViewModel);
 BlockRegistry.set("tmux", TmuxViewModel);
 
 function makeViewModel(blockId: string, blockView: string, nodeModel: BlockNodeModel, tabModel: TabModel): ViewModel {

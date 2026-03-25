@@ -228,6 +228,14 @@ declare global {
         jobid: string;
     };
 
+    // wshrpc.CommandAgentTermScrollbackData
+    type CommandAgentTermScrollbackData = {
+        blockid: string;
+        linestart?: number;
+        lineend?: number;
+        lastcommand?: boolean;
+    };
+
     // wshrpc.CommandAuthenticateJobManagerData
     type CommandAuthenticateJobManagerData = {
         jobid: string;
@@ -1267,6 +1275,83 @@ declare global {
     type MimeTypeConfigType = {
         icon: string;
         color: string;
+    };
+
+    // wshrpc.NetworkActionRequest
+    type NetworkActionRequest = {
+        connection?: string;
+        name: string;
+        action: string;
+        mtu?: number;
+    };
+
+    // wshrpc.NetworkActionResponse
+    type NetworkActionResponse = {
+        error?: NetworkError;
+    };
+
+    // wshrpc.NetworkConfigureRequest
+    type NetworkConfigureRequest = {
+        connection?: string;
+        name: string;
+        ipv4Cidr?: string;
+        gateway?: string;
+        dnsServers?: string[];
+    };
+
+    // wshrpc.NetworkConfigureResponse
+    type NetworkConfigureResponse = {
+        error?: NetworkError;
+    };
+
+    // wshrpc.NetworkError
+    type NetworkError = {
+        code: string;
+        message: string;
+        detail?: string;
+    };
+
+    // wshrpc.NetworkInterfaceSummary
+    type NetworkInterfaceSummary = {
+        name: string;
+        displayName?: string;
+        nameExplanation?: string;
+        altNames?: string[];
+        type: string;
+        status: string;
+        ipv4?: string;
+        ipv4Cidr?: string;
+        ipv6?: string;
+        mac?: string;
+        mtu?: number;
+        defaultGateway?: string;
+        driver?: string;
+        firmwareVersion?: string;
+        busInfo?: string;
+        vendor?: string;
+        product?: string;
+        kindDescription?: string;
+        deviceClass?: string;
+        rdmaDevice?: string;
+        speed?: string;
+        portType?: string;
+        linkDetected?: string;
+        canRestart?: boolean;
+        canEditMtu?: boolean;
+    };
+
+    // wshrpc.NetworkListRequest
+    type NetworkListRequest = {
+        connection?: string;
+    };
+
+    // wshrpc.NetworkListResponse
+    type NetworkListResponse = {
+        interfaces: NetworkInterfaceSummary[];
+        defaultRouteInterface?: string;
+        defaultGateway?: string;
+        dnsServers: string[];
+        error?: NetworkError;
     };
 
     // waveobj.ORef

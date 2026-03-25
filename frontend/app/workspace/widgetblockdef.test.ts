@@ -103,3 +103,22 @@ test("buildWidgetBlockDef inherits connection and cwd for tmux widget from focus
     assert.equal(result.meta?.connection, "root@192.2.53.33");
     assert.equal(result.meta?.["cmd:cwd"], "/srv/app");
 });
+
+test("buildWidgetBlockDef inherits connection for network widget from focused terminal", () => {
+    const widget = {
+        blockdef: {
+            meta: {
+                view: "network",
+            },
+        },
+    } as WidgetConfigType;
+
+    const result = buildWidgetBlockDef(widget, {
+        view: "term",
+        connection: "root@192.2.53.33",
+        cwd: "/srv/app",
+    });
+
+    assert.equal(result.meta?.view, "network");
+    assert.equal(result.meta?.connection, "root@192.2.53.33");
+});

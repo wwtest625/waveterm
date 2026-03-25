@@ -108,6 +108,11 @@ type WshRpcInterface interface {
 	TmuxListWindowsCommand(ctx context.Context, data TmuxListWindowsRequest) (TmuxListWindowsResponse, error)
 	TmuxActionCommand(ctx context.Context, data TmuxActionRequest) (TmuxActionResponse, error)
 
+	// network
+	NetworkListCommand(ctx context.Context, data NetworkListRequest) (NetworkListResponse, error)
+	NetworkActionCommand(ctx context.Context, data NetworkActionRequest) (NetworkActionResponse, error)
+	NetworkConfigureCommand(ctx context.Context, data NetworkConfigureRequest) (NetworkConfigureResponse, error)
+
 	// connection functions
 	ConnStatusCommand(ctx context.Context) ([]ConnStatus, error)
 	WslStatusCommand(ctx context.Context) ([]ConnStatus, error)
@@ -553,6 +558,75 @@ type TmuxListWindowsResponse struct {
 
 type TmuxActionResponse struct {
 	Error *TmuxError `json:"error,omitempty"`
+}
+
+type NetworkListRequest struct {
+	Connection string `json:"connection,omitempty"`
+}
+
+type NetworkInterfaceSummary struct {
+	Name            string   `json:"name"`
+	DisplayName     string   `json:"displayName,omitempty"`
+	NameExplanation string   `json:"nameExplanation,omitempty"`
+	AltNames        []string `json:"altNames,omitempty"`
+	Type            string   `json:"type"`
+	Status          string   `json:"status"`
+	Ipv4            string   `json:"ipv4,omitempty"`
+	Ipv4Cidr        string   `json:"ipv4Cidr,omitempty"`
+	Ipv6            string   `json:"ipv6,omitempty"`
+	Mac             string   `json:"mac,omitempty"`
+	Mtu             int      `json:"mtu,omitempty"`
+	DefaultGateway  string   `json:"defaultGateway,omitempty"`
+	Driver          string   `json:"driver,omitempty"`
+	FirmwareVersion string   `json:"firmwareVersion,omitempty"`
+	BusInfo         string   `json:"busInfo,omitempty"`
+	Vendor          string   `json:"vendor,omitempty"`
+	Product         string   `json:"product,omitempty"`
+	KindDescription string   `json:"kindDescription,omitempty"`
+	DeviceClass     string   `json:"deviceClass,omitempty"`
+	RdmaDevice      string   `json:"rdmaDevice,omitempty"`
+	Speed           string   `json:"speed,omitempty"`
+	PortType        string   `json:"portType,omitempty"`
+	LinkDetected    string   `json:"linkDetected,omitempty"`
+	CanRestart      bool     `json:"canRestart,omitempty"`
+	CanEditMtu      bool     `json:"canEditMtu,omitempty"`
+}
+
+type NetworkError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+type NetworkListResponse struct {
+	Interfaces            []NetworkInterfaceSummary `json:"interfaces"`
+	DefaultRouteInterface string                    `json:"defaultRouteInterface,omitempty"`
+	DefaultGateway        string                    `json:"defaultGateway,omitempty"`
+	DnsServers            []string                  `json:"dnsServers"`
+	Error                 *NetworkError             `json:"error,omitempty"`
+}
+
+type NetworkActionRequest struct {
+	Connection string `json:"connection,omitempty"`
+	Name       string `json:"name"`
+	Action     string `json:"action"`
+	Mtu        int    `json:"mtu,omitempty"`
+}
+
+type NetworkActionResponse struct {
+	Error *NetworkError `json:"error,omitempty"`
+}
+
+type NetworkConfigureRequest struct {
+	Connection string   `json:"connection,omitempty"`
+	Name       string   `json:"name"`
+	Ipv4Cidr   string   `json:"ipv4Cidr,omitempty"`
+	Gateway    string   `json:"gateway,omitempty"`
+	DnsServers []string `json:"dnsServers,omitempty"`
+}
+
+type NetworkConfigureResponse struct {
+	Error *NetworkError `json:"error,omitempty"`
 }
 
 const (

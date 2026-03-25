@@ -12,6 +12,11 @@ class RpcApiType {
         return client.wshRpcCall("activity", data, opts);
     }
 
+    // command "agentauthenticate" [call]
+    AgentAuthenticateCommand(client: WshClient, opts?: RpcOpts): Promise<CommandAuthenticateRtnData> {
+        return client.wshRpcCall("agentauthenticate", null, opts);
+    }
+
     // command "agentgetcommandresult" [call]
     AgentGetCommandResultCommand(client: WshClient, data: CommandAgentGetCommandResultData, opts?: RpcOpts): Promise<CommandAgentGetCommandResultRtnData> {
         return client.wshRpcCall("agentgetcommandresult", data, opts);
@@ -20,6 +25,11 @@ class RpcApiType {
     // command "agentruncommand" [call]
     AgentRunCommandCommand(client: WshClient, data: CommandAgentRunCommandData, opts?: RpcOpts): Promise<CommandAgentRunCommandRtnData> {
         return client.wshRpcCall("agentruncommand", data, opts);
+    }
+
+    // command "agenttermscrollback" [call]
+    AgentTermScrollbackCommand(client: WshClient, data: CommandAgentTermScrollbackData, opts?: RpcOpts): Promise<CommandTermGetScrollbackLinesRtnData> {
+        return client.wshRpcCall("agenttermscrollback", data, opts);
     }
 
     // command "aisendmessage" [call]
@@ -540,6 +550,21 @@ class RpcApiType {
     // command "message" [call]
     MessageCommand(client: WshClient, data: CommandMessageData, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("message", data, opts);
+    }
+
+    // command "networkaction" [call]
+    NetworkActionCommand(client: WshClient, data: NetworkActionRequest, opts?: RpcOpts): Promise<NetworkActionResponse> {
+        return client.wshRpcCall("networkaction", data, opts);
+    }
+
+    // command "networkconfigure" [call]
+    NetworkConfigureCommand(client: WshClient, data: NetworkConfigureRequest, opts?: RpcOpts): Promise<NetworkConfigureResponse> {
+        return client.wshRpcCall("networkconfigure", data, opts);
+    }
+
+    // command "networklist" [call]
+    NetworkListCommand(client: WshClient, data: NetworkListRequest, opts?: RpcOpts): Promise<NetworkListResponse> {
+        return client.wshRpcCall("networklist", data, opts);
     }
 
     // command "networkonline" [call]

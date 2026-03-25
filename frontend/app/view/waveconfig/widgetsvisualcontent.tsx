@@ -53,6 +53,18 @@ const fallbackWidgets: Record<string, WidgetConfigDraft> = {
         label: "容器",
         blockdef: { meta: { view: "docker" } },
     },
+    "defwidget@tmux": {
+        "display:order": -2.4,
+        icon: "terminal",
+        label: "tmux",
+        blockdef: { meta: { view: "tmux" } },
+    },
+    "defwidget@network": {
+        "display:order": -2.25,
+        icon: "network-wired",
+        label: "网络",
+        blockdef: { meta: { view: "network" } },
+    },
     "defwidget@ai": {
         "display:order": -2,
         icon: "sparkles",
