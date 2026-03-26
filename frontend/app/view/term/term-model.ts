@@ -39,8 +39,9 @@ import { isMacOS, isWindows } from "@/util/platformutil";
 import { boundNumber, fireAndForget, stringToBase64 } from "@/util/util";
 import * as jotai from "jotai";
 import * as React from "react";
-import { buildBackfilledTermCard } from "./term-cards-backfill";
+import type { ShellIntegrationStatus } from "./osc-handlers";
 import { getBlockingCommand } from "./shellblocking";
+import { buildBackfilledTermCard } from "./term-cards-backfill";
 import { normalizeQuickInputForSend } from "./term-quickinput";
 import { computeTheme, DefaultTermTheme } from "./termutil";
 import { TermWrap } from "./termwrap";
@@ -60,6 +61,82 @@ type TermCard = {
     outputLines: string[];
     collapsed: boolean;
 };
+
+type PendingCompletionNotification = {
+    startTs: number | null;
+    thresholdMs: number;
+    commandText?: string | null;
+};
+
+type QueuedQuickInputDispatch = {
+    data: string;
+    notifyOnCompletion: boolean;
+    thresholdMs: number;
+    commandText: string;
+};
+
+type QuickInputRuntimeState = {
+    isCurrentTermWrap: boolean;
+    runtimeInfoReady: boolean;
+    integrationKnown: boolean;
+    integrationStatus: ShellIntegrationStatus | null;
+};
+
+const DefaultCompletionNotificationThresholdMs = 30_000;
+const CompletionNotificationPresetThresholds = [10_000, 30_000, 60_000];
+const CompletionNotificationLogPrefix = "[term-notify]";
+
+function formatCompletionNotificationThreshold(ms: number): string {
+    if (ms < 1000) {
+        return `${ms}ms`;
+    }
+    const totalSeconds = Math.round(ms / 1000);
+    if (totalSeconds < 60) {
+        return `${totalSeconds}s`;
+    }
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+}
+
+function formatCompletionDuration(ms: number): string {
+    if (ms < 1000) {
+        return `${ms}ms`;
+    }
+    const seconds = ms / 1000;
+    if (seconds < 60) {
+        return `${seconds.toFixed(1)}s`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.round(seconds % 60);
+    return `${minutes}m ${remainingSeconds}s`;
+}
+
+function truncateNotificationCommand(commandText: string | null | undefined): string {
+    const normalized = (commandText ?? "").replace(/\s+/g, " ").trim();
+    if (normalized === "") {
+        return "命令";
+    }
+    if (normalized.length <= 120) {
+        return normalized;
+    }
+    return `${normalized.slice(0, 117)}...`;
+}
+
+function logCompletionNotification(blockId: string, message: string, details?: Record<string, unknown>) {
+    if (details == null) {
+        console.info(`${CompletionNotificationLogPrefix}[${blockId}] ${message}`);
+        return;
+    }
+    console.info(`${CompletionNotificationLogPrefix}[${blockId}] ${message}`, details);
+}
+
+function getNotificationElapsedMs(startTs: number | null | undefined): number | null {
+    if (startTs == null) {
+        return null;
+    }
+    return Math.max(0, Date.now() - startTs);
+}
 
 function makeCardId(ts: number): string {
     return `card-${ts}-${Math.random().toString(36).slice(2, 10)}`;
@@ -93,11 +170,7 @@ function trimLeadingCommandEcho(lines: string[], cmdText: string): string[] {
     }
     const firstLine = stripAnsiForCardText(lines[0]).trim();
     const normalizedCmd = cmdText.trim();
-    if (
-        firstLine === normalizedCmd ||
-        firstLine.endsWith(` ${normalizedCmd}`) ||
-        firstLine.includes(normalizedCmd)
-    ) {
+    if (firstLine === normalizedCmd || firstLine.endsWith(` ${normalizedCmd}`) || firstLine.includes(normalizedCmd)) {
         return lines.slice(1);
     }
     return lines;
@@ -108,15 +181,11 @@ function isLikelyShellPromptLine(line: string): boolean {
     if (text === "") {
         return false;
     }
-    return (
-        /^[^\s@]+@[^\s:]+:[^\r\n]*[#$]$/.test(text) ||
-        /^[^\s]+[#$>]$/.test(text) ||
-        /^[A-Za-z]:\\.*>$/.test(text)
-    );
+    return /^[^\s@]+@[^\s:]+:[^\r\n]*[#$]$/.test(text) || /^[^\s]+[#$>]$/.test(text) || /^[A-Za-z]:\\.*>$/.test(text);
 }
 
 function normalizeCardOutputLines(lines: string[], cmdText: string, isDone: boolean): string[] {
-    let nextLines = trimLeadingCommandEcho([...lines], cmdText);
+    const nextLines = trimLeadingCommandEcho([...lines], cmdText);
     while (nextLines.length > 0 && nextLines[nextLines.length - 1] === "") {
         nextLines.pop();
     }
@@ -152,6 +221,12 @@ export class TermViewModel implements ViewModel {
     vdomToolbarTarget: jotai.PrimitiveAtom<VDomTargetToolbar>;
     fontSizeAtom: jotai.Atom<number>;
     quickInputValueAtom: jotai.PrimitiveAtom<string>;
+    quickInputHistoryAtom: jotai.PrimitiveAtom<string[]>;
+    quickInputHistoryIndexAtom: jotai.PrimitiveAtom<number | null>;
+    quickInputNotifyEnabledAtom: jotai.PrimitiveAtom<boolean>;
+    quickInputNotificationQueueAtom: jotai.PrimitiveAtom<PendingCompletionNotification[]>;
+    quickInputPendingDispatchQueueAtom: jotai.PrimitiveAtom<QueuedQuickInputDispatch[]>;
+    pendingCmdNotificationAtom: jotai.PrimitiveAtom<PendingCompletionNotification | null>;
     termThemeNameAtom: jotai.Atom<string>;
     termTransparencyAtom: jotai.Atom<number>;
     termBPMAtom: jotai.Atom<boolean>;
@@ -195,6 +270,352 @@ export class TermViewModel implements ViewModel {
         return blockData?.meta?.["cmd:cwd"] ?? "";
     }
 
+    getCompletionNotificationThresholdMs(): number {
+        const blockData = globalStore.get(this.blockAtom);
+        const rawValue = blockData?.meta?.["cmd:notifythresholdms"];
+        if (typeof rawValue !== "number" || Number.isNaN(rawValue)) {
+            return DefaultCompletionNotificationThresholdMs;
+        }
+        return Math.max(0, Math.round(rawValue));
+    }
+
+    getCompletionNotificationThresholdLabel(): string {
+        return formatCompletionNotificationThreshold(this.getCompletionNotificationThresholdMs());
+    }
+
+    isCmdCompletionNotificationEnabled(): boolean {
+        const blockData = globalStore.get(this.blockAtom);
+        return blockData?.meta?.["cmd:notifyoncompletion"] === true;
+    }
+
+    setQuickInputNotifyEnabled(enabled: boolean) {
+        globalStore.set(this.quickInputNotifyEnabledAtom, enabled);
+    }
+
+    setCmdCompletionNotificationEnabled(enabled: boolean) {
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: WOS.makeORef("block", this.blockId),
+            meta: { "cmd:notifyoncompletion": enabled },
+        });
+    }
+
+    setCompletionNotificationThresholdMs(ms: number) {
+        const normalized = Math.max(0, Math.round(ms));
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: WOS.makeORef("block", this.blockId),
+            meta: { "cmd:notifythresholdms": normalized },
+        });
+    }
+
+    promptForCustomCompletionNotificationThreshold() {
+        const currentValue = String(this.getCompletionNotificationThresholdMs());
+        const response = window.prompt("完成通知阈值（毫秒）", currentValue);
+        if (response == null) {
+            return;
+        }
+        const parsed = Number(response.trim());
+        if (!Number.isFinite(parsed) || parsed < 0) {
+            modalsModel.pushModal("MessageModal", { children: "请输入大于等于 0 的毫秒数。" });
+            return;
+        }
+        this.setCompletionNotificationThresholdMs(parsed);
+    }
+
+    private async sendCompletionNotification(
+        commandText: string | null | undefined,
+        exitCode: number | null,
+        durationMs: number
+    ) {
+        const uiContext = globalStore.get(atoms.uiContext);
+        const workspace = globalStore.get(atoms.workspace);
+        const statusText = exitCode == null ? "已完成" : exitCode === 0 ? "已成功完成" : `已结束（退出码 ${exitCode}）`;
+        const body = `${truncateNotificationCommand(commandText)}\n耗时 ${formatCompletionDuration(durationMs)}`;
+        const notificationOptions: WaveNotificationOptions = {
+            title: `命令${statusText}`,
+            body,
+            clickwindowid: uiContext?.windowid,
+            clickworkspaceid: workspace?.oid,
+            clicktabid: globalStore.get(atoms.staticTabId),
+            clickblockid: this.blockId,
+        };
+        logCompletionNotification(this.blockId, "sending completion notification", {
+            commandText: truncateNotificationCommand(commandText),
+            exitCode,
+            durationMs,
+            hasWindowId: notificationOptions.clickwindowid != null,
+            hasWorkspaceId: notificationOptions.clickworkspaceid != null,
+            hasTabId: notificationOptions.clicktabid != null,
+            hasBlockId: notificationOptions.clickblockid != null,
+        });
+        try {
+            await RpcApi.NotifyCommand(TabRpcClient, notificationOptions, { route: "electron", timeout: 2000 });
+            logCompletionNotification(this.blockId, "completion notification sent");
+        } catch (err) {
+            logCompletionNotification(this.blockId, "completion notification failed", {
+                error: err instanceof Error ? err.message : String(err),
+            });
+            throw err;
+        }
+    }
+
+    private enqueueQuickInputNotification(commandText: string, thresholdMs: number, startTs?: number | null) {
+        globalStore.set(this.quickInputNotificationQueueAtom, [
+            ...globalStore.get(this.quickInputNotificationQueueAtom),
+            {
+                startTs: startTs ?? null,
+                thresholdMs,
+                commandText,
+            },
+        ]);
+    }
+
+    private isCurrentTermWrap(termWrap: TermWrap | null | undefined): termWrap is TermWrap {
+        return termWrap != null && this.termRef.current === termWrap;
+    }
+
+    private getQuickInputRuntimeState(termWrap?: TermWrap | null): QuickInputRuntimeState {
+        if (!this.isCurrentTermWrap(termWrap)) {
+            return {
+                isCurrentTermWrap: false,
+                runtimeInfoReady: false,
+                integrationKnown: false,
+                integrationStatus: null,
+            };
+        }
+        return {
+            isCurrentTermWrap: true,
+            runtimeInfoReady: globalStore.get(termWrap.runtimeInfoReadyAtom),
+            integrationKnown: globalStore.get(termWrap.shellIntegrationKnownAtom),
+            integrationStatus: globalStore.get(termWrap.shellIntegrationStatusAtom),
+        };
+    }
+
+    private tryFlushQueuedQuickInputDispatches(reason: string, termWrap?: TermWrap | null) {
+        const runtimeState = this.getQuickInputRuntimeState(termWrap ?? this.termRef.current);
+        if (!runtimeState.isCurrentTermWrap || !runtimeState.runtimeInfoReady || !runtimeState.integrationKnown) {
+            return;
+        }
+        if (runtimeState.integrationStatus === "running-command") {
+            return;
+        }
+        const queuedDispatches = globalStore.get(this.quickInputPendingDispatchQueueAtom);
+        if (queuedDispatches.length === 0) {
+            return;
+        }
+        globalStore.set(this.quickInputPendingDispatchQueueAtom, []);
+        logCompletionNotification(this.blockId, "flushing queued quick input dispatches", {
+            reason,
+            queuedCount: queuedDispatches.length,
+            integrationStatus: runtimeState.integrationStatus,
+        });
+        const integrationUnavailable = runtimeState.integrationStatus == null;
+        if (integrationUnavailable) {
+            modalsModel.pushModal("MessageModal", {
+                children: "当前终端未启用 shell integration，输入框的完成通知无法触发。",
+            });
+        }
+        for (const dispatch of queuedDispatches) {
+            this.dispatchQuickInputSubmission(dispatch, {
+                allowQueue: false,
+                forceDisableNotification: integrationUnavailable,
+            });
+        }
+    }
+
+    private dispatchQuickInputSubmission(
+        dispatch: QueuedQuickInputDispatch,
+        opts?: { allowQueue?: boolean; forceDisableNotification?: boolean }
+    ) {
+        const allowQueue = opts?.allowQueue ?? true;
+        const forceDisableNotification = opts?.forceDisableNotification ?? false;
+        const termWrap = this.termRef.current;
+        const runtimeState = this.getQuickInputRuntimeState(termWrap);
+        if (
+            dispatch.notifyOnCompletion &&
+            !forceDisableNotification &&
+            allowQueue &&
+            (!runtimeState.runtimeInfoReady ||
+                !runtimeState.integrationKnown ||
+                runtimeState.integrationStatus === "running-command")
+        ) {
+            globalStore.set(this.quickInputPendingDispatchQueueAtom, [
+                ...globalStore.get(this.quickInputPendingDispatchQueueAtom),
+                dispatch,
+            ]);
+            logCompletionNotification(this.blockId, "queued quick input dispatch until runtime is ready", {
+                queuedCount: globalStore.get(this.quickInputPendingDispatchQueueAtom).length,
+                runtimeInfoReady: runtimeState.runtimeInfoReady,
+                integrationKnown: runtimeState.integrationKnown,
+                integrationStatus: runtimeState.integrationStatus,
+                thresholdMs: dispatch.thresholdMs,
+                commandText: truncateNotificationCommand(dispatch.commandText),
+            });
+            return;
+        }
+        if (dispatch.notifyOnCompletion && !forceDisableNotification) {
+            logCompletionNotification(this.blockId, "arming quick input completion notification", {
+                runtimeInfoReady: runtimeState.runtimeInfoReady,
+                integrationKnown: runtimeState.integrationKnown,
+                integrationStatus: runtimeState.integrationStatus,
+                thresholdMs: dispatch.thresholdMs,
+                commandText: truncateNotificationCommand(dispatch.commandText),
+            });
+            if (!runtimeState.isCurrentTermWrap) {
+                logCompletionNotification(this.blockId, "quick input notification deferred: no active term wrap");
+            } else if (runtimeState.integrationStatus == null) {
+                logCompletionNotification(
+                    this.blockId,
+                    "quick input notification unavailable: shell integration is disabled"
+                );
+                modalsModel.pushModal("MessageModal", {
+                    children: "当前终端未启用 shell integration，输入框的完成通知无法触发。",
+                });
+            } else {
+                this.enqueueQuickInputNotification(dispatch.commandText, dispatch.thresholdMs);
+            }
+        }
+        this.sendDataToController(dispatch.data);
+        if (globalStore.get(this.tabModel.isTermMultiInput) && this.supportsQuickInput()) {
+            this.multiInputHandler(dispatch.data);
+        }
+    }
+
+    private handleQuickInputStatusChange(status: ShellIntegrationStatus | null, termWrap?: TermWrap | null) {
+        if (!this.isCurrentTermWrap(termWrap ?? this.termRef.current)) {
+            return;
+        }
+        const queue = globalStore.get(this.quickInputNotificationQueueAtom);
+        const pending = queue[0];
+        if (pending == null) {
+            return;
+        }
+        logCompletionNotification(this.blockId, "quick input shell integration status changed", {
+            status,
+            pendingStartTs: pending.startTs,
+            elapsedMs: getNotificationElapsedMs(pending.startTs),
+            thresholdMs: pending.thresholdMs,
+            commandText: truncateNotificationCommand(pending.commandText),
+            queueLength: queue.length,
+        });
+        if (status === "running-command" && pending.startTs == null) {
+            globalStore.set(this.quickInputNotificationQueueAtom, [
+                { ...pending, startTs: Date.now() },
+                ...queue.slice(1),
+            ]);
+            logCompletionNotification(this.blockId, "quick input notification timer started");
+            return;
+        }
+        if (status !== "ready") {
+            return;
+        }
+        this.completeQuickInputNotification("shell-ready");
+    }
+
+    private completeQuickInputNotification(reason: string, exitCodeOverride?: number | null) {
+        const queue = globalStore.get(this.quickInputNotificationQueueAtom);
+        const pending = queue[0];
+        if (pending == null) {
+            return;
+        }
+        globalStore.set(this.quickInputNotificationQueueAtom, queue.slice(1));
+        const startTs = pending.startTs ?? Date.now();
+        const durationMs = Math.max(0, Date.now() - startTs);
+        if (durationMs < pending.thresholdMs) {
+            logCompletionNotification(this.blockId, "quick input notification skipped by threshold", {
+                reason,
+                durationMs,
+                thresholdMs: pending.thresholdMs,
+            });
+            return;
+        }
+        const activeTermWrap = this.termRef.current;
+        const commandText = activeTermWrap ? globalStore.get(activeTermWrap.lastCommandAtom) : (pending.commandText ?? null);
+        const exitCode =
+            exitCodeOverride !== undefined
+                ? exitCodeOverride
+                : activeTermWrap
+                  ? globalStore.get(activeTermWrap.lastCommandExitCodeAtom)
+                  : null;
+        logCompletionNotification(this.blockId, "quick input notification ready to send", {
+            reason,
+            durationMs,
+            exitCode,
+            commandText: truncateNotificationCommand(commandText),
+        });
+        fireAndForget(() => this.sendCompletionNotification(commandText, exitCode, durationMs));
+    }
+
+    private handleQuickInputExitCodeChange(
+        previousExitCode: number | null,
+        nextExitCode: number | null,
+        termWrap?: TermWrap | null
+    ) {
+        if (!this.isCurrentTermWrap(termWrap ?? this.termRef.current)) {
+            return;
+        }
+        if (nextExitCode == null || previousExitCode === nextExitCode) {
+            return;
+        }
+        const pending = globalStore.get(this.quickInputNotificationQueueAtom)[0];
+        if (pending == null || pending.startTs == null) {
+            return;
+        }
+        const status = globalStore.get((termWrap ?? this.termRef.current).shellIntegrationStatusAtom);
+        if (status !== "running-command") {
+            return;
+        }
+        logCompletionNotification(this.blockId, "quick input exit code changed while still running", {
+            previousExitCode,
+            nextExitCode,
+            pendingStartTs: pending.startTs,
+            elapsedMs: getNotificationElapsedMs(pending.startTs),
+        });
+        setTimeout(() => {
+            if (!this.isCurrentTermWrap(termWrap ?? this.termRef.current)) {
+                return;
+            }
+            const currentStatus = globalStore.get((termWrap ?? this.termRef.current).shellIntegrationStatusAtom);
+            if (currentStatus !== "running-command") {
+                return;
+            }
+            this.completeQuickInputNotification("exit-code-fallback", nextExitCode);
+        }, 150);
+    }
+
+    private handleCmdControllerStatusChange(
+        previousStatus: string | null | undefined,
+        nextStatus: string | null | undefined
+    ) {
+        if (!this.isCmdCompletionNotificationEnabled()) {
+            if (nextStatus !== "running") {
+                globalStore.set(this.pendingCmdNotificationAtom, null);
+            }
+            return;
+        }
+        if (nextStatus === "running" && previousStatus !== "running") {
+            globalStore.set(this.pendingCmdNotificationAtom, {
+                startTs: Date.now(),
+                thresholdMs: this.getCompletionNotificationThresholdMs(),
+                commandText: globalStore.get(this.blockAtom)?.meta?.cmd as string | undefined,
+            });
+            return;
+        }
+        if (nextStatus !== "done" || previousStatus === "done") {
+            return;
+        }
+        const pending = globalStore.get(this.pendingCmdNotificationAtom);
+        globalStore.set(this.pendingCmdNotificationAtom, null);
+        if (pending == null) {
+            return;
+        }
+        const durationMs = Math.max(0, Date.now() - (pending.startTs ?? Date.now()));
+        if (durationMs < pending.thresholdMs) {
+            return;
+        }
+        const exitCode = globalStore.get(this.shellProcFullStatus)?.shellprocexitcode ?? null;
+        fireAndForget(() => this.sendCompletionNotification(pending.commandText, exitCode, durationMs));
+    }
+
     constructor(blockId: string, nodeModel: BlockNodeModel, tabModel: TabModel) {
         this.viewType = "term";
         this.blockId = blockId;
@@ -212,15 +633,11 @@ export class TermViewModel implements ViewModel {
             return blockData?.meta?.["term:vdomtoolbarblockid"];
         });
         this.vdomToolbarTarget = jotai.atom<VDomTargetToolbar>(null) as jotai.PrimitiveAtom<VDomTargetToolbar>;
-        this.autoTermModeAtom = useBlockAtom(
-            blockId,
-            "termautomode",
-            () => jotai.atom<"term" | "cards">("term")
+        this.autoTermModeAtom = useBlockAtom(blockId, "termautomode", () =>
+            jotai.atom<"term" | "cards">("term")
         ) as jotai.PrimitiveAtom<"term" | "cards">;
-        this.shellIntegrationAvailableAtom = useBlockAtom(
-            blockId,
-            "termshellintegrationavailable",
-            () => jotai.atom<boolean>(false)
+        this.shellIntegrationAvailableAtom = useBlockAtom(blockId, "termshellintegrationavailable", () =>
+            jotai.atom<boolean>(false)
         ) as jotai.PrimitiveAtom<boolean>;
         this.termMode = jotai.atom((get) => {
             const blockData = get(this.blockAtom);
@@ -319,7 +736,7 @@ export class TermViewModel implements ViewModel {
             if (isCmd) {
                 const blockMeta = get(this.blockAtom)?.meta;
                 let cmdText = blockMeta?.["cmd"];
-                let cmdArgs = blockMeta?.["cmd:args"];
+                const cmdArgs = blockMeta?.["cmd:args"];
                 if (cmdArgs != null && Array.isArray(cmdArgs) && cmdArgs.length > 0) {
                     cmdText += " " + cmdArgs.join(" ");
                 }
@@ -406,7 +823,7 @@ export class TermViewModel implements ViewModel {
         });
         this.termTransparencyAtom = useBlockAtom(blockId, "termtransparencyatom", () => {
             return jotai.atom<number>((get) => {
-                let value = get(getOverrideConfigAtom(this.blockId, "term:transparency")) ?? 0.5;
+                const value = get(getOverrideConfigAtom(this.blockId, "term:transparency")) ?? 0.5;
                 return boundNumber(value, 0, 1);
             });
         });
@@ -441,18 +858,36 @@ export class TermViewModel implements ViewModel {
                 return rtnFontSize;
             });
         });
-        this.quickInputValueAtom = useBlockAtom(blockId, "termquickinputvalue", () => jotai.atom(""));
+        this.quickInputValueAtom = useBlockAtom(blockId, "termquickinputvalue", () =>
+            jotai.atom("")
+        ) as jotai.PrimitiveAtom<string>;
+        this.quickInputHistoryAtom = useBlockAtom(blockId, "termquickinputhistory", () =>
+            jotai.atom<string[]>([])
+        ) as jotai.PrimitiveAtom<string[]>;
+        this.quickInputHistoryIndexAtom = useBlockAtom(blockId, "termquickinputhistoryindex", () =>
+            jotai.atom<number | null>(null)
+        ) as jotai.PrimitiveAtom<number | null>;
+        this.quickInputNotifyEnabledAtom = useBlockAtom(blockId, "termquickinputnotifyenabled", () =>
+            jotai.atom(false)
+        ) as jotai.PrimitiveAtom<boolean>;
+        this.quickInputNotificationQueueAtom = useBlockAtom(blockId, "termquickinputnotificationqueue", () =>
+            jotai.atom<PendingCompletionNotification[]>([])
+        ) as jotai.PrimitiveAtom<PendingCompletionNotification[]>;
+        this.quickInputPendingDispatchQueueAtom = useBlockAtom(blockId, "termquickinputpendingdispatchqueue", () =>
+            jotai.atom<QueuedQuickInputDispatch[]>([])
+        ) as jotai.PrimitiveAtom<QueuedQuickInputDispatch[]>;
+        this.pendingCmdNotificationAtom = useBlockAtom(blockId, "termpendingcmdnotification", () =>
+            jotai.atom<PendingCompletionNotification | null>(null)
+        ) as jotai.PrimitiveAtom<PendingCompletionNotification | null>;
 
         this.cardsAtom = useBlockAtom(blockId, "termcards", () => jotai.atom<TermCard[]>([])) as jotai.PrimitiveAtom<
             TermCard[]
         >;
-        this.cardsSearchAtom = useBlockAtom(blockId, "termcardssearch", () => jotai.atom("")) as jotai.PrimitiveAtom<
-            string
-        >;
-        this.cardsContextLabelAtom = useBlockAtom(
-            blockId,
-            "termcardscontextlabel",
-            () => jotai.atom("")
+        this.cardsSearchAtom = useBlockAtom(blockId, "termcardssearch", () =>
+            jotai.atom("")
+        ) as jotai.PrimitiveAtom<string>;
+        this.cardsContextLabelAtom = useBlockAtom(blockId, "termcardscontextlabel", () =>
+            jotai.atom("")
         ) as jotai.PrimitiveAtom<string>;
         this.noPadding = jotai.atom(true);
         this.endIconButtons = jotai.atom((get) => {
@@ -642,7 +1077,7 @@ export class TermViewModel implements ViewModel {
 
     sendDataToController(data: string) {
         const now = Date.now();
-        if (now-this.lastUserActivityUpdateTs >= 1000) {
+        if (now - this.lastUserActivityUpdateTs >= 1000) {
             this.lastUserActivityUpdateTs = now;
             RpcApi.SetRTInfoCommand(TabRpcClient, {
                 oref: WOS.makeORef("block", this.blockId),
@@ -681,8 +1116,36 @@ export class TermViewModel implements ViewModel {
         );
 
         this.cardsUnsubFns.push(
+            globalStore.sub(termWrap.runtimeInfoReadyAtom, () => {
+                if (globalStore.get(termWrap.runtimeInfoReadyAtom)) {
+                    this.tryFlushQueuedQuickInputDispatches("runtime-ready", termWrap);
+                }
+            })
+        );
+
+        this.cardsUnsubFns.push(
+            globalStore.sub(termWrap.shellIntegrationKnownAtom, () => {
+                this.tryFlushQueuedQuickInputDispatches("shell-known-change", termWrap);
+                const integrationKnown = globalStore.get(termWrap.shellIntegrationKnownAtom);
+                const status = globalStore.get(termWrap.shellIntegrationStatusAtom);
+                if (!integrationKnown) {
+                    return;
+                }
+                const hasIntegration = status != null;
+                globalStore.set(this.shellIntegrationAvailableAtom, hasIntegration);
+                globalStore.set(this.autoTermModeAtom, hasIntegration ? "cards" : "term");
+            })
+        );
+
+        this.cardsUnsubFns.push(
             globalStore.sub(termWrap.shellIntegrationStatusAtom, () => {
                 const status = globalStore.get(termWrap.shellIntegrationStatusAtom);
+                this.handleQuickInputStatusChange(status, termWrap);
+                this.tryFlushQueuedQuickInputDispatches("shell-status-change", termWrap);
+                const integrationKnown = globalStore.get(termWrap.shellIntegrationKnownAtom);
+                if (!integrationKnown) {
+                    return;
+                }
                 const hasIntegration = status != null;
                 globalStore.set(this.shellIntegrationAvailableAtom, hasIntegration);
                 globalStore.set(this.autoTermModeAtom, hasIntegration ? "cards" : "term");
@@ -709,10 +1172,25 @@ export class TermViewModel implements ViewModel {
                 }
             })
         );
+
+        let previousExitCode = globalStore.get(termWrap.lastCommandExitCodeAtom);
+        this.cardsUnsubFns.push(
+            globalStore.sub(termWrap.lastCommandExitCodeAtom, () => {
+                const nextExitCode = globalStore.get(termWrap.lastCommandExitCodeAtom);
+                this.handleQuickInputExitCodeChange(previousExitCode, nextExitCode, termWrap);
+                previousExitCode = nextExitCode;
+            })
+        );
+
+        this.tryFlushQueuedQuickInputDispatches("attach-termwrap", termWrap);
     }
 
     prepareCardsMode(termWrap: TermWrap) {
         if (!globalStore.get(termWrap.runtimeInfoReadyAtom)) {
+            return;
+        }
+
+        if (!globalStore.get(termWrap.shellIntegrationKnownAtom)) {
             return;
         }
 
@@ -913,7 +1391,8 @@ export class TermViewModel implements ViewModel {
         const combined = card.output + chunk;
         const lines = combined.split("\n");
         const normalizedLines = normalizeCardOutputLines(lines, card.cmdText, false);
-        const cappedLines = normalizedLines.length > 2000 ? normalizedLines.slice(normalizedLines.length - 2000) : normalizedLines;
+        const cappedLines =
+            normalizedLines.length > 2000 ? normalizedLines.slice(normalizedLines.length - 2000) : normalizedLines;
         const cappedOutput = cappedLines.join("\n");
         const next: TermCard = {
             ...card,
@@ -931,8 +1410,45 @@ export class TermViewModel implements ViewModel {
         return termMode != "vdom" && blockData?.meta?.controller != "cmd";
     }
 
-    setQuickInputValue(value: string) {
+    private setQuickInputValueInternal(value: string, historyIndex: number | null) {
         globalStore.set(this.quickInputValueAtom, value ?? "");
+        globalStore.set(this.quickInputHistoryIndexAtom, historyIndex);
+    }
+
+    setQuickInputValue(value: string) {
+        this.setQuickInputValueInternal(value, null);
+    }
+
+    navigateQuickInputHistory(direction: "prev" | "next"): boolean {
+        const history = globalStore.get(this.quickInputHistoryAtom);
+        if (history.length === 0) {
+            return false;
+        }
+        const currentIndex = globalStore.get(this.quickInputHistoryIndexAtom);
+        if (direction === "prev") {
+            const nextIndex = currentIndex == null ? history.length - 1 : Math.max(0, currentIndex - 1);
+            this.setQuickInputValueInternal(history[nextIndex], nextIndex);
+            return true;
+        }
+        if (currentIndex == null) {
+            return false;
+        }
+        if (currentIndex >= history.length - 1) {
+            this.setQuickInputValueInternal("", null);
+            return true;
+        }
+        const nextIndex = currentIndex + 1;
+        this.setQuickInputValueInternal(history[nextIndex], nextIndex);
+        return true;
+    }
+
+    private appendQuickInputHistory(value: string) {
+        const commandText = value.replace(/[\r\n]+$/, "");
+        if (commandText.trim() === "") {
+            return;
+        }
+        globalStore.set(this.quickInputHistoryAtom, [...globalStore.get(this.quickInputHistoryAtom), commandText]);
+        globalStore.set(this.quickInputHistoryIndexAtom, null);
     }
 
     focusQuickInput(): boolean {
@@ -957,11 +1473,15 @@ export class TermViewModel implements ViewModel {
         if (data == null) {
             return false;
         }
-        this.sendDataToController(data);
-        if (globalStore.get(this.tabModel.isTermMultiInput) && this.supportsQuickInput()) {
-            this.multiInputHandler(data);
-        }
-        globalStore.set(this.quickInputValueAtom, "");
+        this.appendQuickInputHistory(data);
+        this.dispatchQuickInputSubmission({
+            data,
+            notifyOnCompletion: globalStore.get(this.quickInputNotifyEnabledAtom),
+            thresholdMs: this.getCompletionNotificationThresholdMs(),
+            commandText: data.trim(),
+        });
+        globalStore.set(this.quickInputNotifyEnabledAtom, false);
+        this.setQuickInputValueInternal("", null);
         return true;
     }
 
@@ -1055,6 +1575,9 @@ export class TermViewModel implements ViewModel {
         const curStatus = globalStore.get(this.shellProcFullStatus);
         if (curStatus == null || curStatus.version < fullStatus.version) {
             globalStore.set(this.shellProcFullStatus, fullStatus);
+            if (globalStore.get(this.isCmdController)) {
+                this.handleCmdControllerStatusChange(curStatus?.shellprocstatus, fullStatus.shellprocstatus);
+            }
         }
     }
 
@@ -1097,7 +1620,7 @@ export class TermViewModel implements ViewModel {
             console.log("search is open, not giving focus");
             return true;
         }
-        let termMode = globalStore.get(this.termMode);
+        const termMode = globalStore.get(this.termMode);
         if (termMode == "term") {
             if (this.termRef?.current?.terminal) {
                 this.termRef.current.terminal.focus();
@@ -1302,6 +1825,8 @@ export class TermViewModel implements ViewModel {
         if (globalStore.get(this.isRestarting)) {
             return;
         }
+        globalStore.set(this.quickInputNotificationQueueAtom, []);
+        globalStore.set(this.pendingCmdNotificationAtom, null);
         this.triggerRestartAtom();
         await RpcApi.ControllerDestroyCommand(TabRpcClient, this.blockId);
         const termsize = {
@@ -1372,7 +1897,7 @@ export class TermViewModel implements ViewModel {
             let hoveredURL: URL = null;
             try {
                 hoveredURL = new URL(hoveredLinkUri);
-            } catch (e) {
+            } catch {
                 // not a valid URL
             }
             if (hoveredURL) {
@@ -1798,6 +2323,42 @@ export class TermViewModel implements ViewModel {
                 },
             ],
         });
+        const completionNotifyThresholdMs = this.getCompletionNotificationThresholdMs();
+        advancedSubmenu.push({
+            label: `完成通知阈值 (${formatCompletionNotificationThreshold(completionNotifyThresholdMs)})`,
+            submenu: [
+                ...CompletionNotificationPresetThresholds.map((thresholdMs) => ({
+                    label: formatCompletionNotificationThreshold(thresholdMs),
+                    type: "checkbox" as const,
+                    checked: completionNotifyThresholdMs === thresholdMs,
+                    click: () => this.setCompletionNotificationThresholdMs(thresholdMs),
+                })),
+                {
+                    label: "自定义...",
+                    click: () => this.promptForCustomCompletionNotificationThreshold(),
+                },
+            ],
+        });
+        if (blockData?.meta?.controller === "cmd") {
+            const notifyOnCompletion = this.isCmdCompletionNotificationEnabled();
+            advancedSubmenu.push({
+                label: "完成后通知",
+                submenu: [
+                    {
+                        label: "开启",
+                        type: "checkbox",
+                        checked: notifyOnCompletion,
+                        click: () => this.setCmdCompletionNotificationEnabled(true),
+                    },
+                    {
+                        label: "关闭",
+                        type: "checkbox",
+                        checked: !notifyOnCompletion,
+                        click: () => this.setCmdCompletionNotificationEnabled(false),
+                    },
+                ],
+            });
+        }
         const debugConn = blockData?.meta?.["term:conndebug"];
         advancedSubmenu.push({
             label: "调试连接",

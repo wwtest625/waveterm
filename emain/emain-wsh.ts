@@ -1,9 +1,10 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { WindowService } from "@/app/store/services";
+import { WindowService, WorkspaceService } from "@/app/store/services";
 import { RpcResponseHelper, WshClient } from "@/app/store/wshclient";
 import { RpcApi } from "@/app/store/wshclientapi";
+import { makeTabRouteId } from "@/app/store/wshrouter";
 import { Notification, net, safeStorage, shell } from "electron";
 import { getResolvedUpdateChannel } from "emain/updater";
 import { unamePlatform } from "./emain-platform";
@@ -32,14 +33,43 @@ export class ElectronWshClientType extends WshClient {
     }
 
     async handle_notify(rh: RpcResponseHelper, notificationOptions: WaveNotificationOptions) {
-        new Notification({
+        const notification = new Notification({
             title: notificationOptions.title,
             body: notificationOptions.body,
             silent: notificationOptions.silent,
-        }).show();
+        });
+        if (
+            notificationOptions.clickwindowid ||
+            notificationOptions.clickworkspaceid ||
+            notificationOptions.clicktabid ||
+            notificationOptions.clickblockid
+        ) {
+            notification.on("click", async () => {
+                try {
+                    if (notificationOptions.clickwindowid) {
+                        await this.handle_focuswindow(rh, notificationOptions.clickwindowid);
+                    }
+                    if (notificationOptions.clickworkspaceid && notificationOptions.clicktabid) {
+                        await WorkspaceService.SetActiveTab(
+                            notificationOptions.clickworkspaceid,
+                            notificationOptions.clicktabid
+                        );
+                    }
+                    if (notificationOptions.clicktabid && notificationOptions.clickblockid) {
+                        await RpcApi.SetBlockFocusCommand(ElectronWshClient, notificationOptions.clickblockid, {
+                            route: makeTabRouteId(notificationOptions.clicktabid),
+                            timeout: 2000,
+                        });
+                    }
+                } catch (err) {
+                    console.error("notification click handling failed", err);
+                }
+            });
+        }
+        notification.show();
     }
 
-    async handle_getupdatechannel(rh: RpcResponseHelper): Promise<string> {
+    async handle_getupdatechannel(_: RpcResponseHelper): Promise<string> {
         return getResolvedUpdateChannel();
     }
 
@@ -102,11 +132,11 @@ export class ElectronWshClientType extends WshClient {
         };
     }
 
-    async handle_networkonline(rh: RpcResponseHelper): Promise<boolean> {
+    async handle_networkonline(_: RpcResponseHelper): Promise<boolean> {
         return net.isOnline();
     }
 
-    async handle_electronsystembell(rh: RpcResponseHelper): Promise<void> {
+    async handle_electronsystembell(_: RpcResponseHelper): Promise<void> {
         shell.beep();
     }
 

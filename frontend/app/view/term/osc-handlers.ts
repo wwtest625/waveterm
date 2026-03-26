@@ -306,6 +306,10 @@ export function handleOsc16162Command(data: string, blockId: string, loaded: boo
             }
             if (cmd.data.integration != null) {
                 rtInfo["shell:integration"] = cmd.data.integration;
+                globalStore.set(termWrap.shellIntegrationKnownAtom, true);
+                if (!cmd.data.integration) {
+                    globalStore.set(termWrap.shellIntegrationStatusAtom, null);
+                }
             }
             if (cmd.data.omz != null) {
                 rtInfo["shell:omz"] = cmd.data.omz;

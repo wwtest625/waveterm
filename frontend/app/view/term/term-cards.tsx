@@ -73,7 +73,8 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
     const [cards, setCards] = useAtom(model.cardsAtom);
     const [contextLabel] = useAtom(model.cardsContextLabelAtom);
     const [search, setSearch] = useAtom(model.cardsSearchAtom);
-    const [quickInputValue, setQuickInputValue] = useAtom(model.quickInputValueAtom);
+    const quickInputValue = useAtomValue(model.quickInputValueAtom);
+    const [quickInputNotifyEnabled, setQuickInputNotifyEnabled] = useAtom(model.quickInputNotifyEnabledAtom);
     const cwd = useAtomValue(getBlockMetaKeyAtom(blockId, "cmd:cwd"));
     const connName = useAtomValue(getBlockMetaKeyAtom(blockId, "connection"));
     const shellIntegrationStatus = useAtomValueSafe(termWrap?.shellIntegrationStatusAtom);
@@ -137,8 +138,7 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
             }
             const prevKeys = Object.keys(prev).sort();
             const nextKeys = Object.keys(next).sort();
-            const changed =
-                prevKeys.length !== nextKeys.length || prevKeys.some((key, idx) => key !== nextKeys[idx]);
+            const changed = prevKeys.length !== nextKeys.length || prevKeys.some((key, idx) => key !== nextKeys[idx]);
             if (!changed) {
                 return prev;
             }
@@ -261,7 +261,7 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
                 </div>
             </div>
             <div ref={containerRef} className="term-cards-list">
-                {(filteredCards.length === 0 && (!runtimeInfoReady || search.trim())) ? (
+                {filteredCards.length === 0 && (!runtimeInfoReady || search.trim()) ? (
                     <div className="term-cards-item">
                         <div className="term-cards-bubble term-cards-bubble-left">
                             <div className="term-cards-bubble-header">
@@ -360,14 +360,30 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
             </div>
             <div className="term-cards-inputbar" onMouseDown={(e) => e.stopPropagation()}>
                 <div className="term-cards-inputbar-editor">
-                    <TermQuickInputCompletion
-                        model={model}
-                        value={quickInputValue}
-                        onChange={setQuickInputValue}
-                        onSubmit={onSend}
-                        placeholder="Enter a command. Ctrl+Enter sends it."
-                        className="term-quick-input-field text-sm"
-                    />
+                    <div className="term-quick-input-shell">
+                        <div className="term-quick-input-completion">
+                            <TermQuickInputCompletion
+                                model={model}
+                                value={quickInputValue}
+                                onChange={(value) => model.setQuickInputValue(value)}
+                                onSubmit={onSend}
+                                placeholder="Enter a command. Ctrl+Enter sends it."
+                                className="term-quick-input-field text-sm"
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            className={cn("term-quick-input-notify-toggle", {
+                                active: quickInputNotifyEnabled,
+                            })}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => setQuickInputNotifyEnabled(!quickInputNotifyEnabled)}
+                            title={`为下一条输入框命令发送完成通知（阈值 ${model.getCompletionNotificationThresholdLabel()}）`}
+                        >
+                            <i className="fa-solid fa-bell text-[10px]" />
+                            <span>通知</span>
+                        </button>
+                    </div>
                 </div>
                 <Button
                     className="!h-[36px] !px-3 !text-xs"

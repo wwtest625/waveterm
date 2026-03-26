@@ -17,26 +17,23 @@ import { fireAndForget, useAtomValueSafe } from "@/util/util";
 import { computeBgStyleFromMeta } from "@/util/waveutil";
 import { ISearchOptions } from "@xterm/addon-search";
 import clsx from "clsx";
-import debug from "debug";
 import * as jotai from "jotai";
 import * as React from "react";
+import { TermCardsView } from "./term-cards";
 import { TermQuickInputCompletion } from "./term-quickinput-completion";
 import { TermLinkTooltip } from "./term-tooltip";
 import { TermStickers } from "./termsticker";
 import { TermThemeUpdater } from "./termtheme";
 import { computeTheme, normalizeCursorStyle } from "./termutil";
 import { TermWrap } from "./termwrap";
-import { TermCardsView } from "./term-cards";
 import "./xterm.css";
-
-const dlog = debug("wave:term");
 
 interface TerminalViewProps {
     blockId: string;
     model: TermViewModel;
 }
 
-const TermResyncHandler = React.memo(({ blockId, model }: TerminalViewProps) => {
+const TermResyncHandler = React.memo(({ model }: TerminalViewProps) => {
     const connStatus = jotai.useAtomValue(model.connStatus);
     const [lastConnStatus, setLastConnStatus] = React.useState<ConnStatus>(connStatus);
 
@@ -63,7 +60,7 @@ const TermVDomToolbarNode = ({ vdomBlockId, blockId, model }: TerminalViewProps 
         const unsub = waveEventSubscribeSingle({
             eventType: "blockclose",
             scope: WOS.makeORef("block", vdomBlockId),
-            handler: (event) => {
+            handler: () => {
                 RpcApi.SetMetaCommand(TabRpcClient, {
                     oref: WOS.makeORef("block", blockId),
                     meta: {
@@ -105,7 +102,7 @@ const TermVDomNodeSingleId = ({ vdomBlockId, blockId, model }: TerminalViewProps
         const unsub = waveEventSubscribeSingle({
             eventType: "blockclose",
             scope: WOS.makeORef("block", vdomBlockId),
-            handler: (event) => {
+            handler: () => {
                 const blockData = globalStore.get(model.blockAtom);
                 const curMode = blockData?.meta?.["term:mode"];
                 const pre = blockData?.meta?.["term:pre_vdom_mode"] === "cards" ? "cards" : "term";
@@ -192,7 +189,8 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const isFocused = jotai.useAtomValue(model.nodeModel.isFocused);
     const isMI = jotai.useAtomValue(tabModel.isTermMultiInput);
     const isBasicTerm = termMode != "vdom" && blockData?.meta?.controller != "cmd"; // needs to match isBasicTerm
-    const [quickInputValue, setQuickInputValue] = jotai.useAtom(model.quickInputValueAtom);
+    const quickInputValue = jotai.useAtomValue(model.quickInputValueAtom);
+    const [quickInputNotifyEnabled, setQuickInputNotifyEnabled] = jotai.useAtom(model.quickInputNotifyEnabledAtom);
 
     // search
     const searchProps = useSearch({
@@ -424,15 +422,31 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
             {isBasicTerm && termMode !== "cards" ? (
                 <div className="term-quick-input" onMouseDown={(e) => e.stopPropagation()}>
                     <div className="term-quick-input-editor">
-                        <TermQuickInputCompletion
-                            model={model}
-                            value={quickInputValue}
-                            onChange={setQuickInputValue}
-                            onSubmit={handleQuickInputSend}
-                            onFocus={handleQuickInputFocus}
-                            placeholder="Enter a command. Ctrl+Enter sends it."
-                            className="term-quick-input-field text-sm"
-                        />
+                        <div className="term-quick-input-shell">
+                            <div className="term-quick-input-completion">
+                                <TermQuickInputCompletion
+                                    model={model}
+                                    value={quickInputValue}
+                                    onChange={(value) => model.setQuickInputValue(value)}
+                                    onSubmit={handleQuickInputSend}
+                                    onFocus={handleQuickInputFocus}
+                                    placeholder="Enter a command. Ctrl+Enter sends it."
+                                    className="term-quick-input-field text-sm"
+                                />
+                            </div>
+                            <button
+                                type="button"
+                                className={clsx("term-quick-input-notify-toggle", {
+                                    active: quickInputNotifyEnabled,
+                                })}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => setQuickInputNotifyEnabled(!quickInputNotifyEnabled)}
+                                title={`为下一条输入框命令发送完成通知（阈值 ${model.getCompletionNotificationThresholdLabel()}）`}
+                            >
+                                <i className="fa-solid fa-bell text-[10px]" />
+                                <span>通知</span>
+                            </button>
+                        </div>
                     </div>
                     <Button
                         className="!h-[36px] !px-3 !text-xs"

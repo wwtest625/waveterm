@@ -92,6 +92,7 @@ export class TermWrap {
     lastUpdated: number;
     promptMarkers: TermTypes.IMarker[] = [];
     shellIntegrationStatusAtom: jotai.PrimitiveAtom<ShellIntegrationStatus | null>;
+    shellIntegrationKnownAtom: jotai.PrimitiveAtom<boolean>;
     runtimeInfoReadyAtom: jotai.PrimitiveAtom<boolean>;
     lastCommandAtom: jotai.PrimitiveAtom<string | null>;
     lastCommandExitCodeAtom: jotai.PrimitiveAtom<number | null>;
@@ -159,6 +160,7 @@ export class TermWrap {
         this.lastUpdated = Date.now();
         this.promptMarkers = [];
         this.shellIntegrationStatusAtom = jotai.atom(null) as jotai.PrimitiveAtom<ShellIntegrationStatus | null>;
+        this.shellIntegrationKnownAtom = jotai.atom(false) as jotai.PrimitiveAtom<boolean>;
         this.runtimeInfoReadyAtom = jotai.atom(false) as jotai.PrimitiveAtom<boolean>;
         this.lastCommandAtom = jotai.atom(null) as jotai.PrimitiveAtom<string | null>;
         this.lastCommandExitCodeAtom = jotai.atom(null) as jotai.PrimitiveAtom<number | null>;
@@ -373,6 +375,7 @@ export class TermWrap {
 
     async initTerminal() {
         globalStore.set(this.runtimeInfoReadyAtom, false);
+        globalStore.set(this.shellIntegrationKnownAtom, false);
         const copyOnSelectAtom = getSettingsKeyAtom("term:copyonselect");
         this.toDispose.push(this.terminal.onData(this.handleTermData.bind(this)));
         this.toDispose.push(
@@ -433,6 +436,8 @@ export class TermWrap {
                     oref: WOS.makeORef("block", this.blockId),
                 });
 
+                const integrationKnown = rtInfo != null && Object.prototype.hasOwnProperty.call(rtInfo, "shell:integration");
+                globalStore.set(this.shellIntegrationKnownAtom, integrationKnown);
                 if (rtInfo && rtInfo["shell:integration"]) {
                     const shellState = rtInfo["shell:state"] as ShellIntegrationStatus;
                     globalStore.set(this.shellIntegrationStatusAtom, shellState || null);

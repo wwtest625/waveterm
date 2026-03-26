@@ -700,9 +700,13 @@ type BlockInfoData struct {
 }
 
 type WaveNotificationOptions struct {
-	Title  string `json:"title,omitempty"`
-	Body   string `json:"body,omitempty"`
-	Silent bool   `json:"silent,omitempty"`
+	Title            string `json:"title,omitempty"`
+	Body             string `json:"body,omitempty"`
+	Silent           bool   `json:"silent,omitempty"`
+	ClickWindowId    string `json:"clickwindowid,omitempty"`
+	ClickWorkspaceId string `json:"clickworkspaceid,omitempty"`
+	ClickTabId       string `json:"clicktabid,omitempty"`
+	ClickBlockId     string `json:"clickblockid,omitempty"`
 }
 
 type VDomUrlRequestData struct {

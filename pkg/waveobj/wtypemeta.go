@@ -36,22 +36,24 @@ type MetaTSType struct {
 	FrameIcon              string `json:"frame:icon,omitempty"`
 	FrameText              string `json:"frame:text,omitempty"`
 
-	CmdClear            bool     `json:"cmd:*,omitempty"`
-	Cmd                 string   `json:"cmd,omitempty"`
-	CmdInteractive      bool     `json:"cmd:interactive,omitempty"`
-	CmdLogin            bool     `json:"cmd:login,omitempty"`
-	CmdPersistent       bool     `json:"cmd:persistent,omitempty"`
-	CmdRunOnStart       bool     `json:"cmd:runonstart,omitempty"`
-	CmdClearOnStart     bool     `json:"cmd:clearonstart,omitempty"`
-	CmdRunOnce          bool     `json:"cmd:runonce,omitempty"`
-	CmdCloseOnExit      bool     `json:"cmd:closeonexit,omitempty"`
-	CmdCloseOnExitForce bool     `json:"cmd:closeonexitforce,omitempty"`
-	CmdCloseOnExitDelay float64  `json:"cmd:closeonexitdelay,omitempty"`
-	CmdNoWsh            bool     `json:"cmd:nowsh,omitempty"`
-	CmdArgs             []string `json:"cmd:args,omitempty"`  // args for cmd (only if cmd:shell is false)
-	CmdShell            bool     `json:"cmd:shell,omitempty"` // shell expansion for cmd+args (defaults to true)
-	CmdAllowConnChange  bool     `json:"cmd:allowconnchange,omitempty"`
-	CmdJwt              bool     `json:"cmd:jwt,omitempty"` // force adding JWT to environment
+	CmdClear              bool     `json:"cmd:*,omitempty"`
+	Cmd                   string   `json:"cmd,omitempty"`
+	CmdInteractive        bool     `json:"cmd:interactive,omitempty"`
+	CmdLogin              bool     `json:"cmd:login,omitempty"`
+	CmdPersistent         bool     `json:"cmd:persistent,omitempty"`
+	CmdRunOnStart         bool     `json:"cmd:runonstart,omitempty"`
+	CmdClearOnStart       bool     `json:"cmd:clearonstart,omitempty"`
+	CmdRunOnce            bool     `json:"cmd:runonce,omitempty"`
+	CmdCloseOnExit        bool     `json:"cmd:closeonexit,omitempty"`
+	CmdCloseOnExitForce   bool     `json:"cmd:closeonexitforce,omitempty"`
+	CmdCloseOnExitDelay   float64  `json:"cmd:closeonexitdelay,omitempty"`
+	CmdNotifyOnCompletion bool     `json:"cmd:notifyoncompletion,omitempty"`
+	CmdNotifyThresholdMs  float64  `json:"cmd:notifythresholdms,omitempty"`
+	CmdNoWsh              bool     `json:"cmd:nowsh,omitempty"`
+	CmdArgs               []string `json:"cmd:args,omitempty"`  // args for cmd (only if cmd:shell is false)
+	CmdShell              bool     `json:"cmd:shell,omitempty"` // shell expansion for cmd+args (defaults to true)
+	CmdAllowConnChange    bool     `json:"cmd:allowconnchange,omitempty"`
+	CmdJwt                bool     `json:"cmd:jwt,omitempty"` // force adding JWT to environment
 
 	// these can be nested under "[conn]"
 	CmdEnv            map[string]string `json:"cmd:env,omitempty"`

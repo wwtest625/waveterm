@@ -1175,6 +1175,8 @@ declare global {
         "cmd:closeonexit"?: boolean;
         "cmd:closeonexitforce"?: boolean;
         "cmd:closeonexitdelay"?: number;
+        "cmd:notifyoncompletion"?: boolean;
+        "cmd:notifythresholdms"?: number;
         "cmd:nowsh"?: boolean;
         "cmd:args"?: string[];
         "cmd:shell"?: boolean;
@@ -1226,6 +1228,7 @@ declare global {
         "term:fontsize"?: number;
         "term:fontfamily"?: string;
         "term:mode"?: string;
+        "term:pre_vdom_mode"?: string;
         "term:theme"?: string;
         "term:localshellpath"?: string;
         "term:localshellopts"?: string[];
@@ -1233,6 +1236,7 @@ declare global {
         "term:vdomblockid"?: string;
         "term:vdomtoolbarblockid"?: string;
         "term:transparency"?: number;
+        "term:pre_vdom_mode"?: string;
         "term:allowbracketedpaste"?: boolean;
         "term:shiftenternewline"?: boolean;
         "term:macoptionismeta"?: boolean;
@@ -2381,6 +2385,10 @@ declare global {
         title?: string;
         body?: string;
         silent?: boolean;
+        clickwindowid?: string;
+        clickworkspaceid?: string;
+        clicktabid?: string;
+        clickblockid?: string;
     };
 
     // waveobj.WaveObj

@@ -79,12 +79,71 @@
         min-width: 0;
     }
 
+    .term-quick-input-shell {
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+        width: 100%;
+        min-width: 0;
+        padding: 6px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background-color: color-mix(in srgb, var(--main-bg-color) 82%, transparent);
+
+        &:focus-within {
+            border-color: color-mix(in srgb, var(--accent-color) 55%, var(--border-color));
+        }
+    }
+
+    .term-quick-input-completion {
+        flex: 1;
+        min-width: 0;
+    }
+
     .term-quick-input-field {
         width: 100%;
         min-height: 36px;
         padding: 8px 10px;
-        background-color: color-mix(in srgb, var(--main-bg-color) 82%, transparent);
-        border-color: var(--border-color);
+        background-color: transparent;
+        border: none;
+        box-shadow: none;
+        border-radius: 0;
+
+        &:focus-visible {
+            outline: none;
+        }
+    }
+
+    .term-quick-input-notify-toggle {
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        gap: 5px;
+        align-self: stretch;
+        min-height: 36px;
+        padding: 0 10px;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
+        background-color: color-mix(in srgb, var(--main-bg-color) 94%, transparent);
+        color: var(--text-secondary-color);
+        font-size: 11px;
+        line-height: 1;
+        transition:
+            background-color 120ms ease,
+            border-color 120ms ease,
+            color 120ms ease;
+
+        &:hover {
+            color: var(--main-text-color);
+            border-color: color-mix(in srgb, var(--accent-color) 38%, var(--border-color));
+            background-color: color-mix(in srgb, var(--accent-color) 10%, var(--main-bg-color));
+        }
+
+        &.active {
+            color: var(--main-text-color);
+            border-color: color-mix(in srgb, var(--accent-color) 70%, var(--border-color));
+            background-color: color-mix(in srgb, var(--accent-color) 18%, var(--main-bg-color));
+        }
     }
 
     .term-htmlelem {

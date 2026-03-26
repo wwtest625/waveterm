@@ -7,15 +7,16 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { globalStore } from "@/store/global";
 import { isBlank, makeConnRoute, makeIconClass } from "@/util/util";
 import React, { memo, useEffect, useRef, useState } from "react";
+import type { TermViewModel } from "./term-model";
 import {
     applyQuickInputCompletion,
     formatQuickInputCompletion,
     getQuickInputCommandContext,
     getQuickInputCompletionRange,
+    getQuickInputHistoryDirection,
     isQuickInputSubmitKeyEvent,
     type QuickInputCompletionRange,
 } from "./term-quickinput";
-import type { TermViewModel } from "./term-model";
 
 type QuickInputCompletionState = {
     open: boolean;
@@ -91,9 +92,15 @@ function QuickInputSuggestionIcon({ suggestion }: { suggestion: SuggestionType }
         return <img src={suggestion.iconsrc} alt="" className="h-4 w-4 object-contain" />;
     }
     if (suggestion.icon) {
-        return <i className={makeIconClass(suggestion.icon, true)} style={{ color: suggestion.iconcolor || "inherit" }} />;
+        return (
+            <i className={makeIconClass(suggestion.icon, true)} style={{ color: suggestion.iconcolor || "inherit" }} />
+        );
     }
-    if (suggestion.type === "command" || suggestion.type === "docker-command" || suggestion.type === "nerdctl-command") {
+    if (
+        suggestion.type === "command" ||
+        suggestion.type === "docker-command" ||
+        suggestion.type === "nerdctl-command"
+    ) {
         return <i className="fa-solid fa-terminal text-emerald-400" />;
     }
     if (suggestion.type === "docker-container") {
@@ -110,7 +117,9 @@ function QuickInputSuggestionIcon({ suggestion }: { suggestion: SuggestionType }
 
 function QuickInputSuggestionLabel({ suggestion }: { suggestion: SuggestionType }) {
     const text = suggestion.display || suggestion["file:name"] || "";
-    const subText = suggestion.subtext || (suggestion["file:path"] && suggestion["file:path"] !== text ? suggestion["file:path"] : "");
+    const subText =
+        suggestion.subtext ||
+        (suggestion["file:path"] && suggestion["file:path"] !== text ? suggestion["file:path"] : "");
 
     return (
         <div className="min-w-0 flex-1">
@@ -120,7 +129,10 @@ function QuickInputSuggestionLabel({ suggestion }: { suggestion: SuggestionType 
     );
 }
 
-function getCompletionSuggestionType(commandContext: ReturnType<typeof getQuickInputCommandContext> | null, range: QuickInputCompletionRange): string | null {
+function getCompletionSuggestionType(
+    commandContext: ReturnType<typeof getQuickInputCommandContext> | null,
+    range: QuickInputCompletionRange
+): string | null {
     if (!commandContext) {
         return range.kind === "command" ? "command" : "file";
     }
@@ -150,7 +162,18 @@ function getSuggestionFormatKind(suggestionType: string): "command" | "file" {
 }
 
 const TermQuickInputCompletion = memo(
-    ({ model, value, onChange, onSubmit, onFocus, onBlur, placeholder, className, rows = 2, maxRows = 6 }: TermQuickInputCompletionProps) => {
+    ({
+        model,
+        value,
+        onChange,
+        onSubmit,
+        onFocus,
+        onBlur,
+        placeholder,
+        className,
+        rows = 2,
+        maxRows = 6,
+    }: TermQuickInputCompletionProps) => {
         const textareaRef = model.quickInputRef;
         const widgetIdRef = useRef(`termquickinput-${Math.random().toString(36).slice(2)}`);
         const reqNumRef = useRef(0);
@@ -186,7 +209,10 @@ const TermQuickInputCompletion = memo(
                 closeCompletion();
                 return;
             }
-            const replacement = formatQuickInputCompletion(getCompletionText(suggestion), getSuggestionFormatKind(suggestion.type));
+            const replacement = formatQuickInputCompletion(
+                getCompletionText(suggestion),
+                getSuggestionFormatKind(suggestion.type)
+            );
             const applied = applyQuickInputCompletion(value, completionState.range, replacement);
             onChange(applied.value);
             closeCompletion();
@@ -289,7 +315,10 @@ const TermQuickInputCompletion = memo(
                         if (!prev || prev.suggestions.length === 0) {
                             return prev;
                         }
-                        return { ...prev, selectedIndex: Math.min(prev.selectedIndex + 1, prev.suggestions.length - 1) };
+                        return {
+                            ...prev,
+                            selectedIndex: Math.min(prev.selectedIndex + 1, prev.suggestions.length - 1),
+                        };
                     });
                     return;
                 }
@@ -311,7 +340,10 @@ const TermQuickInputCompletion = memo(
                         if (!prev || prev.suggestions.length === 0) {
                             return prev;
                         }
-                        return { ...prev, selectedIndex: Math.min(prev.selectedIndex + 10, prev.suggestions.length - 1) };
+                        return {
+                            ...prev,
+                            selectedIndex: Math.min(prev.selectedIndex + 10, prev.suggestions.length - 1),
+                        };
                     });
                     return;
                 }
@@ -335,7 +367,8 @@ const TermQuickInputCompletion = memo(
                 if (e.key === "Tab" || e.key === "Enter") {
                     e.preventDefault();
                     e.stopPropagation();
-                    const selectedSuggestion = completionState.suggestions[completionState.selectedIndex] ?? completionState.suggestions[0];
+                    const selectedSuggestion =
+                        completionState.suggestions[completionState.selectedIndex] ?? completionState.suggestions[0];
                     if (selectedSuggestion) {
                         applySuggestion(selectedSuggestion);
                     } else {
@@ -357,6 +390,19 @@ const TermQuickInputCompletion = memo(
                 e.stopPropagation();
                 closeCompletion();
                 onSubmit();
+                return;
+            }
+
+            const historyDirection = getQuickInputHistoryDirection(
+                e,
+                value,
+                textareaRef.current?.selectionStart ?? value.length,
+                textareaRef.current?.selectionEnd ?? value.length
+            );
+            if (historyDirection) {
+                e.preventDefault();
+                e.stopPropagation();
+                model.navigateQuickInputHistory(historyDirection);
             }
         };
 
@@ -378,7 +424,11 @@ const TermQuickInputCompletion = memo(
                     <div className="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-56 overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900/98 shadow-2xl">
                         <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2 text-[11px] text-slate-400">
                             <span>Tab completion</span>
-                            <span>{completionState.loading ? "Loading..." : `${completionState.suggestions.length} candidates`}</span>
+                            <span>
+                                {completionState.loading
+                                    ? "Loading..."
+                                    : `${completionState.suggestions.length} candidates`}
+                            </span>
                         </div>
                         <div className="py-1">
                             {completionState.suggestions.map((suggestion, index) => {

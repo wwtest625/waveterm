@@ -30,7 +30,13 @@ function isPathLikeCompletionToken(token: string): boolean {
     if (!token) {
         return false;
     }
-    return token.startsWith("/") || token.startsWith("./") || token.startsWith("../") || token.startsWith("~/") || token.includes("/");
+    return (
+        token.startsWith("/") ||
+        token.startsWith("./") ||
+        token.startsWith("../") ||
+        token.startsWith("~/") ||
+        token.includes("/")
+    );
 }
 
 function getCommandSegmentStart(text: string, tokenStart: number): number {
@@ -39,7 +45,7 @@ function getCommandSegmentStart(text: string, tokenStart: number): number {
     for (let i = lineStart; i < tokenStart; i++) {
         const ch = text[i];
         const next = text[i + 1];
-        if (ch === "|" || ch === ";" || ch === "(" || ch === ")" ) {
+        if (ch === "|" || ch === ";" || ch === "(" || ch === ")") {
             segmentStart = i + 1;
         } else if (ch === "&" && next === "&") {
             segmentStart = i + 2;
@@ -94,7 +100,7 @@ export function getQuickInputCommandContext(
     };
 }
 
-function isCommandCompletionPosition(text: string, tokenStart: number, tokenEnd: number): boolean {
+function isCommandCompletionPosition(text: string, tokenStart: number): boolean {
     const segmentStart = getCommandSegmentStart(text, tokenStart);
     const beforeToken = text.slice(segmentStart, tokenStart).trim();
     if (beforeToken === "") {
@@ -147,7 +153,7 @@ export function getQuickInputCompletionRange(
 
     if (start >= end) {
         if (safeStart > lineStart && text.slice(lineStart, safeStart).trim() !== "") {
-            const kind: QuickInputCompletionKind = isCommandCompletionPosition(text, safeStart, safeEnd) ? "command" : "file";
+            const kind: QuickInputCompletionKind = isCommandCompletionPosition(text, safeStart) ? "command" : "file";
             return { start: safeStart, end: safeEnd, query: "", kind };
         }
         return null;
@@ -159,13 +165,13 @@ export function getQuickInputCompletionRange(
     }
 
     const startsAtLineStart = start === lineStart;
-    const kind: QuickInputCompletionKind = isCommandCompletionPosition(text, start, end)
+    const kind: QuickInputCompletionKind = isCommandCompletionPosition(text, start)
         ? "command"
         : isPathLikeCompletionToken(query) || !startsAtLineStart
-            ? "file"
-            : "command";
+          ? "file"
+          : "command";
 
-    if (!isPathLikeCompletionToken(query) && !isCommandCompletionPosition(text, start, end) && startsAtLineStart) {
+    if (!isPathLikeCompletionToken(query) && !isCommandCompletionPosition(text, start) && startsAtLineStart) {
         return null;
     }
 
@@ -192,10 +198,50 @@ export function isQuickInputSubmitKeyEvent(event: {
     key: string;
     ctrlKey?: boolean;
     metaKey?: boolean;
+    altKey?: boolean;
+    shiftKey?: boolean;
     nativeEvent?: { isComposing?: boolean };
 }): boolean {
     if (event.nativeEvent?.isComposing) {
         return false;
     }
     return event.key === "Enter" && !!(event.ctrlKey || event.metaKey);
+}
+
+export function getQuickInputHistoryDirection(
+    event: {
+        key: string;
+        ctrlKey?: boolean;
+        metaKey?: boolean;
+        altKey?: boolean;
+        shiftKey?: boolean;
+        nativeEvent?: { isComposing?: boolean };
+    },
+    value: string,
+    selectionStart: number,
+    selectionEnd: number
+): "prev" | "next" | null {
+    if (event.nativeEvent?.isComposing) {
+        return null;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+        return null;
+    }
+    if (selectionStart !== selectionEnd) {
+        return null;
+    }
+
+    const safeValue = value ?? "";
+    const safeStart = Math.max(0, Math.min(selectionStart ?? 0, safeValue.length));
+    const safeEnd = Math.max(0, Math.min(selectionEnd ?? safeStart, safeValue.length));
+
+    if (event.key === "ArrowUp") {
+        const lineStart = safeValue.lastIndexOf("\n", Math.max(0, safeStart - 1)) + 1;
+        return lineStart === 0 ? "prev" : null;
+    }
+    if (event.key === "ArrowDown") {
+        const lineEnd = safeValue.indexOf("\n", safeEnd);
+        return lineEnd === -1 ? "next" : null;
+    }
+    return null;
 }
