@@ -243,6 +243,12 @@ func CreateToolUseData(toolCallID, toolName string, arguments string, chatOpts u
 		ToolName:   toolName,
 		Status:     uctypes.ToolUseStatusPending,
 	}
+	if chatOpts.TabId != "" {
+		toolUseData.TabId = chatOpts.TabId
+	}
+	if chatOpts.BlockId != "" {
+		toolUseData.BlockId = chatOpts.BlockId
+	}
 
 	toolDef := chatOpts.GetToolDefinition(toolName)
 	if toolDef == nil {

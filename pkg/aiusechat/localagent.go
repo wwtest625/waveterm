@@ -388,7 +388,12 @@ func buildLocalAgentPromptWithModeAndBudget(userText string, tabState string, hi
 		"If the user writes Chinese, answer in Chinese.\n" +
 		"Prefer concise, actionable output.\n" +
 		"\n" +
-		"CRITICAL TERMINAL QUERY RULES:\n" +
+		"=== EXECUTION RULE ===\n" +
+		"For terminal/query tasks: execute command FIRST, then present result. NO preamble.\n" +
+		"If one command fails, try a fallback. If all fail, report error in ONE sentence.\n" +
+		"DO NOT start with phrases like '好的', '我来', '让我先看看', 'Certainly', 'Sure' — just execute.\n" +
+		"\n" +
+		"=== TERMINAL QUERY RULES ===\n" +
 		"When the user asks about system information (CPU, memory, disk, processes, network, files, etc.), you MUST:\n" +
 		"1. Execute real terminal commands and use their actual output in your answer\n" +
 		"2. Prefer Wave-aware wsh commands when helpful, and invoke " + preferredWaveWSHPath + " instead of bare wsh\n" +
@@ -405,6 +410,7 @@ func buildLocalAgentPromptWithModeAndBudget(userText string, tabState string, hi
 		"- Ask the user to run commands manually when command execution is available\n" +
 		"- Output shell code blocks as a substitute for executing commands\n" +
 		"- Dump internal debugging traces unless the user explicitly asked for debugging\n" +
+		"- Start with conversational phrases before executing\n" +
 		"\n" +
 		"Example workflow:\n" +
 		"User: 帮我查询 CPU 型号\n" +
@@ -897,6 +903,8 @@ func emitAssistantTextMessage(sseHandler *sse.SSEHandlerCh, msgID string, text s
 func isTerminalToolPhase(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
 	case "codex_command_execution",
+		"wave_run_command",
+		"wave_get_command_result",
 		"term_get_scrollback",
 		"term_command_output":
 		return true

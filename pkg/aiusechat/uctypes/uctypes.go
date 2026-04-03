@@ -197,7 +197,9 @@ type UIMessageDataToolUse struct {
 	Status              string `json:"status"`
 	RunTs               int64  `json:"runts,omitempty"`
 	ErrorMessage        string `json:"errormessage,omitempty"`
+	OutputText          string `json:"outputtext,omitempty"`
 	Approval            string `json:"approval,omitempty"`
+	TabId               string `json:"tabid,omitempty"`
 	BlockId             string `json:"blockid,omitempty"`
 	WriteBackupFileName string `json:"writebackupfilename,omitempty"`
 	InputFileName       string `json:"inputfilename,omitempty"`
@@ -515,6 +517,7 @@ type WaveChatOpts struct {
 	TabState       string
 	TabTools       []ToolDefinition
 	TabId          string
+	BlockId        string
 	AppGoFile      string
 	AppStaticFiles string
 	PlatformInfo   string

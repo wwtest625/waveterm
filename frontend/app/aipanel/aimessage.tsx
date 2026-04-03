@@ -164,32 +164,30 @@ const isDisplayPart = (part: WaveUIMessagePart): boolean => {
     );
 };
 
-type MessagePart =
-    | { type: "single"; part: WaveUIMessagePart }
-    | { type: "toolgroup"; parts: Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }> };
-
-const groupMessageParts = (parts: WaveUIMessagePart[]): MessagePart[] => {
-    const grouped: MessagePart[] = [];
-    let currentToolGroup: Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }> = [];
-
-    for (const part of parts) {
-        if (part.type === "data-tooluse" || part.type === "data-toolprogress") {
-            currentToolGroup.push(part as WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" });
-        } else {
-            if (currentToolGroup.length > 0) {
-                grouped.push({ type: "toolgroup", parts: currentToolGroup });
-                currentToolGroup = [];
-            }
-            grouped.push({ type: "single", part });
-        }
-    }
-
-    if (currentToolGroup.length > 0) {
-        grouped.push({ type: "toolgroup", parts: currentToolGroup });
-    }
-
-    return grouped;
+const isToolDetailPart = (
+    part: WaveUIMessagePart
+): part is WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" } => {
+    return part.type === "data-tooluse" || part.type === "data-toolprogress";
 };
+
+const isTextLikeDisplayPart = (part: WaveUIMessagePart): boolean => {
+    return part.type === "text" || (part.type.startsWith("tool-") && "state" in part && part.state === "input-available");
+};
+
+export function getAssistantMessageLayout(parts: WaveUIMessagePart[], isStreaming: boolean) {
+    const displayParts = parts.filter(isDisplayPart);
+    const textParts = displayParts.filter(isTextLikeDisplayPart);
+    const toolParts = displayParts.filter(isToolDetailPart);
+    const hasVisibleText = textParts.some((part) => part.type !== "text" || Boolean(part.text?.trim()));
+    const hideToolOnlyMessage = !isStreaming && !hasVisibleText && toolParts.length > 0;
+    return {
+        displayParts,
+        textParts,
+        toolParts,
+        hasVisibleText,
+        hideToolOnlyMessage,
+    };
+}
 
 const getThinkingMessage = (
     parts: WaveUIMessagePart[],
@@ -224,13 +222,17 @@ const getThinkingMessage = (
 
 export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
     const parts = message.parts || [];
-    const displayParts = parts.filter(isDisplayPart);
+    const assistantLayout = getAssistantMessageLayout(parts, isStreaming);
+    const displayParts = assistantLayout.displayParts;
     const fileParts = parts.filter(
         (part): part is WaveUIMessagePart & { type: "data-userfile" } => part.type === "data-userfile"
     );
 
     const thinkingData = getThinkingMessage(parts, isStreaming, message.role);
-    const groupedParts = groupMessageParts(displayParts);
+
+    if (message.role === "assistant" && assistantLayout.hideToolOnlyMessage && !thinkingData) {
+        return null;
+    }
 
     return (
         <div className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}>
@@ -246,14 +248,23 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
                     <div className="whitespace-pre-wrap break-words">(no text content)</div>
                 ) : (
                     <>
-                        {groupedParts.map((group, index: number) =>
-                            group.type === "toolgroup" ? (
-                                <AIToolUseGroup key={index} parts={group.parts} isStreaming={isStreaming} />
-                            ) : (
+                        {message.role === "assistant" ? (
+                            <>
+                                {assistantLayout.textParts.map((part, index) => (
+                                    <div key={index} className="mt-2">
+                                        <AIMessagePart part={part} role={message.role} isStreaming={isStreaming} />
+                                    </div>
+                                ))}
+                                {assistantLayout.hasVisibleText && assistantLayout.toolParts.length > 0 && (
+                                    <AIToolUseGroup parts={assistantLayout.toolParts} isStreaming={isStreaming} />
+                                )}
+                            </>
+                        ) : (
+                            displayParts.map((part, index) => (
                                 <div key={index} className="mt-2">
-                                    <AIMessagePart part={group.part} role={message.role} isStreaming={isStreaming} />
+                                    <AIMessagePart part={part} role={message.role} isStreaming={isStreaming} />
                                 </div>
-                            )
+                            ))
                         )}
                         {thinkingData != null && (
                             <div className="mt-2">

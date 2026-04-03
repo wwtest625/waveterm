@@ -22,6 +22,7 @@ import (
 
 	"maps"
 
+	"github.com/google/uuid"
 	"github.com/skratchdot/open-golang/open"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
@@ -29,7 +30,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
 	"github.com/wavetermdev/waveterm/pkg/buildercontroller"
-	"github.com/wavetermdev/waveterm/pkg/service/blockservice"
 	"github.com/wavetermdev/waveterm/pkg/filebackup"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/genconn"
@@ -39,6 +39,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
 	"github.com/wavetermdev/waveterm/pkg/secretstore"
+	"github.com/wavetermdev/waveterm/pkg/service/blockservice"
 	"github.com/wavetermdev/waveterm/pkg/suggestion"
 	"github.com/wavetermdev/waveterm/pkg/telemetry"
 	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
@@ -1566,24 +1567,87 @@ func (ws *WshServer) AgentRunCommandCommand(ctx context.Context, data wshrpc.Com
 	if strings.TrimSpace(data.Cmd) == "" {
 		return nil, fmt.Errorf("command is required")
 	}
-	env := maps.Clone(data.Env)
-	if cwd := strings.TrimSpace(data.Cwd); cwd != "" {
-		if env == nil {
-			env = make(map[string]string)
+	jobId := uuid.New().String()
+	if err := agentMakeOutputFile(ctx, jobId); err != nil {
+		return nil, fmt.Errorf("failed to create WaveFS file: %w", err)
+	}
+
+	job := &waveobj.Job{
+		OID:              jobId,
+		Connection:       data.ConnName,
+		JobKind:          jobcontroller.JobKind_Shell,
+		Cmd:              data.Cmd,
+		CmdArgs:          data.Args,
+		CmdEnv:           maps.Clone(data.Env),
+		CmdTermSize:      waveobj.TermSize{Rows: 24, Cols: 80},
+		JobManagerStatus: jobcontroller.JobManagerStatus_Init,
+		WaveVersion:      wavebase.WaveVersion,
+		Meta:             make(waveobj.MetaMapType),
+	}
+	if err := agentInsertJob(ctx, job); err != nil {
+		return nil, fmt.Errorf("failed to create job in database: %w", err)
+	}
+
+	startTs := time.Now().UnixMilli()
+	if err := agentUpdateJob(ctx, jobId, func(job *waveobj.Job) {
+		job.JobManagerStatus = jobcontroller.JobManagerStatus_Running
+		job.CmdStartTs = startTs
+	}); err != nil {
+		log.Printf("[job:%s] warning: failed to update job status to running: %v", jobId, err)
+	}
+
+	go func() {
+		defer func() {
+			panichandler.PanicHandler("AgentRunCommandCommand", recover())
+		}()
+		result, execErr := agentRunCommandExecutor(context.Background(), agentRunCommandInput{
+			ConnName: data.ConnName,
+			Cwd:      data.Cwd,
+			Cmd:      data.Cmd,
+			Args:     data.Args,
+			Env:      maps.Clone(data.Env),
+		})
+		now := time.Now().UnixMilli()
+		if execErr != nil {
+			updateErr := agentUpdateJob(context.Background(), jobId, func(job *waveobj.Job) {
+				job.JobManagerStatus = jobcontroller.JobManagerStatus_Done
+				job.JobManagerDoneReason = jobcontroller.JobDoneReason_StartupError
+				job.JobManagerStartupError = execErr.Error()
+				job.CmdExitTs = now
+				job.StreamDone = true
+			})
+			if updateErr != nil {
+				log.Printf("[job:%s] error updating startup failure: %v", jobId, updateErr)
+				return
+			}
+			return
 		}
-		env["WAVE_JANUS_CWD"] = cwd
-	}
-	jobId, err := jobcontroller.StartJob(ctx, jobcontroller.StartJobParams{
-		ConnName: data.ConnName,
-		JobKind:  jobcontroller.JobKind_Shell,
-		Cmd:      data.Cmd,
-		Args:     data.Args,
-		Env:      env,
-		TermSize: &waveobj.TermSize{Rows: 24, Cols: 80},
-	})
-	if err != nil {
-		return nil, err
-	}
+
+		output := ""
+		if result != nil {
+			output = result.Stdout + result.Stderr
+		}
+		if writeErr := agentWriteOutput(context.Background(), jobId, output); writeErr != nil {
+			log.Printf("[job:%s] error writing agent output: %v", jobId, writeErr)
+		}
+		updateErr := agentUpdateJob(context.Background(), jobId, func(job *waveobj.Job) {
+			job.JobManagerStatus = jobcontroller.JobManagerStatus_Done
+			job.CmdExitTs = now
+			job.StreamDone = true
+			if result != nil {
+				job.CmdExitCode = result.ExitCode
+				job.CmdExitSignal = result.ExitSignal
+				if result.Err != "" {
+					job.CmdExitError = result.Err
+				}
+			}
+		})
+		if updateErr != nil {
+			log.Printf("[job:%s] error updating agent command result: %v", jobId, updateErr)
+			return
+		}
+	}()
+
 	return &wshrpc.CommandAgentRunCommandRtnData{JobId: jobId}, nil
 }
 
@@ -1591,7 +1655,7 @@ func (ws *WshServer) AgentGetCommandResultCommand(ctx context.Context, data wshr
 	if strings.TrimSpace(data.JobId) == "" {
 		return nil, fmt.Errorf("jobid is required")
 	}
-	job, err := wstore.DBGet[*waveobj.Job](ctx, data.JobId)
+	job, err := agentGetJob(ctx, data.JobId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get job: %w", err)
 	}
@@ -1631,16 +1695,11 @@ func (ws *WshServer) AgentGetCommandResultCommand(ctx context.Context, data wshr
 	if tailBytes <= 0 {
 		tailBytes = 32768
 	}
-	waveFile, statErr := filestore.WFS.Stat(ctx, data.JobId, jobcontroller.JobOutputFileName)
-	if statErr == nil && waveFile != nil && waveFile.Size > 0 {
-		offset := waveFile.Size - tailBytes
-		if offset < 0 {
-			offset = 0
-		}
-		_, readData, readErr := filestore.WFS.ReadAt(ctx, data.JobId, jobcontroller.JobOutputFileName, offset, tailBytes)
-		if readErr == nil {
-			result.Output = string(readData)
-		}
+	output, readErr := agentReadOutputTail(ctx, data.JobId, tailBytes)
+	if readErr == nil {
+		result.Output = output
+	} else if result.Status != "running" && result.Error == "" {
+		result.Error = fmt.Sprintf("failed to read job output: %v", readErr)
 	}
 	return result, nil
 }

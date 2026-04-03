@@ -2,31 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
+import { AgentRuntimeSnapshot, AgentRuntimeState, WaveUIMessage } from "./aitypes";
 import { getFirstExecutableCommandFromMessage } from "./autoexecute-util";
-import { WaveUIMessage } from "./aitypes";
 import { AgentMode, LocalAgentHealth } from "./waveai-model";
 
-export type AgentRuntimePhase =
-    | "idle"
-    | "thinking"
-    | "reading-terminal"
-    | "executing-command"
-    | "waiting-terminal"
-    | "responding"
-    | "waiting-approval"
-    | "ready"
-    | "error"
-    | "unavailable";
-
-export type AgentRuntimeStatusSnapshot = {
-    visible: boolean;
-    providerLabel: string;
-    modeLabel: string;
-    phase: AgentRuntimePhase;
-    phaseLabel: string;
-    lastCommand?: string;
-    blockedReason?: string;
-};
+export type AgentRuntimeStatusSnapshot = AgentRuntimeSnapshot;
 
 type AgentRuntimeStatusInput = {
     isLocalAgent: boolean;
@@ -38,7 +18,7 @@ type AgentRuntimeStatusInput = {
     localAgentHealth?: LocalAgentHealth | null;
 };
 
-type AgentPhaseMapping = Pick<AgentRuntimeStatusSnapshot, "phase" | "phaseLabel" | "blockedReason">;
+type AgentPhaseMapping = Pick<AgentRuntimeStatusSnapshot, "state" | "phaseLabel" | "blockedReason">;
 
 function formatProviderLabel(provider: string): string {
     return provider === "claude-code" ? "Claude Code" : "Codex";
@@ -55,16 +35,18 @@ function formatModeLabel(mode: AgentMode): string {
     }
 }
 
-function getToolUsePhase(toolName: string | undefined): Pick<AgentRuntimeStatusSnapshot, "phase" | "phaseLabel"> | null {
+function getToolUsePhase(
+    toolName: string | undefined
+): Pick<AgentRuntimeStatusSnapshot, "state" | "phaseLabel"> | null {
     switch (toolName) {
         case "term_get_scrollback":
         case "term_command_output":
         case "wave_get_command_result":
-            return { phase: "reading-terminal", phaseLabel: "Reading Terminal" };
+            return { state: "planning", phaseLabel: "Reading Terminal" };
         case "codex_command_execution":
         case "codex_dynamic_tool":
         case "wave_run_command":
-            return { phase: "executing-command", phaseLabel: "Executing Command" };
+            return { state: "executing", phaseLabel: "Executing Command" };
         default:
             return null;
     }
@@ -73,28 +55,47 @@ function getToolUsePhase(toolName: string | undefined): Pick<AgentRuntimeStatusS
 function getToolProgressPhase(toolName: string | undefined, statusLine: string | undefined): AgentPhaseMapping | null {
     switch (toolName) {
         case "codex_wave_terminal_context_ok":
-            return { phase: "ready", phaseLabel: "Terminal Context Ready" };
+            return { state: "planning", phaseLabel: "Terminal Context Ready" };
         case "codex_thinking":
         case "codex_reasoning":
         case "codex_plan":
-            return { phase: "thinking", phaseLabel: "Thinking" };
+            return { state: "planning", phaseLabel: "Thinking" };
         case "codex_command_execution":
         case "wave_run_command":
-            return { phase: "executing-command", phaseLabel: "Executing Command", blockedReason: statusLine };
+            return { state: "executing", phaseLabel: "Executing Command", blockedReason: statusLine };
         case "codex_dynamic_tool":
-            return { phase: "executing-command", phaseLabel: "Running Tool", blockedReason: statusLine };
+            return { state: "executing", phaseLabel: "Running Tool", blockedReason: statusLine };
         case "codex_file_change":
-            return { phase: "executing-command", phaseLabel: "Applying Changes", blockedReason: statusLine };
+            return { state: "executing", phaseLabel: "Applying Changes", blockedReason: statusLine };
         case "term_get_scrollback":
         case "term_command_output":
         case "wave_get_command_result":
-            return { phase: "reading-terminal", phaseLabel: "Reading Terminal", blockedReason: statusLine };
+            return { state: "planning", phaseLabel: "Reading Terminal", blockedReason: statusLine };
         case "codex_waiting_approval":
-            return { phase: "waiting-approval", phaseLabel: "Waiting Approval", blockedReason: statusLine || "Waiting for tool approval" };
+            return {
+                state: "awaiting_approval",
+                phaseLabel: "Waiting Approval",
+                blockedReason: statusLine || "Waiting for tool approval",
+            };
         case "codex_responding":
-            return { phase: "responding", phaseLabel: "Responding" };
+            return { state: "planning", phaseLabel: "Responding" };
         default:
             return null;
+    }
+}
+
+function getStateTone(state: AgentRuntimeState): string {
+    switch (state) {
+        case "failed_retryable":
+        case "failed_fatal":
+        case "unavailable":
+        case "cancelled":
+            return "bg-red-950/70 text-red-300";
+        case "awaiting_approval":
+        case "retrying":
+            return "bg-yellow-950/70 text-yellow-300";
+        default:
+            return "bg-emerald-950/70 text-emerald-300";
     }
 }
 
@@ -112,12 +113,18 @@ function isObservedTerminalToolName(toolName: unknown): boolean {
     );
 }
 
+function isTextPart(
+    part: WaveUIMessage["parts"][number]
+): part is Extract<WaveUIMessage["parts"][number], { type: "text" }> {
+    return part.type === "text" && typeof part.text === "string";
+}
+
 function messageTextIncludesLocalAgentCapabilityDenial(message: WaveUIMessage | undefined): boolean {
     if (!message?.parts?.length) {
         return false;
     }
     const combinedText = message.parts
-        .filter((part) => part.type === "text" && typeof part.text === "string")
+        .filter(isTextPart)
         .map((part) => part.text)
         .join("\n")
         .toLowerCase();
@@ -155,14 +162,15 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             visible: false,
             providerLabel: "Wave AI",
             modeLabel: formatModeLabel(input.mode),
-            phase: "idle",
+            state: "idle",
             phaseLabel: "Idle",
         };
     }
 
     const assistantMessages = input.messages.filter((message) => message.role === "assistant");
     const lastAssistantMessage = assistantMessages.at(-1);
-    const lastCommand = [...assistantMessages].reverse().map(getFirstExecutableCommandFromMessage).find(Boolean) ?? undefined;
+    const lastCommand =
+        [...assistantMessages].reverse().map(getFirstExecutableCommandFromMessage).find(Boolean) ?? undefined;
     const hasPendingApproval =
         lastAssistantMessage?.parts?.some(
             (part) => part.type === "data-tooluse" && part.data?.approval === "needs-approval"
@@ -175,9 +183,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
                     isObservedTerminalToolName(part.data?.toolname)
             )
         ) ?? false;
-    const lastToolUse = [...(lastAssistantMessage?.parts ?? [])]
-        .reverse()
-        .find((part) => part.type === "data-tooluse");
+    const lastToolUse = [...(lastAssistantMessage?.parts ?? [])].reverse().find((part) => part.type === "data-tooluse");
     const lastToolProgress = [...(lastAssistantMessage?.parts ?? [])]
         .reverse()
         .find((part) => part.type === "data-toolprogress");
@@ -203,7 +209,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             visible: true,
             providerLabel: formatProviderLabel(input.provider),
             modeLabel: formatModeLabel(input.mode),
-            phase: "error",
+            state: "failed_retryable",
             phaseLabel: "Error",
             lastCommand,
             blockedReason: input.errorMessage,
@@ -215,7 +221,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             visible: true,
             providerLabel: formatProviderLabel(input.provider),
             modeLabel: formatModeLabel(input.mode),
-            phase: "unavailable",
+            state: "unavailable",
             phaseLabel: "Unavailable",
             lastCommand,
             blockedReason: input.localAgentHealth.message,
@@ -231,10 +237,11 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             visible: true,
             providerLabel: formatProviderLabel(input.provider),
             modeLabel: formatModeLabel(input.mode),
-            phase: "error",
+            state: "failed_fatal",
             phaseLabel: "Capability Mismatch",
             lastCommand,
-            blockedReason: "No terminal tool call was observed. The local agent replied as if terminal tools were unavailable.",
+            blockedReason:
+                "No terminal tool call was observed. The local agent replied as if terminal tools were unavailable.",
         };
     }
 
@@ -244,7 +251,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
                 visible: true,
                 providerLabel: formatProviderLabel(input.provider),
                 modeLabel: formatModeLabel(input.mode),
-                phase: "waiting-approval",
+                state: "awaiting_approval",
                 phaseLabel: "Waiting Approval",
                 lastCommand,
                 blockedReason: "Waiting for tool approval",
@@ -255,7 +262,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
                 visible: true,
                 providerLabel: formatProviderLabel(input.provider),
                 modeLabel: formatModeLabel(input.mode),
-                phase: progressPhase.phase,
+                state: progressPhase.state,
                 phaseLabel: progressPhase.phaseLabel,
                 lastCommand,
                 blockedReason: progressPhase.blockedReason,
@@ -266,7 +273,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
                 visible: true,
                 providerLabel: formatProviderLabel(input.provider),
                 modeLabel: formatModeLabel(input.mode),
-                phase: toolPhase.phase,
+                state: toolPhase.state,
                 phaseLabel: toolPhase.phaseLabel,
                 lastCommand,
             };
@@ -275,7 +282,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             visible: true,
             providerLabel: formatProviderLabel(input.provider),
             modeLabel: formatModeLabel(input.mode),
-            phase: hasAssistantText ? "responding" : "thinking",
+            state: "planning",
             phaseLabel: hasAssistantText ? "Responding" : "Thinking",
             lastCommand,
         };
@@ -286,7 +293,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             visible: true,
             providerLabel: formatProviderLabel(input.provider),
             modeLabel: formatModeLabel(input.mode),
-            phase: progressPhase.phase,
+            state: progressPhase.state,
             phaseLabel: progressPhase.phaseLabel,
             lastCommand,
             blockedReason: progressPhase.blockedReason,
@@ -297,7 +304,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
         visible: true,
         providerLabel: formatProviderLabel(input.provider),
         modeLabel: formatModeLabel(input.mode),
-        phase: lastAssistantMessage ? "ready" : "idle",
+        state: lastAssistantMessage ? "success" : "idle",
         phaseLabel: lastAssistantMessage ? "Ready" : "Idle",
         lastCommand,
     };
@@ -313,21 +320,17 @@ export function AgentStatus({ snapshot }: { snapshot: AgentRuntimeStatusSnapshot
             <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="rounded-full bg-zinc-800 px-2 py-1 text-zinc-200">{snapshot.providerLabel}</span>
                 <span className="rounded-full bg-zinc-800 px-2 py-1 text-zinc-200">{snapshot.modeLabel}</span>
-                <span
-                    className={cn(
-                        "rounded-full px-2 py-1",
-                        snapshot.phase === "error" || snapshot.phase === "unavailable"
-                            ? "bg-red-950/70 text-red-300"
-                            : snapshot.phase === "waiting-approval"
-                              ? "bg-yellow-950/70 text-yellow-300"
-                              : "bg-emerald-950/70 text-emerald-300"
-                    )}
-                >
+                <span className={cn("rounded-full px-2 py-1", getStateTone(snapshot.state))}>
                     {snapshot.phaseLabel}
                 </span>
             </div>
-            {(snapshot.lastCommand || snapshot.blockedReason) && (
+            {(snapshot.activeTool || snapshot.lastCommand || snapshot.blockedReason) && (
                 <div className="mt-2 space-y-1 text-xs text-zinc-400">
+                    {snapshot.activeTool && (
+                        <div className="truncate" title={snapshot.activeTool}>
+                            Tool: <code>{snapshot.activeTool}</code>
+                        </div>
+                    )}
                     {snapshot.lastCommand && (
                         <div className="truncate" title={snapshot.lastCommand}>
                             Last command: <code>{snapshot.lastCommand}</code>

@@ -23,6 +23,7 @@ export interface AIPanelInputRef {
 
 export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps) => {
     const [input, setInput] = useAtom(model.inputAtom);
+    const runtime = useAtomValue(model.agentRuntimeAtom);
     const isFocused = useAtomValue(model.isWaveAIFocusedAtom);
     const isChatEmpty = useAtomValue(model.isChatEmptyAtom);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -133,7 +134,12 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     };
 
     return (
-        <div className={cn("border-t", isFocused ? "border-accent/50" : "border-gray-600")}>
+        <div
+            className={cn(
+                "border-t border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] px-3 pb-3 pt-2",
+                isFocused && "border-lime-300/30"
+            )}
+        >
             <input
                 ref={fileInputRef}
                 type="file"
@@ -143,7 +149,17 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                 className="hidden"
             />
             <form onSubmit={onSubmit}>
-                <div className="relative">
+                <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-zinc-500">
+                    <div className="truncate">{isChatEmpty ? "Ask, edit, run, verify" : "Continue the session"}</div>
+                    <div className="shrink-0">
+                        {runtime.state === "executing" || runtime.state === "awaiting_approval"
+                            ? "Executing"
+                            : status === "streaming"
+                              ? "Responding"
+                              : "Ready"}
+                    </div>
+                </div>
+                <div className="relative overflow-hidden rounded-[22px] border border-white/10 bg-black/20 shadow-[0_14px_32px_rgba(0,0,0,0.16)]">
                     <textarea
                         ref={textareaRef}
                         value={input}
@@ -153,45 +169,71 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                         onBlur={handleBlur}
                         placeholder={placeholder}
                         className={cn(
-                            "w-full  text-white px-2 py-2 pr-5 focus:outline-none resize-none overflow-auto bg-zinc-800/50"
+                            "w-full resize-none overflow-auto bg-transparent px-4 py-3 pr-14 text-white focus:outline-none"
                         )}
                         style={{ fontSize: "13px" }}
                         rows={2}
                     />
-                    <Tooltip content="Attach files" placement="top" divClassName="absolute bottom-6.5 right-1">
+                    <Tooltip content="Attach files" placement="top" divClassName="absolute bottom-11 right-2">
                         <button
                             type="button"
                             onClick={handleUploadClick}
                             className={cn(
-                                "w-5 h-5 transition-colors flex items-center justify-center text-gray-400 hover:text-accent cursor-pointer"
+                                "flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/8 hover:text-lime-200"
                             )}
                         >
                             <i className="fa fa-paperclip text-sm"></i>
                         </button>
                     </Tooltip>
-                    {status === "streaming" ? (
-                        <Tooltip content="Stop Response" placement="top" divClassName="absolute bottom-1.5 right-1">
+                    {runtime.state === "failed_retryable" ? (
+                        <Tooltip content="Retry last step" placement="top" divClassName="absolute bottom-2 right-2">
                             <button
                                 type="button"
-                                onClick={() => model.stopResponse()}
+                                onClick={() => void model.retryLastAction("step")}
                                 className={cn(
-                                    "w-5 h-5 transition-colors flex items-center justify-center",
-                                    "text-green-500 hover:text-green-400 cursor-pointer"
+                                    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
+                                    "bg-amber-300/10 text-yellow-300 hover:bg-amber-300/15 hover:text-yellow-200"
+                                )}
+                            >
+                                <i className="fa fa-rotate-right text-sm"></i>
+                            </button>
+                        </Tooltip>
+                    ) : runtime.state === "executing" || runtime.state === "awaiting_approval" ? (
+                        <Tooltip content="Stop execution" placement="top" divClassName="absolute bottom-2 right-2">
+                            <button
+                                type="button"
+                                onClick={() => void model.cancelExecution()}
+                                className={cn(
+                                    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
+                                    "bg-red-300/10 text-red-300 hover:bg-red-300/15 hover:text-red-200"
+                                )}
+                            >
+                                <i className="fa fa-stop text-sm"></i>
+                            </button>
+                        </Tooltip>
+                    ) : status === "streaming" ? (
+                        <Tooltip content="Stop Response" placement="top" divClassName="absolute bottom-2 right-2">
+                            <button
+                                type="button"
+                                onClick={() => void model.cancelGeneration()}
+                                className={cn(
+                                    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
+                                    "bg-emerald-300/10 text-emerald-300 hover:bg-emerald-300/15 hover:text-emerald-200"
                                 )}
                             >
                                 <i className="fa fa-square text-sm"></i>
                             </button>
                         </Tooltip>
                     ) : (
-                        <Tooltip content="Send message (Enter)" placement="top" divClassName="absolute bottom-1.5 right-1">
+                        <Tooltip content="Send message (Enter)" placement="top" divClassName="absolute bottom-2 right-2">
                             <button
                                 type="submit"
                                 disabled={status !== "ready" || !input.trim()}
                                 className={cn(
-                                    "w-5 h-5 transition-colors flex items-center justify-center",
+                                    "flex h-9 w-9 items-center justify-center rounded-full transition-colors",
                                     status !== "ready" || !input.trim()
-                                        ? "text-gray-400"
-                                        : "text-accent/80 hover:text-accent cursor-pointer"
+                                        ? "bg-white/[0.04] text-gray-500"
+                                        : "cursor-pointer bg-lime-300/12 text-lime-200 hover:bg-lime-300/18 hover:text-lime-100"
                                 )}
                             >
                                 <i className="fa fa-paper-plane text-sm"></i>

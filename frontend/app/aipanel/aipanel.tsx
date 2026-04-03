@@ -4,10 +4,10 @@
 import { handleWaveAIContextMenu } from "@/app/aipanel/aipanel-contextmenu";
 import { waveAIHasSelection } from "@/app/aipanel/waveai-focus-utils";
 import { ErrorBoundary } from "@/app/element/errorboundary";
-import { atoms, getSettingsKeyAtom, getFocusedBlockId } from "@/app/store/global";
+import { atoms, getFocusedBlockId, getSettingsKeyAtom, recordTEvent } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
-import { isBuilderWindow } from "@/app/store/windowtype";
 import { maybeUseTabModel } from "@/app/store/tab-model";
+import { isBuilderWindow } from "@/app/store/windowtype";
 import { checkKeyPressed, keydownWrapper } from "@/util/keyutil";
 import { isMacOS, isWindows } from "@/util/platformutil";
 import { cn } from "@/util/util";
@@ -16,16 +16,20 @@ import { DefaultChatTransport } from "ai";
 import * as jotai from "jotai";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useDrop } from "react-dnd";
+import { deriveAgentRuntimeStatus } from "./agentstatus";
 import { formatFileSizeError, isAcceptableFile, validateFileSize } from "./ai-utils";
 import { AIDroppedFiles } from "./aidroppedfiles";
 import { AIModeDropdown } from "./aimode";
 import { loadInitialChatForPanel } from "./aipanel-loadutil";
-import { AIPanelHeader } from "./aipanelheader";
 import { AIPanelInput } from "./aipanelinput";
 import { AIPanelMessages } from "./aipanelmessages";
-import { AIRateLimitStrip } from "./airatelimitstrip";
-import { AgentStatus, deriveAgentRuntimeStatus } from "./agentstatus";
-import { WaveUIMessage } from "./aitypes";
+import {
+    WaveUIMessage,
+    getLatestToolProgressPart,
+    getLatestToolUsePart,
+    toolCallFromPart,
+    toolResultFromPart,
+} from "./aitypes";
 import { BYOKAnnouncement } from "./byokannouncement";
 import { TelemetryRequiredMessage } from "./telemetryrequired";
 import { WaveAIModel } from "./waveai-model";
@@ -86,110 +90,112 @@ const KeyCap = memo(({ children, className }: { children: React.ReactNode; class
 
 KeyCap.displayName = "KeyCap";
 
-const AIWelcomeMessage = memo(({ isLocalAgent, localAgentProvider }: { isLocalAgent: boolean; localAgentProvider: string }) => {
-    const modKey = isMacOS() ? "⌘" : "Alt";
-    const aiModeConfigs = jotai.useAtomValue(atoms.waveaiModeConfigAtom);
-    const hasCustomModes = Object.keys(aiModeConfigs).some((key) => !key.startsWith("waveai@"));
-    if (isLocalAgent && localAgentProvider === "codex") {
+const AIWelcomeMessage = memo(
+    ({ isLocalAgent, localAgentProvider }: { isLocalAgent: boolean; localAgentProvider: string }) => {
+        const modKey = isMacOS() ? "⌘" : "Alt";
+        const aiModeConfigs = jotai.useAtomValue(atoms.waveaiModeConfigAtom);
+        const hasCustomModes = Object.keys(aiModeConfigs).some((key) => !key.startsWith("waveai@"));
+        if (isLocalAgent && localAgentProvider === "codex") {
+            return (
+                <div className="text-secondary py-8">
+                    <div className="text-center">
+                        <i className="fa fa-sparkles text-4xl text-accent mb-2 block"></i>
+                        <p className="text-lg font-bold text-primary">Welcome to Codex</p>
+                    </div>
+                </div>
+            );
+        }
         return (
             <div className="text-secondary py-8">
                 <div className="text-center">
                     <i className="fa fa-sparkles text-4xl text-accent mb-2 block"></i>
-                    <p className="text-lg font-bold text-primary">Welcome to Codex</p>
+                    <p className="text-lg font-bold text-primary">Welcome to Wave AI</p>
+                </div>
+                <div className="mt-4 text-left max-w-md mx-auto">
+                    <p className="text-sm mb-6">
+                        Wave AI is your terminal assistant with context. I can read your terminal output, analyze
+                        widgets, access files, and help you solve problems faster.
+                    </p>
+                    <div className="bg-accent/10 border border-accent/30 rounded-lg p-4">
+                        <div className="text-sm font-semibold mb-3 text-accent">Getting Started:</div>
+                        <div className="space-y-3 text-sm">
+                            <div className="flex items-start gap-3">
+                                <div className="w-4 text-center flex-shrink-0">
+                                    <i className="fa-solid fa-plug text-accent"></i>
+                                </div>
+                                <div>
+                                    <span className="font-bold">Widget Context</span>
+                                    <div className="">When ON, I can read your terminal and analyze widgets.</div>
+                                    <div className="">When OFF, I'm sandboxed with no system access.</div>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="w-4 text-center flex-shrink-0">
+                                    <i className="fa-solid fa-file-import text-accent"></i>
+                                </div>
+                                <div>Drag & drop files or images for analysis</div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="w-4 text-center flex-shrink-0">
+                                    <i className="fa-solid fa-keyboard text-accent"></i>
+                                </div>
+                                <div className="space-y-1">
+                                    <div>
+                                        <KeyCap>{modKey}</KeyCap>
+                                        <KeyCap className="ml-1">K</KeyCap>
+                                        <span className="ml-1.5">to start a new chat</span>
+                                    </div>
+                                    <div>
+                                        <KeyCap>{modKey}</KeyCap>
+                                        <KeyCap className="ml-1">Shift</KeyCap>
+                                        <KeyCap className="ml-1">A</KeyCap>
+                                        <span className="ml-1.5">to toggle panel</span>
+                                    </div>
+                                    <div>
+                                        {isWindows() ? (
+                                            <>
+                                                <KeyCap>Alt</KeyCap>
+                                                <KeyCap className="ml-1">0</KeyCap>
+                                                <span className="ml-1.5">to focus</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <KeyCap>Ctrl</KeyCap>
+                                                <KeyCap className="ml-1">Shift</KeyCap>
+                                                <KeyCap className="ml-1">0</KeyCap>
+                                                <span className="ml-1.5">to focus</span>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="w-4 text-center flex-shrink-0">
+                                    <i className="fa-brands fa-discord text-accent"></i>
+                                </div>
+                                <div>
+                                    Questions or feedback?{" "}
+                                    <a
+                                        target="_blank"
+                                        href="https://discord.gg/XfvZ334gwU"
+                                        rel="noopener"
+                                        className="text-accent hover:underline cursor-pointer"
+                                    >
+                                        Join our Discord
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {!hasCustomModes && <BYOKAnnouncement />}
+                    <div className="mt-4 text-center text-[12px] text-muted">
+                        BETA: Free to use. Daily limits keep our costs in check.
+                    </div>
                 </div>
             </div>
         );
     }
-    return (
-        <div className="text-secondary py-8">
-            <div className="text-center">
-                <i className="fa fa-sparkles text-4xl text-accent mb-2 block"></i>
-                <p className="text-lg font-bold text-primary">Welcome to Wave AI</p>
-            </div>
-            <div className="mt-4 text-left max-w-md mx-auto">
-                <p className="text-sm mb-6">
-                    Wave AI is your terminal assistant with context. I can read your terminal output, analyze widgets,
-                    access files, and help you solve problems faster.
-                </p>
-                <div className="bg-accent/10 border border-accent/30 rounded-lg p-4">
-                    <div className="text-sm font-semibold mb-3 text-accent">Getting Started:</div>
-                    <div className="space-y-3 text-sm">
-                        <div className="flex items-start gap-3">
-                            <div className="w-4 text-center flex-shrink-0">
-                                <i className="fa-solid fa-plug text-accent"></i>
-                            </div>
-                            <div>
-                                <span className="font-bold">Widget Context</span>
-                                <div className="">When ON, I can read your terminal and analyze widgets.</div>
-                                <div className="">When OFF, I'm sandboxed with no system access.</div>
-                            </div>
-                        </div>
-                        <div className="flex items-start gap-3">
-                            <div className="w-4 text-center flex-shrink-0">
-                                <i className="fa-solid fa-file-import text-accent"></i>
-                            </div>
-                            <div>Drag & drop files or images for analysis</div>
-                        </div>
-                        <div className="flex items-start gap-3">
-                            <div className="w-4 text-center flex-shrink-0">
-                                <i className="fa-solid fa-keyboard text-accent"></i>
-                            </div>
-                            <div className="space-y-1">
-                                <div>
-                                    <KeyCap>{modKey}</KeyCap>
-                                    <KeyCap className="ml-1">K</KeyCap>
-                                    <span className="ml-1.5">to start a new chat</span>
-                                </div>
-                                <div>
-                                    <KeyCap>{modKey}</KeyCap>
-                                    <KeyCap className="ml-1">Shift</KeyCap>
-                                    <KeyCap className="ml-1">A</KeyCap>
-                                    <span className="ml-1.5">to toggle panel</span>
-                                </div>
-                                <div>
-                                    {isWindows() ? (
-                                        <>
-                                            <KeyCap>Alt</KeyCap>
-                                            <KeyCap className="ml-1">0</KeyCap>
-                                            <span className="ml-1.5">to focus</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <KeyCap>Ctrl</KeyCap>
-                                            <KeyCap className="ml-1">Shift</KeyCap>
-                                            <KeyCap className="ml-1">0</KeyCap>
-                                            <span className="ml-1.5">to focus</span>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-start gap-3">
-                            <div className="w-4 text-center flex-shrink-0">
-                                <i className="fa-brands fa-discord text-accent"></i>
-                            </div>
-                            <div>
-                                Questions or feedback?{" "}
-                                <a
-                                    target="_blank"
-                                    href="https://discord.gg/XfvZ334gwU"
-                                    rel="noopener"
-                                    className="text-accent hover:underline cursor-pointer"
-                                >
-                                    Join our Discord
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {!hasCustomModes && <BYOKAnnouncement />}
-                <div className="mt-4 text-center text-[12px] text-muted">
-                    BETA: Free to use. Daily limits keep our costs in check.
-                </div>
-            </div>
-        </div>
-    );
-});
+);
 
 AIWelcomeMessage.displayName = "AIWelcomeMessage";
 
@@ -257,6 +263,8 @@ const ConfigChangeModeFixer = memo(() => {
 
 ConfigChangeModeFixer.displayName = "ConfigChangeModeFixer";
 
+const STREAM_UPDATE_THROTTLE_MS = 34;
+
 const AIPanelComponentInner = memo(() => {
     const [isDragOver, setIsDragOver] = useState(false);
     const [isReactDndDragOver, setIsReactDndDragOver] = useState(false);
@@ -270,6 +278,7 @@ const AIPanelComponentInner = memo(() => {
     const telemetryEnabled = jotai.useAtomValue(getSettingsKeyAtom("telemetry:enabled")) ?? false;
     const isPanelVisible = jotai.useAtomValue(model.getPanelVisibleAtom());
     const errorMessage = jotai.useAtomValue(model.errorMessage);
+    const agentRuntimeSnapshot = jotai.useAtomValue(model.agentRuntimeAtom);
     const isLocalAgent = jotai.useAtomValue(model.isLocalAgentAtom);
     const localAgentProvider = jotai.useAtomValue(model.localAgentProviderAtom);
     const agentMode = jotai.useAtomValue(model.agentModeAtom);
@@ -277,12 +286,25 @@ const AIPanelComponentInner = memo(() => {
     const tabModel = maybeUseTabModel();
     const defaultMode = jotai.useAtomValue(getSettingsKeyAtom("waveai:defaultmode")) ?? "waveai@balanced";
     const aiModeConfigs = jotai.useAtomValue(model.aiModeConfigs);
+    const runtimePerfRef = useRef<{
+        traceId: string;
+        submitAt: number;
+        firstTokenAt: number;
+        active: boolean;
+    }>({
+        traceId: "",
+        submitAt: 0,
+        firstTokenAt: 0,
+        active: false,
+    });
+    const approvalWaitRef = useRef<{ startedAt: number; traceId: string } | null>(null);
 
     const hasCustomModes = Object.keys(aiModeConfigs).some((key) => !key.startsWith("waveai@"));
     const isUsingCustomMode = !defaultMode.startsWith("waveai@");
     const allowAccess = telemetryEnabled || (hasCustomModes && isUsingCustomMode);
 
     const { messages, sendMessage, status, setMessages, error, stop } = useChat<WaveUIMessage>({
+        experimental_throttle: STREAM_UPDATE_THROTTLE_MS,
         transport: new DefaultChatTransport({
             api: model.getUseChatEndpointUrl(),
             prepareSendMessagesRequest: (opts) => {
@@ -310,6 +332,20 @@ const AIPanelComponentInner = memo(() => {
         }),
         onError: (error) => {
             console.error("AI Chat error:", error);
+            model.dispatchAgentEvent({
+                type: "TOOL_CALL_FAILED",
+                result: {
+                    requestId: crypto.randomUUID(),
+                    taskId: globalStore.get(model.chatId) || crypto.randomUUID(),
+                    toolName: "chat-stream",
+                    ok: false,
+                    exitCode: 1,
+                    stderr: error.message || "An error occurred",
+                    durationMs: 0,
+                    errorCode: "CHAT_STREAM_ERROR",
+                },
+                retryable: true,
+            });
             model.setError(error.message || "An error occurred");
         },
     });
@@ -320,7 +356,7 @@ const AIPanelComponentInner = memo(() => {
     (window as any).aichatmessages = messages;
     (window as any).aichatstatus = status;
 
-    const agentStatusSnapshot = deriveAgentRuntimeStatus({
+    const derivedAgentStatusSnapshot = deriveAgentRuntimeStatus({
         isLocalAgent,
         provider: localAgentProvider,
         mode: agentMode,
@@ -329,6 +365,152 @@ const AIPanelComponentInner = memo(() => {
         errorMessage,
         localAgentHealth,
     });
+
+    useEffect(() => {
+        model.mergeAgentRuntimeSnapshot(derivedAgentStatusSnapshot);
+    }, [derivedAgentStatusSnapshot, model]);
+
+    useEffect(() => {
+        const taskId = globalStore.get(model.chatId) || "waveai";
+        const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+        const latestToolUse = getLatestToolUsePart(lastAssistantMessage);
+        const latestToolProgress = getLatestToolProgressPart(lastAssistantMessage);
+
+        if (latestToolUse) {
+            const lastToolCall = toolCallFromPart(latestToolUse, taskId);
+            const lastToolResult = toolResultFromPart(latestToolUse, taskId) ?? undefined;
+            model.mergeAgentRuntimeSnapshot({
+                lastToolCall,
+                lastToolResult,
+                activeTool: latestToolUse.data.toolname,
+                blockedReason:
+                    latestToolUse.data.errormessage ??
+                    latestToolUse.data.tooldesc ??
+                    latestToolProgress?.data?.statuslines?.find((line) => Boolean(line?.trim())),
+            });
+            if (latestToolUse.data.approval === "needs-approval") {
+                model.dispatchAgentEvent({
+                    type: "APPROVAL_REQUIRED",
+                    reason: latestToolUse.data.tooldesc || "Waiting for tool approval",
+                });
+            }
+            return;
+        }
+
+        if (latestToolProgress) {
+            model.mergeAgentRuntimeSnapshot({
+                activeTool: latestToolProgress.data.toolname,
+                blockedReason: latestToolProgress.data.statuslines?.find((line) => Boolean(line?.trim())),
+            });
+        }
+    }, [messages, model]);
+
+    useEffect(() => {
+        if (status === "streaming") {
+            return;
+        }
+        if (localAgentHealth && !localAgentHealth.available) {
+            model.dispatchAgentEvent({ type: "HEALTH_UNAVAILABLE", reason: localAgentHealth.message });
+            return;
+        }
+        if (errorMessage) {
+            return;
+        }
+        if (messages.length > 0) {
+            model.dispatchAgentEvent({ type: "VERIFY_FINISHED", ok: true });
+        }
+    }, [status, localAgentHealth, errorMessage, messages.length, model]);
+
+    useEffect(() => {
+        if (agentRuntimeSnapshot.state !== "submitting") {
+            return;
+        }
+        const traceId = crypto.randomUUID();
+        const submitAt = Date.now();
+        runtimePerfRef.current = {
+            traceId,
+            submitAt,
+            firstTokenAt: 0,
+            active: true,
+        };
+        recordTEvent("waveai:perf:submit", {
+            "waveai:traceid": traceId,
+            "waveai:chatid": globalStore.get(model.chatId) || "",
+            "waveai:agentmode": globalStore.get(model.agentModeAtom),
+            "waveai:islocal": globalStore.get(model.isLocalAgentAtom),
+        } as any);
+    }, [agentRuntimeSnapshot.state, model]);
+
+    useEffect(() => {
+        const perf = runtimePerfRef.current;
+        if (!perf.active || perf.firstTokenAt > 0 || status !== "streaming") {
+            return;
+        }
+        const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+        const hasAssistantPayload =
+            (lastAssistantMessage?.parts?.some(
+                (part) =>
+                    (part.type === "text" && Boolean(part.text?.trim())) ||
+                    part.type === "data-tooluse" ||
+                    part.type === "data-toolprogress"
+            ) ??
+                false) ||
+            Boolean(lastAssistantMessage);
+        if (!hasAssistantPayload) {
+            return;
+        }
+        const firstTokenAt = Date.now();
+        perf.firstTokenAt = firstTokenAt;
+        recordTEvent("waveai:perf:firsttoken", {
+            "waveai:traceid": perf.traceId,
+            "waveai:ttfbms": firstTokenAt - perf.submitAt,
+        } as any);
+    }, [messages, status]);
+
+    useEffect(() => {
+        const perf = runtimePerfRef.current;
+        if (!perf.active || status === "streaming") {
+            return;
+        }
+        const terminalStates = new Set(["success", "failed_retryable", "failed_fatal", "cancelled", "unavailable"]);
+        if (!terminalStates.has(agentRuntimeSnapshot.state)) {
+            return;
+        }
+        const doneAt = Date.now();
+        recordTEvent("waveai:perf:done", {
+            "waveai:traceid": perf.traceId,
+            "waveai:state": agentRuntimeSnapshot.state,
+            "waveai:totalms": doneAt - perf.submitAt,
+            "waveai:streamms": perf.firstTokenAt > 0 ? doneAt - perf.firstTokenAt : 0,
+            "waveai:hadfirsttoken": perf.firstTokenAt > 0,
+        } as any);
+        runtimePerfRef.current = {
+            traceId: "",
+            submitAt: 0,
+            firstTokenAt: 0,
+            active: false,
+        };
+    }, [agentRuntimeSnapshot.state, status]);
+
+    useEffect(() => {
+        if (agentRuntimeSnapshot.state === "awaiting_approval") {
+            if (approvalWaitRef.current == null) {
+                approvalWaitRef.current = {
+                    startedAt: Date.now(),
+                    traceId: runtimePerfRef.current.traceId,
+                };
+            }
+            return;
+        }
+        if (approvalWaitRef.current != null) {
+            recordTEvent("waveai:perf:approvalwait", {
+                "waveai:traceid": approvalWaitRef.current.traceId,
+                "waveai:waitms": Date.now() - approvalWaitRef.current.startedAt,
+                "waveai:endstate": agentRuntimeSnapshot.state,
+            } as any);
+            approvalWaitRef.current = null;
+        }
+    }, [agentRuntimeSnapshot.state]);
 
     const handleKeyDown = (waveEvent: WaveKeyboardEvent): boolean => {
         if (checkKeyPressed(waveEvent, "Cmd:k")) {
@@ -599,15 +781,11 @@ const AIPanelComponentInner = memo(() => {
             <ConfigChangeModeFixer />
             {(isDragOver || isReactDndDragOver) && allowAccess && <AIDragOverlay />}
             {showBlockMask && <AIBlockMask />}
-            <AIPanelHeader />
-            <AIRateLimitStrip />
-
             <div key="main-content" className="flex-1 flex flex-col min-h-0">
                 {!allowAccess ? (
                     <TelemetryRequiredMessage />
                 ) : (
                     <>
-                        <AgentStatus snapshot={agentStatusSnapshot} />
                         {messages.length === 0 && initialLoadDone ? (
                             <div
                                 className="flex-1 overflow-y-auto p-2 relative"
@@ -619,7 +797,10 @@ const AIPanelComponentInner = memo(() => {
                                 {model.inBuilder ? (
                                     <AIBuilderWelcomeMessage />
                                 ) : (
-                                    <AIWelcomeMessage isLocalAgent={isLocalAgent} localAgentProvider={localAgentProvider} />
+                                    <AIWelcomeMessage
+                                        isLocalAgent={isLocalAgent}
+                                        localAgentProvider={localAgentProvider}
+                                    />
                                 )}
                             </div>
                         ) : (
@@ -651,5 +832,5 @@ const AIPanelComponent = () => {
 
 AIPanelComponent.displayName = "AIPanel";
 
-export { AIPanelComponent as AIPanel };
 export { loadInitialChatForPanel } from "./aipanel-loadutil";
+export { AIPanelComponent as AIPanel };

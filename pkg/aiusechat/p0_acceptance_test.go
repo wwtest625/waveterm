@@ -6,6 +6,8 @@ package aiusechat
 import (
 	"strings"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 )
 
 func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *testing.T) {
@@ -55,8 +57,16 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	}
 
 	cloudPrompt := getModeAwareSystemPromptText(false, "", AgentModeDefault)
-	if !strings.Contains(cloudPrompt, "You cannot execute shell commands") {
-		t.Fatalf("expected cloud prompt to deny shell execution, got %q", cloudPrompt)
+	if strings.Contains(cloudPrompt, "You cannot execute shell commands") {
+		t.Fatalf("expected cloud prompt not to deny shell execution when tools are available, got %q", cloudPrompt)
+	}
+
+	basePrompt := strings.Join(getSystemPrompt(uctypes.APIType_OpenAIResponses, "gpt-5", false, true, true, false, "", AgentModeDefault), " ")
+	if !strings.Contains(basePrompt, "Minimize tool calls.") {
+		t.Fatalf("expected base prompt to include minimal tool call guidance, got %q", basePrompt)
+	}
+	if !strings.Contains(basePrompt, "Do not start with filler phrases") {
+		t.Fatalf("expected base prompt to include no-filler guidance, got %q", basePrompt)
 	}
 }
 

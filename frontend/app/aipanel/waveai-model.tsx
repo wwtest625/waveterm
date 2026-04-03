@@ -2,10 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+    AgentRuntimeEvent,
+    AgentRuntimeSnapshot,
+    AgentRuntimeSnapshotPatch,
+    ToolCallEnvelope,
+    ToolResultEnvelope,
     UseChatSendMessageType,
     UseChatSetMessagesType,
     WaveUIMessage,
     WaveUIMessagePart,
+    agentRuntimeSnapshotEquals,
+    getDefaultAgentRuntimeSnapshot,
+    mergeAgentRuntimeSnapshot,
+    reduceAgentRuntimeSnapshot,
 } from "@/app/aipanel/aitypes";
 import { FocusManager } from "@/app/store/focusManager";
 import {
@@ -71,6 +80,7 @@ export class WaveAIModel {
     useChatStop: (() => void) | null = null;
     // Used for injecting Wave-specific message data into DefaultChatTransport's prepareSendMessagesRequest
     realMessage: AIMessage | null = null;
+    lastSubmittedMessage: AIMessage | null = null;
     orefContext: ORef;
     inBuilder: boolean = false;
     isAIStreaming = jotai.atom(false);
@@ -80,8 +90,9 @@ export class WaveAIModel {
     isLocalAgentAtom!: jotai.Atom<boolean>;
     localAgentProviderAtom!: jotai.Atom<string>;
     agentModeAtom!: jotai.Atom<AgentMode>;
-    localAgentHealthAtom: jotai.PrimitiveAtom<LocalAgentHealth | null> =
-        jotai.atom<LocalAgentHealth | null>(null) as jotai.PrimitiveAtom<LocalAgentHealth | null>;
+    localAgentHealthAtom: jotai.PrimitiveAtom<LocalAgentHealth | null> = jotai.atom<LocalAgentHealth | null>(
+        null
+    ) as jotai.PrimitiveAtom<LocalAgentHealth | null>;
     droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
     chatId!: jotai.PrimitiveAtom<string>;
     currentAIMode!: jotai.PrimitiveAtom<string>;
@@ -89,6 +100,7 @@ export class WaveAIModel {
     hasPremiumAtom!: jotai.Atom<boolean>;
     defaultModeAtom!: jotai.Atom<string>;
     errorMessage: jotai.PrimitiveAtom<string> = jotai.atom(null) as jotai.PrimitiveAtom<string>;
+    agentRuntimeAtom: jotai.PrimitiveAtom<AgentRuntimeSnapshot> = jotai.atom(getDefaultAgentRuntimeSnapshot());
     containerWidth: jotai.PrimitiveAtom<number> = jotai.atom(0);
     codeBlockMaxWidth!: jotai.Atom<number>;
     inputAtom: jotai.PrimitiveAtom<string> = jotai.atom("");
@@ -337,10 +349,11 @@ export class WaveAIModel {
     }
 
     clearChat() {
-        this.useChatStop?.();
+        void this.cancelGeneration();
         this.clearFiles();
         this.clearError();
         globalStore.set(this.isChatEmptyAtom, true);
+        globalStore.set(this.agentRuntimeAtom, getDefaultAgentRuntimeSnapshot());
         const newChatId = crypto.randomUUID();
         globalStore.set(this.chatId, newChatId);
 
@@ -358,6 +371,32 @@ export class WaveAIModel {
 
     clearError() {
         globalStore.set(this.errorMessage, null);
+    }
+
+    setAgentRuntimeSnapshot(snapshot: AgentRuntimeSnapshot) {
+        const current = globalStore.get(this.agentRuntimeAtom);
+        if (agentRuntimeSnapshotEquals(current, snapshot)) {
+            return;
+        }
+        globalStore.set(this.agentRuntimeAtom, snapshot);
+    }
+
+    mergeAgentRuntimeSnapshot(patch: AgentRuntimeSnapshotPatch) {
+        const current = globalStore.get(this.agentRuntimeAtom);
+        const next = mergeAgentRuntimeSnapshot(current, patch);
+        if (agentRuntimeSnapshotEquals(current, next)) {
+            return;
+        }
+        globalStore.set(this.agentRuntimeAtom, next);
+    }
+
+    dispatchAgentEvent(event: AgentRuntimeEvent) {
+        const current = globalStore.get(this.agentRuntimeAtom);
+        const next = reduceAgentRuntimeSnapshot(current, event);
+        if (agentRuntimeSnapshotEquals(current, next)) {
+            return;
+        }
+        globalStore.set(this.agentRuntimeAtom, next);
     }
 
     registerInputRef(ref: React.RefObject<AIPanelInputRef>) {
@@ -400,7 +439,8 @@ export class WaveAIModel {
         return messages as WaveUIMessage[];
     }
 
-    async stopResponse() {
+    async cancelGeneration() {
+        this.dispatchAgentEvent({ type: "CANCEL_GENERATION" });
         this.useChatStop?.();
         await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -416,10 +456,59 @@ export class WaveAIModel {
         }
     }
 
+    async cancelExecution() {
+        const runtime = globalStore.get(this.agentRuntimeAtom);
+        const activeJobId = runtime.activeJobId || runtime.lastToolResult?.jobId;
+        if (activeJobId) {
+            try {
+                await RpcApi.JobControllerExitJobCommand(TabRpcClient, activeJobId);
+            } catch (error) {
+                console.error("Failed to stop execution job:", error);
+            }
+        }
+        this.dispatchAgentEvent({ type: "CANCEL_EXECUTION" });
+        await this.cancelGeneration();
+    }
+
+    async stopResponse() {
+        await this.cancelGeneration();
+    }
+
     getAndClearMessage(): AIMessage | null {
         const msg = this.realMessage;
         this.realMessage = null;
         return msg;
+    }
+
+    private buildRetryMeta(retryCount: number, lastErrorCode?: string) {
+        return {
+            retryCount,
+            maxRetries: 2,
+            nextBackoffMs: Math.min(1000 * 2 ** retryCount, 4000),
+            lastErrorCode,
+        };
+    }
+
+    private buildRetryParts(message: AIMessage): WaveUIMessagePart[] {
+        return (message.parts ?? [])
+            .map((part) => {
+                if (part.type === "text") {
+                    return { type: "text", text: part.text } as WaveUIMessagePart;
+                }
+                if (part.type === "file") {
+                    return {
+                        type: "data-userfile",
+                        data: {
+                            filename: part.filename,
+                            mimetype: part.mimetype,
+                            size: part.size,
+                            previewurl: part.previewurl,
+                        },
+                    } as WaveUIMessagePart;
+                }
+                return null;
+            })
+            .filter(Boolean) as WaveUIMessagePart[];
     }
 
     hasNonEmptyInput(): boolean {
@@ -519,29 +608,41 @@ export class WaveAIModel {
         }
     }
 
-    private getTargetTerminalModel():
-        | {
-              blockId: string;
-              sendDataToController: (data: string) => void;
-          }
-        | null {
+    private getTargetTerminalModel(): {
+        blockId: string;
+        sendDataToController: (data: string) => void;
+    } | null {
         const focusedBlockId = getFocusedBlockId();
         if (focusedBlockId) {
             const bcm = getBlockComponentModel(focusedBlockId);
             const viewModel = bcm?.viewModel as any;
             if (viewModel?.viewType === "term" && typeof viewModel.sendDataToController === "function") {
-                return { blockId: focusedBlockId, sendDataToController: viewModel.sendDataToController.bind(viewModel) };
+                return {
+                    blockId: focusedBlockId,
+                    sendDataToController: viewModel.sendDataToController.bind(viewModel),
+                };
             }
         }
 
         for (const bcm of getAllBlockComponentModels()) {
             const viewModel = bcm?.viewModel as any;
             if (viewModel?.viewType === "term" && typeof viewModel.sendDataToController === "function") {
-                return { blockId: viewModel.blockId, sendDataToController: viewModel.sendDataToController.bind(viewModel) };
+                return {
+                    blockId: viewModel.blockId,
+                    sendDataToController: viewModel.sendDataToController.bind(viewModel),
+                };
             }
         }
 
         return null;
+    }
+
+    private getTerminalExecutionContext(blockId: string): { connName: string; cwd?: string } {
+        const blockAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId));
+        const blockData = globalStore.get(blockAtom);
+        const connName = (blockData?.meta?.connection as string) || "local";
+        const cwd = blockData?.meta?.["cmd:cwd"] as string | undefined;
+        return { connName, cwd };
     }
 
     executeCommandInTerminal(command: string, opts?: { source?: "manual" | "auto" }): boolean {
@@ -556,14 +657,234 @@ export class WaveAIModel {
             return false;
         }
 
-        const payload = normalized.endsWith("\n") ? normalized : `${normalized}\n`;
-        target.sendDataToController(payload);
+        const tool: ToolCallEnvelope = {
+            requestId: crypto.randomUUID(),
+            taskId: this.getChatId() || crypto.randomUUID(),
+            toolName: "bash",
+            capability: "bash",
+            args: { command: normalized, blockId: target.blockId },
+            hostScope: { type: "local", hostId: "active-terminal" },
+            requiresApproval: false,
+            safetyClass: "readonly",
+        };
+        void this.invokeTool(tool);
         this.clearError();
         recordTEvent("action:waveai:executecommand", {
             "action:source": opts?.source ?? "manual",
             "action:blockid": target.blockId,
         });
         return true;
+    }
+
+    async invokeTool(tool: ToolCallEnvelope): Promise<ToolResultEnvelope> {
+        const startedAt = Date.now();
+        this.dispatchAgentEvent({ type: "TOOL_CALL_STARTED", tool });
+        recordTEvent("waveai:perf:tool:start", {
+            "waveai:tool": tool.toolName,
+            "waveai:requestid": tool.requestId,
+            "waveai:taskid": tool.taskId,
+            "waveai:capability": tool.capability,
+        } as any);
+        try {
+            if (tool.toolName !== "bash") {
+                const unsupportedResult: ToolResultEnvelope = {
+                    requestId: tool.requestId,
+                    taskId: tool.taskId,
+                    toolName: tool.toolName,
+                    ok: false,
+                    exitCode: 1,
+                    stderr: `Unsupported tool invocation: ${tool.toolName}`,
+                    durationMs: Date.now() - startedAt,
+                    errorCode: "UNSUPPORTED_TOOL",
+                };
+                this.dispatchAgentEvent({
+                    type: "TOOL_CALL_FAILED",
+                    result: unsupportedResult,
+                    retryable: false,
+                });
+                recordTEvent("waveai:perf:tool:done", {
+                    "waveai:tool": tool.toolName,
+                    "waveai:requestid": tool.requestId,
+                    "waveai:taskid": tool.taskId,
+                    "waveai:ok": false,
+                    "waveai:durationms": unsupportedResult.durationMs,
+                    "waveai:error": unsupportedResult.errorCode,
+                } as any);
+                return unsupportedResult;
+            }
+
+            const command = typeof tool.args.command === "string" ? tool.args.command : "";
+            const blockId = typeof tool.args.blockId === "string" ? tool.args.blockId : undefined;
+            if (!blockId) {
+                const failedResult: ToolResultEnvelope = {
+                    requestId: tool.requestId,
+                    taskId: tool.taskId,
+                    toolName: tool.toolName,
+                    ok: false,
+                    exitCode: 1,
+                    stderr: "No active terminal available. Focus a terminal and try again.",
+                    durationMs: Date.now() - startedAt,
+                    errorCode: "NO_ACTIVE_TERMINAL",
+                };
+                this.dispatchAgentEvent({ type: "TOOL_CALL_FAILED", result: failedResult, retryable: true });
+                recordTEvent("waveai:perf:tool:done", {
+                    "waveai:tool": tool.toolName,
+                    "waveai:requestid": tool.requestId,
+                    "waveai:taskid": tool.taskId,
+                    "waveai:ok": false,
+                    "waveai:durationms": failedResult.durationMs,
+                    "waveai:error": failedResult.errorCode,
+                } as any);
+                return failedResult;
+            }
+            const { connName, cwd } = this.getTerminalExecutionContext(blockId);
+            await RpcApi.ConnEnsureCommand(
+                TabRpcClient,
+                {
+                    connname: connName,
+                    logblockid: blockId,
+                },
+                { timeout: 60000 }
+            );
+            const runResult = await RpcApi.AgentRunCommandCommand(
+                TabRpcClient,
+                {
+                    connname: connName,
+                    cwd,
+                    cmd: command,
+                },
+                { timeout: 15000 }
+            );
+            const jobId = runResult.jobid;
+            this.dispatchAgentEvent({
+                type: "TOOL_CALL_STARTED",
+                tool: {
+                    ...tool,
+                    jobId,
+                    hostScope: { type: connName === "local" ? "local" : "remote", hostId: connName },
+                },
+            });
+
+            let commandResult: CommandAgentGetCommandResultRtnData | null = null;
+            const deadline = Date.now() + 30000;
+            while (Date.now() < deadline) {
+                commandResult = await RpcApi.AgentGetCommandResultCommand(
+                    TabRpcClient,
+                    {
+                        jobid: jobId,
+                        tailbytes: 32768,
+                    },
+                    { timeout: 10000 }
+                );
+                if (commandResult.status !== "running") {
+                    break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 500));
+            }
+            if (!commandResult) {
+                commandResult = {
+                    jobid: jobId,
+                    status: "error",
+                    error: "No command result received",
+                };
+            }
+            if (commandResult.status === "running") {
+                commandResult = {
+                    ...commandResult,
+                    status: "error",
+                    error: "Timed out waiting for command completion",
+                };
+            }
+            const exitCode = typeof commandResult.exitcode === "number" ? commandResult.exitcode : 1;
+            const ok = commandResult.status === "done" && exitCode === 0 && !commandResult.error;
+
+            const result: ToolResultEnvelope = {
+                requestId: tool.requestId,
+                taskId: tool.taskId,
+                toolName: tool.toolName,
+                jobId,
+                ok,
+                exitCode,
+                stdout: commandResult.output,
+                stderr: commandResult.error,
+                durationMs: Date.now() - startedAt,
+            };
+            if (ok) {
+                this.dispatchAgentEvent({ type: "TOOL_CALL_FINISHED", result });
+            } else {
+                this.dispatchAgentEvent({ type: "TOOL_CALL_FAILED", result, retryable: true });
+            }
+            recordTEvent("waveai:perf:tool:done", {
+                "waveai:tool": tool.toolName,
+                "waveai:requestid": tool.requestId,
+                "waveai:taskid": tool.taskId,
+                "waveai:ok": ok,
+                "waveai:durationms": result.durationMs,
+                "waveai:exitcode": result.exitCode,
+            } as any);
+            return result;
+        } catch (error) {
+            const failedResult: ToolResultEnvelope = {
+                requestId: tool.requestId,
+                taskId: tool.taskId,
+                toolName: tool.toolName,
+                ok: false,
+                exitCode: 1,
+                stderr: error instanceof Error ? error.message : String(error),
+                durationMs: Date.now() - startedAt,
+                errorCode: "TOOL_INVOCATION_FAILED",
+            };
+            this.dispatchAgentEvent({ type: "TOOL_CALL_FAILED", result: failedResult, retryable: true });
+            recordTEvent("waveai:perf:tool:done", {
+                "waveai:tool": tool.toolName,
+                "waveai:requestid": tool.requestId,
+                "waveai:taskid": tool.taskId,
+                "waveai:ok": false,
+                "waveai:durationms": failedResult.durationMs,
+                "waveai:error": failedResult.errorCode,
+            } as any);
+            return failedResult;
+        }
+    }
+
+    async retryLastAction(scope: "step" | "round" = "step"): Promise<boolean> {
+        const runtime = globalStore.get(this.agentRuntimeAtom);
+        const currentRetry = runtime.retry?.retryCount ?? 0;
+        const nextRetryCount = currentRetry + 1;
+        const retry = this.buildRetryMeta(nextRetryCount, runtime.lastToolResult?.errorCode);
+
+        this.dispatchAgentEvent({
+            type: "RETRY_REQUESTED",
+            retry,
+            reason: scope === "round" ? "Retrying the full round" : "Retrying the last step",
+        });
+        recordTEvent("waveai:perf:retry", {
+            "waveai:scope": scope,
+            "waveai:retrycount": retry.retryCount,
+            "waveai:maxretries": retry.maxRetries,
+            "waveai:lasterror": retry.lastErrorCode ?? "",
+        } as any);
+
+        if (scope === "round" && this.lastSubmittedMessage && this.useChatSendMessage) {
+            this.realMessage = this.lastSubmittedMessage;
+            await this.useChatSendMessage({ parts: this.buildRetryParts(this.lastSubmittedMessage) });
+            return true;
+        }
+
+        if (runtime.lastToolCall) {
+            await this.invokeTool({
+                ...runtime.lastToolCall,
+                jobId: undefined,
+                retry,
+            });
+            return true;
+        }
+
+        if (runtime.lastCommand) {
+            return this.executeCommandInTerminal(runtime.lastCommand, { source: "manual" });
+        }
+
+        return false;
     }
 
     isValidMode(mode: string): boolean {
@@ -672,6 +993,7 @@ export class WaveAIModel {
         }
 
         this.clearError();
+        this.dispatchAgentEvent({ type: "USER_SUBMIT" });
 
         const aiMessageParts: AIMessagePart[] = [];
         const uiMessageParts: WaveUIMessagePart[] = [];
@@ -710,6 +1032,7 @@ export class WaveAIModel {
             parts: aiMessageParts,
         };
         this.realMessage = realMessage;
+        this.lastSubmittedMessage = realMessage;
 
         // console.log("SUBMIT MESSAGE", realMessage);
 
@@ -779,6 +1102,15 @@ export class WaveAIModel {
     }
 
     toolUseSendApproval(toolcallid: string, approval: string) {
+        if (approval === "user-approved") {
+            this.dispatchAgentEvent({ type: "APPROVAL_RESOLVED", approved: true });
+        } else if (approval === "user-denied") {
+            this.dispatchAgentEvent({
+                type: "APPROVAL_RESOLVED",
+                approved: false,
+                reason: "User denied tool approval",
+            });
+        }
         RpcApi.WaveAIToolApproveCommand(TabRpcClient, {
             toolcallid: toolcallid,
             approval: approval,

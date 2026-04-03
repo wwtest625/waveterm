@@ -14,6 +14,172 @@ import { WaveAIModel } from "./waveai-model";
 // matches pkg/filebackup/filebackup.go
 const BackupRetentionDays = 5;
 
+const ToolDisplayNames: Record<string, string> = {
+    wave_run_command: "执行命令",
+    wave_get_command_result: "获取结果",
+    read_text_file: "读取文件",
+    read_dir: "读取目录",
+    write_text_file: "写入文件",
+    edit_text_file: "精准编辑",
+    term_get_scrollback: "读取终端输出",
+    term_command_output: "读取命令输出",
+    codex_command_execution: "执行命令",
+    codex_dynamic_tool: "运行工具",
+    codex_file_change: "修改文件",
+};
+
+export function getToolDisplayName(toolName?: string): string {
+    if (!toolName) {
+        return "执行步骤";
+    }
+    return ToolDisplayNames[toolName] ?? toolName.replace(/_/g, " ");
+}
+
+type ToolGroupSummary = {
+    title: string;
+    description?: string;
+    toneClassName: string;
+    iconClassName: string;
+    icon: string;
+    defaultExpanded: boolean;
+    canRetry: boolean;
+    needsApproval: boolean;
+    hasDetails: boolean;
+};
+
+function normalizeSummaryDescription(value?: string | null): string | undefined {
+    const text = value?.trim();
+    if (!text) {
+        return undefined;
+    }
+    return text.replace(/\s+/g, " ");
+}
+
+function summarizeErrorMessage(toolName: string | undefined, message?: string | null): string | undefined {
+    const text = normalizeSummaryDescription(message);
+    if (!text) {
+        return undefined;
+    }
+    if (toolName === "wave_run_command" && text.includes("failed to start remote job")) {
+        return "远端命令启动失败";
+    }
+    if (toolName === "wave_get_command_result" && text.includes("job not found")) {
+        return "执行结果不存在或已失效";
+    }
+    if (text.length > 120) {
+        return `${text.slice(0, 120)}...`;
+    }
+    return text;
+}
+
+export function summarizeToolGroup(
+    parts: Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }>,
+    isStreaming: boolean
+): ToolGroupSummary {
+    const tooluseParts = parts.filter((part) => part.type === "data-tooluse") as Array<
+        WaveUIMessagePart & { type: "data-tooluse" }
+    >;
+    const progressParts = parts.filter((part) => part.type === "data-toolprogress") as Array<
+        WaveUIMessagePart & { type: "data-toolprogress" }
+    >;
+    const firstToolUse = tooluseParts[0];
+    const lastToolUse = tooluseParts[tooluseParts.length - 1];
+    const failedToolUse = tooluseParts.find(
+        (part) =>
+            part.data.status === "error" ||
+            getEffectiveApprovalStatus(part.data.approval, isStreaming) === "timeout" ||
+            part.data.approval === "user-denied"
+    );
+    const approvalToolUse = tooluseParts.find(
+        (part) => getEffectiveApprovalStatus(part.data.approval, isStreaming) === "needs-approval"
+    );
+    const toolNames = tooluseParts.map((part) => part.data.toolname);
+    const lastProgressLine = [...progressParts]
+        .reverse()
+        .flatMap((part) => [...(part.data.statuslines ?? [])].reverse())
+        .find((line) => typeof line === "string" && line.trim().length > 0);
+    const leadToolName = (() => {
+        if (toolNames.some((toolName) => toolName === "wave_run_command" || toolName === "codex_command_execution")) {
+            return "命令执行";
+        }
+        if (toolNames.some((toolName) => toolName === "edit_text_file")) {
+            return "精准编辑";
+        }
+        if (toolNames.some((toolName) => toolName === "write_text_file")) {
+            return "文件写入";
+        }
+        if (toolNames.some((toolName) => toolName === "read_text_file" || toolName === "read_dir")) {
+            return "文件读取";
+        }
+        return getToolDisplayName(lastToolUse?.data.toolname ?? firstToolUse?.data.toolname);
+    })();
+    const primaryDescription =
+        normalizeSummaryDescription(firstToolUse?.data.tooldesc) ??
+        normalizeSummaryDescription(lastToolUse?.data.tooldesc) ??
+        normalizeSummaryDescription(lastProgressLine);
+
+    if (failedToolUse) {
+        return {
+            title: `${leadToolName}失败`,
+            description:
+                summarizeErrorMessage(failedToolUse.data.toolname, failedToolUse.data.errormessage) ??
+                primaryDescription ??
+                "执行未完成",
+            toneClassName: "border-red-900/60 bg-red-950/20 text-red-100",
+            iconClassName: "text-red-400",
+            icon: "fa-circle-xmark",
+            defaultExpanded: false,
+            canRetry: true,
+            needsApproval: false,
+            hasDetails: parts.length > 1,
+        };
+    }
+
+    if (approvalToolUse) {
+        return {
+            title: `${getToolDisplayName(approvalToolUse.data.toolname)}待确认`,
+            description:
+                normalizeSummaryDescription(approvalToolUse.data.tooldesc) ?? "等待批准后继续执行",
+            toneClassName: "border-yellow-800/60 bg-yellow-950/20 text-yellow-100",
+            iconClassName: "text-yellow-400",
+            icon: "fa-clock",
+            defaultExpanded: true,
+            canRetry: false,
+            needsApproval: true,
+            hasDetails: parts.length > 1,
+        };
+    }
+
+    if (isStreaming || progressParts.length > 0 || tooluseParts.some((part) => part.data.status === "pending")) {
+        return {
+            title: `${leadToolName}处理中`,
+            description:
+                normalizeSummaryDescription(lastProgressLine) ??
+                primaryDescription ??
+                "正在执行",
+            toneClassName: "border-zinc-700 bg-zinc-900/60 text-zinc-100",
+            iconClassName: "text-zinc-400",
+            icon: "fa-spinner fa-spin",
+            defaultExpanded: true,
+            canRetry: false,
+            needsApproval: false,
+            hasDetails: parts.length > 1,
+        };
+    }
+
+    return {
+        title: `${leadToolName}完成`,
+        description: primaryDescription ?? "执行已完成",
+        toneClassName: "border-zinc-700 bg-zinc-900/40 text-zinc-100",
+        iconClassName: "text-emerald-400",
+        icon: "fa-circle-check",
+        defaultExpanded: false,
+        canRetry: false,
+        needsApproval: false,
+        hasDetails: parts.length > 1,
+    };
+}
+
 interface ToolDescLineProps {
     text: string;
 }
@@ -204,8 +370,22 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
 
     const baseApproval = userApprovalOverride || toolData.approval;
     const effectiveApproval = getEffectiveApprovalStatus(baseApproval, isStreaming);
+    const approvalTimeoutDispatchedRef = useRef(false);
 
     const isFileWriteTool = toolData.toolname === "write_text_file" || toolData.toolname === "edit_text_file";
+
+    useEffect(() => {
+        if (effectiveApproval === "timeout" && !approvalTimeoutDispatchedRef.current) {
+            approvalTimeoutDispatchedRef.current = true;
+            model.dispatchAgentEvent({
+                type: "APPROVAL_TIMEOUT",
+                reason: `${toolData.toolname} was not approved before the stream ended`,
+            });
+        }
+        if (effectiveApproval !== "timeout") {
+            approvalTimeoutDispatchedRef.current = false;
+        }
+    }, [effectiveApproval, model, toolData.toolname]);
 
     useEffect(() => {
         return () => {
@@ -305,7 +485,16 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
             </div>
             {toolData.tooldesc && <ToolDesc text={toolData.tooldesc} className="text-sm text-gray-400 pl-6" />}
             {(toolData.errormessage || effectiveApproval === "timeout") && (
-                <div className="text-sm text-red-300 pl-6">{toolData.errormessage || "Not approved"}</div>
+                <div className="pl-6">
+                    <div className="text-sm text-red-300">{toolData.errormessage || "Not approved"}</div>
+                    <button
+                        type="button"
+                        className="mt-2 rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-200 hover:border-zinc-400 cursor-pointer"
+                        onClick={() => void model.retryLastAction("step")}
+                    >
+                        Retry this step
+                    </button>
+                </div>
             )}
             {effectiveApproval === "needs-approval" && (
                 <div className="pl-6">
@@ -352,6 +541,7 @@ type ToolGroupItem =
     | { type: "progress"; part: WaveUIMessagePart & { type: "data-toolprogress" } };
 
 export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps) => {
+    const model = WaveAIModel.getInstance();
     const tooluseParts = parts.filter((p) => p.type === "data-tooluse") as Array<
         WaveUIMessagePart & { type: "data-tooluse" }
     >;
@@ -361,6 +551,16 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
 
     const tooluseCallIds = new Set(tooluseParts.map((p) => p.data.toolcallid));
     const filteredProgressParts = toolprogressParts.filter((p) => !tooluseCallIds.has(p.data.toolcallid));
+    const groupSummary = summarizeToolGroup(parts, isStreaming);
+    const [detailsOpen, setDetailsOpen] = useState(groupSummary.defaultExpanded);
+    const groupStateKey = parts
+        .map((part) => {
+            if (part.type === "data-tooluse") {
+                return `${part.data.toolcallid}:${part.data.toolname}:${part.data.status}:${part.data.approval ?? ""}:${part.data.errormessage ?? ""}`;
+            }
+            return `${part.data.toolcallid}:${part.data.toolname}:${(part.data.statuslines ?? []).join("|")}`;
+        })
+        .join("||");
 
     const isFileOp = (part: WaveUIMessagePart & { type: "data-tooluse" }) => {
         const toolName = part.data?.toolname;
@@ -411,30 +611,71 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
         groupedItems.push({ type: "progress", part });
     });
 
+    useEffect(() => {
+        setDetailsOpen(groupSummary.defaultExpanded);
+    }, [groupStateKey, groupSummary.defaultExpanded]);
+
     return (
-        <>
-            {groupedItems.map((item, idx) => {
-                if (item.type === "batch") {
-                    return (
-                        <div key={idx} className="mt-2">
-                            <AIToolUseBatch parts={item.parts} isStreaming={isStreaming} />
+        <div className={cn("mt-2 rounded-xl border px-3 py-2", groupSummary.toneClassName)}>
+            <div className="flex items-start gap-3">
+                <i className={cn("fa mt-0.5 text-sm", groupSummary.icon, groupSummary.iconClassName)}></i>
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <div className="font-medium">{groupSummary.title}</div>
+                            {groupSummary.description && (
+                                <div className="mt-1 text-sm text-zinc-400 break-words">{groupSummary.description}</div>
+                            )}
                         </div>
-                    );
-                } else if (item.type === "progress") {
-                    return (
-                        <div key={idx} className="mt-2">
-                            <AIToolProgress part={item.part} />
+                        {groupSummary.hasDetails && (
+                            <button
+                                type="button"
+                                className="shrink-0 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500 cursor-pointer"
+                                onClick={() => setDetailsOpen((open) => !open)}
+                            >
+                                {detailsOpen ? "收起详情" : "查看详情"}
+                            </button>
+                        )}
+                    </div>
+                    {groupSummary.canRetry && (
+                        <div className="mt-2">
+                            <button
+                                type="button"
+                                className="rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-200 hover:border-zinc-400 cursor-pointer"
+                                onClick={() => void model.retryLastAction("step")}
+                            >
+                                Retry this step
+                            </button>
                         </div>
-                    );
-                } else {
-                    return (
-                        <div key={idx} className="mt-2">
-                            <AIToolUse part={item.part} isStreaming={isStreaming} />
+                    )}
+                    {detailsOpen && (
+                        <div className="mt-3 border-t border-zinc-800/80 pt-3">
+                            {groupedItems.map((item, idx) => {
+                                if (item.type === "batch") {
+                                    return (
+                                        <div key={idx} className={idx === 0 ? "" : "mt-2"}>
+                                            <AIToolUseBatch parts={item.parts} isStreaming={isStreaming} />
+                                        </div>
+                                    );
+                                } else if (item.type === "progress") {
+                                    return (
+                                        <div key={idx} className={idx === 0 ? "" : "mt-2"}>
+                                            <AIToolProgress part={item.part} />
+                                        </div>
+                                    );
+                                } else {
+                                    return (
+                                        <div key={idx} className={idx === 0 ? "" : "mt-2"}>
+                                            <AIToolUse part={item.part} isStreaming={isStreaming} />
+                                        </div>
+                                    );
+                                }
+                            })}
                         </div>
-                    );
-                }
-            })}
-        </>
+                    )}
+                </div>
+            </div>
+        </div>
     );
 });
 

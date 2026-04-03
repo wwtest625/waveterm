@@ -54,8 +54,8 @@ func TestLocalAgentPrompt_IncludesCommandExecutionGuidance(t *testing.T) {
 		256,
 	)
 
-	if !strings.Contains(prompt, "CRITICAL TERMINAL QUERY RULES") {
-		t.Fatalf("expected prompt to include critical terminal query rules, got prompt:\n%s", prompt)
+	if !strings.Contains(prompt, "=== TERMINAL QUERY RULES ===") {
+		t.Fatalf("expected prompt to include terminal query rules, got prompt:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "you MUST:") {
 		t.Fatalf("expected prompt to use strong mandatory language, got prompt:\n%s", prompt)

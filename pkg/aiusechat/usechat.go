@@ -219,6 +219,45 @@ func updateToolUseDataInChat(backend UseChatBackend, chatOpts uctypes.WaveChatOp
 	}
 }
 
+const maxToolOutputTextLen = 24 * 1024
+
+func truncateToolOutputText(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if len(trimmed) <= maxToolOutputTextLen {
+		return trimmed
+	}
+	return strings.TrimSpace(trimmed[:maxToolOutputTextLen]) + "\n...[truncated]"
+}
+
+func extractToolOutputText(toolName string, resultText string) string {
+	trimmedResult := strings.TrimSpace(resultText)
+	if trimmedResult == "" {
+		return ""
+	}
+	if toolName == "wave_get_command_result" || toolName == "term_command_output" || toolName == "term_get_scrollback" {
+		var outputMap map[string]any
+		if err := json.Unmarshal([]byte(trimmedResult), &outputMap); err == nil {
+			for _, key := range []string{"output", "text", "stdout", "content"} {
+				if rawText, ok := outputMap[key].(string); ok && strings.TrimSpace(rawText) != "" {
+					return truncateToolOutputText(rawText)
+				}
+			}
+			if rawLines, ok := outputMap["lines"].([]any); ok && len(rawLines) > 0 {
+				lines := make([]string, 0, len(rawLines))
+				for _, rawLine := range rawLines {
+					if line, ok := rawLine.(string); ok {
+						lines = append(lines, line)
+					}
+				}
+				if len(lines) > 0 {
+					return truncateToolOutputText(strings.Join(lines, "\n"))
+				}
+			}
+		}
+	}
+	return truncateToolOutputText(trimmedResult)
+}
+
 func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCall, chatOpts uctypes.WaveChatOpts, toolDef *uctypes.ToolDefinition, sseHandler *sse.SSEHandlerCh) uctypes.AIToolResult {
 	if toolCall.ToolUseData == nil {
 		return uctypes.AIToolResult{
@@ -308,8 +347,10 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 	if result.ErrorText != "" {
 		toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
 		toolCall.ToolUseData.ErrorMessage = result.ErrorText
+		toolCall.ToolUseData.OutputText = ""
 	} else {
 		toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
+		toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
 	}
 
 	return result
@@ -700,6 +741,8 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 			ChatId:       req.ChatID,
 			ClientId:     wstore.GetClientId(),
 			WidgetAccess: req.WidgetAccess,
+			TabId:        req.TabId,
+			BlockId:      req.BlockId,
 			BuilderId:    req.BuilderId,
 			BuilderAppId: req.BuilderAppId,
 			AgentMode:    string(resolveAgentMode(req.AgentMode)),
@@ -752,6 +795,8 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		AgentMode:            string(resolveAgentMode(req.AgentMode)),
 		WidgetAccess:         req.WidgetAccess,
 		AllowNativeWebSearch: true,
+		TabId:                req.TabId,
+		BlockId:              req.BlockId,
 		BuilderId:            req.BuilderId,
 		BuilderAppId:         req.BuilderAppId,
 	}

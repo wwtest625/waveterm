@@ -7,7 +7,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -54,8 +56,19 @@ func MakeJobCmd(jobId string, cmdDef CmdDef) (*JobCmd, error) {
 	}
 	ecmd := exec.Command(cmdDef.Cmd, cmdDef.Args...)
 	if len(cmdDef.Env) > 0 {
-		ecmd.Env = make([]string, 0, len(cmdDef.Env))
+		mergedEnv := make(map[string]string, len(os.Environ())+len(cmdDef.Env))
+		for _, envPair := range os.Environ() {
+			parts := strings.SplitN(envPair, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			mergedEnv[parts[0]] = parts[1]
+		}
 		for key, val := range cmdDef.Env {
+			mergedEnv[key] = val
+		}
+		ecmd.Env = make([]string, 0, len(mergedEnv))
+		for key, val := range mergedEnv {
 			ecmd.Env = append(ecmd.Env, fmt.Sprintf("%s=%s", key, val))
 		}
 	}
