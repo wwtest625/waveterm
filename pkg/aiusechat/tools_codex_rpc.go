@@ -20,8 +20,28 @@ type WaveRunCommandToolInput struct {
 	Connection string            `json:"connection"`
 	Cwd        string            `json:"cwd,omitempty"`
 	Command    string            `json:"command"`
-	Args       []string          `json:"args,omitempty"`
+	Args       waveRunCommandArgs `json:"args,omitempty"`
 	Env        map[string]string `json:"env,omitempty"`
+}
+
+type waveRunCommandArgs []string
+
+func (a *waveRunCommandArgs) UnmarshalJSON(data []byte) error {
+	var arr []string
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*a = arr
+		return nil
+	}
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		if strings.TrimSpace(single) == "" {
+			*a = nil
+		} else {
+			*a = []string{single}
+		}
+		return nil
+	}
+	return fmt.Errorf("args must be a string or array of strings")
 }
 
 type WaveGetCommandResultToolInput struct {

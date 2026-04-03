@@ -4,24 +4,23 @@
 import { cn } from "@/util/util";
 import { AgentRuntimeSnapshot, AgentRuntimeState, WaveUIMessage } from "./aitypes";
 import { getFirstExecutableCommandFromMessage } from "./autoexecute-util";
-import { AgentMode, LocalAgentHealth } from "./waveai-model";
+import { shouldHideProgressStatusLines } from "./aitooluse";
+import { AgentMode } from "./waveai-model";
 
 export type AgentRuntimeStatusSnapshot = AgentRuntimeSnapshot;
 
 type AgentRuntimeStatusInput = {
-    isLocalAgent: boolean;
     provider: string;
     mode: AgentMode;
     chatStatus: string;
     messages: WaveUIMessage[];
     errorMessage?: string | null;
-    localAgentHealth?: LocalAgentHealth | null;
 };
 
 type AgentPhaseMapping = Pick<AgentRuntimeStatusSnapshot, "state" | "phaseLabel" | "blockedReason">;
 
 function formatProviderLabel(provider: string): string {
-    return provider === "claude-code" ? "Claude Code" : "Codex";
+    return provider || "Wave AI";
 }
 
 function formatModeLabel(mode: AgentMode): string {
@@ -43,8 +42,6 @@ function getToolUsePhase(
         case "term_command_output":
         case "wave_get_command_result":
             return { state: "planning", phaseLabel: "Reading Terminal" };
-        case "codex_command_execution":
-        case "codex_dynamic_tool":
         case "wave_run_command":
             return { state: "executing", phaseLabel: "Executing Command" };
         default:
@@ -54,31 +51,12 @@ function getToolUsePhase(
 
 function getToolProgressPhase(toolName: string | undefined, statusLine: string | undefined): AgentPhaseMapping | null {
     switch (toolName) {
-        case "codex_wave_terminal_context_ok":
-            return { state: "planning", phaseLabel: "Terminal Context Ready" };
-        case "codex_thinking":
-        case "codex_reasoning":
-        case "codex_plan":
-            return { state: "planning", phaseLabel: "Thinking" };
-        case "codex_command_execution":
         case "wave_run_command":
             return { state: "executing", phaseLabel: "Executing Command", blockedReason: statusLine };
-        case "codex_dynamic_tool":
-            return { state: "executing", phaseLabel: "Running Tool", blockedReason: statusLine };
-        case "codex_file_change":
-            return { state: "executing", phaseLabel: "Applying Changes", blockedReason: statusLine };
         case "term_get_scrollback":
         case "term_command_output":
         case "wave_get_command_result":
             return { state: "planning", phaseLabel: "Reading Terminal", blockedReason: statusLine };
-        case "codex_waiting_approval":
-            return {
-                state: "awaiting_approval",
-                phaseLabel: "Waiting Approval",
-                blockedReason: statusLine || "Waiting for tool approval",
-            };
-        case "codex_responding":
-            return { state: "planning", phaseLabel: "Responding" };
         default:
             return null;
     }
@@ -104,8 +82,6 @@ function isObservedTerminalToolName(toolName: unknown): boolean {
         return false;
     }
     return (
-        toolName === "codex_wave_terminal_context_ok" ||
-        toolName === "codex_command_execution" ||
         toolName === "wave_run_command" ||
         toolName === "term_get_scrollback" ||
         toolName === "term_command_output" ||
@@ -119,7 +95,7 @@ function isTextPart(
     return part.type === "text" && typeof part.text === "string";
 }
 
-function messageTextIncludesLocalAgentCapabilityDenial(message: WaveUIMessage | undefined): boolean {
+function messageTextIncludesCapabilityDenial(message: WaveUIMessage | undefined): boolean {
     if (!message?.parts?.length) {
         return false;
     }
@@ -157,7 +133,8 @@ function messageTextIncludesLocalAgentCapabilityDenial(message: WaveUIMessage | 
 }
 
 export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentRuntimeStatusSnapshot {
-    if (!input.isLocalAgent) {
+    const assistantMessages = input.messages.filter((message) => message.role === "assistant");
+    if (!assistantMessages.length && !input.errorMessage) {
         return {
             visible: false,
             providerLabel: "Wave AI",
@@ -167,7 +144,6 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
         };
     }
 
-    const assistantMessages = input.messages.filter((message) => message.role === "assistant");
     const lastAssistantMessage = assistantMessages.at(-1);
     const lastCommand =
         [...assistantMessages].reverse().map(getFirstExecutableCommandFromMessage).find(Boolean) ?? undefined;
@@ -192,6 +168,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
     const progressStatusLine =
         lastToolProgress?.type === "data-toolprogress" &&
         Array.isArray(lastToolProgress.data?.statuslines) &&
+        !shouldHideProgressStatusLines(lastToolProgress.data?.toolname as string | undefined) &&
         lastToolProgress.data.statuslines.length > 0
             ? (lastToolProgress.data.statuslines.find((line: unknown) => typeof line === "string" && line.trim()) as
                   | string
@@ -216,23 +193,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
         };
     }
 
-    if (input.localAgentHealth && !input.localAgentHealth.available) {
-        return {
-            visible: true,
-            providerLabel: formatProviderLabel(input.provider),
-            modeLabel: formatModeLabel(input.mode),
-            state: "unavailable",
-            phaseLabel: "Unavailable",
-            lastCommand,
-            blockedReason: input.localAgentHealth.message,
-        };
-    }
-
-    if (
-        messageTextIncludesLocalAgentCapabilityDenial(lastAssistantMessage) &&
-        !hasObservedTerminalToolCall &&
-        input.localAgentHealth?.available !== false
-    ) {
+    if (messageTextIncludesCapabilityDenial(lastAssistantMessage) && !hasObservedTerminalToolCall) {
         return {
             visible: true,
             providerLabel: formatProviderLabel(input.provider),
@@ -241,7 +202,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             phaseLabel: "Capability Mismatch",
             lastCommand,
             blockedReason:
-                "No terminal tool call was observed. The local agent replied as if terminal tools were unavailable.",
+                "No terminal tool call was observed. The assistant replied as if terminal tools were unavailable.",
         };
     }
 

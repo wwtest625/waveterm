@@ -23,6 +23,7 @@ import { AIModeDropdown } from "./aimode";
 import { loadInitialChatForPanel } from "./aipanel-loadutil";
 import { AIPanelInput } from "./aipanelinput";
 import { AIPanelMessages } from "./aipanelmessages";
+import { shouldHideProgressStatusLines } from "./aitooluse";
 import {
     WaveUIMessage,
     getLatestToolProgressPart,
@@ -90,22 +91,11 @@ const KeyCap = memo(({ children, className }: { children: React.ReactNode; class
 
 KeyCap.displayName = "KeyCap";
 
-const AIWelcomeMessage = memo(
-    ({ isLocalAgent, localAgentProvider }: { isLocalAgent: boolean; localAgentProvider: string }) => {
-        const modKey = isMacOS() ? "⌘" : "Alt";
-        const aiModeConfigs = jotai.useAtomValue(atoms.waveaiModeConfigAtom);
-        const hasCustomModes = Object.keys(aiModeConfigs).some((key) => !key.startsWith("waveai@"));
-        if (isLocalAgent && localAgentProvider === "codex") {
-            return (
-                <div className="text-secondary py-8">
-                    <div className="text-center">
-                        <i className="fa fa-sparkles text-4xl text-accent mb-2 block"></i>
-                        <p className="text-lg font-bold text-primary">Welcome to Codex</p>
-                    </div>
-                </div>
-            );
-        }
-        return (
+const AIWelcomeMessage = memo(() => {
+    const modKey = isMacOS() ? "⌘" : "Alt";
+    const aiModeConfigs = jotai.useAtomValue(atoms.waveaiModeConfigAtom);
+    const hasCustomModes = Object.keys(aiModeConfigs).some((key) => !key.startsWith("waveai@"));
+    return (
             <div className="text-secondary py-8">
                 <div className="text-center">
                     <i className="fa fa-sparkles text-4xl text-accent mb-2 block"></i>
@@ -193,9 +183,8 @@ const AIWelcomeMessage = memo(
                     </div>
                 </div>
             </div>
-        );
-    }
-);
+    );
+});
 
 AIWelcomeMessage.displayName = "AIWelcomeMessage";
 
@@ -279,10 +268,7 @@ const AIPanelComponentInner = memo(() => {
     const isPanelVisible = jotai.useAtomValue(model.getPanelVisibleAtom());
     const errorMessage = jotai.useAtomValue(model.errorMessage);
     const agentRuntimeSnapshot = jotai.useAtomValue(model.agentRuntimeAtom);
-    const isLocalAgent = jotai.useAtomValue(model.isLocalAgentAtom);
-    const localAgentProvider = jotai.useAtomValue(model.localAgentProviderAtom);
     const agentMode = jotai.useAtomValue(model.agentModeAtom);
-    const localAgentHealth = jotai.useAtomValue(model.localAgentHealthAtom);
     const tabModel = maybeUseTabModel();
     const defaultMode = jotai.useAtomValue(getSettingsKeyAtom("waveai:defaultmode")) ?? "waveai@balanced";
     const aiModeConfigs = jotai.useAtomValue(model.aiModeConfigs);
@@ -315,8 +301,6 @@ const AIPanelComponentInner = memo(() => {
                     widgetaccess: globalStore.get(model.widgetAccessAtom),
                     aimode: globalStore.get(model.currentAIMode),
                     agentmode: globalStore.get(model.agentModeAtom),
-                    islocal: globalStore.get(model.isLocalAgentAtom),
-                    localprovider: globalStore.get(model.localAgentProviderAtom),
                 };
                 if (isBuilderWindow()) {
                     body.builderid = globalStore.get(atoms.builderId);
@@ -357,13 +341,11 @@ const AIPanelComponentInner = memo(() => {
     (window as any).aichatstatus = status;
 
     const derivedAgentStatusSnapshot = deriveAgentRuntimeStatus({
-        isLocalAgent,
-        provider: localAgentProvider,
+        provider: "Wave AI",
         mode: agentMode,
         chatStatus: status,
         messages,
         errorMessage,
-        localAgentHealth,
     });
 
     useEffect(() => {
@@ -379,14 +361,14 @@ const AIPanelComponentInner = memo(() => {
         if (latestToolUse) {
             const lastToolCall = toolCallFromPart(latestToolUse, taskId);
             const lastToolResult = toolResultFromPart(latestToolUse, taskId) ?? undefined;
+            const progressBlockedReason =
+                !shouldHideProgressStatusLines(latestToolProgress?.data?.toolname) &&
+                latestToolProgress?.data?.statuslines?.find((line) => Boolean(line?.trim()));
             model.mergeAgentRuntimeSnapshot({
                 lastToolCall,
                 lastToolResult,
                 activeTool: latestToolUse.data.toolname,
-                blockedReason:
-                    latestToolUse.data.errormessage ??
-                    latestToolUse.data.tooldesc ??
-                    latestToolProgress?.data?.statuslines?.find((line) => Boolean(line?.trim())),
+                blockedReason: latestToolUse.data.errormessage ?? latestToolUse.data.tooldesc ?? progressBlockedReason,
             });
             if (latestToolUse.data.approval === "needs-approval") {
                 model.dispatchAgentEvent({
@@ -400,7 +382,9 @@ const AIPanelComponentInner = memo(() => {
         if (latestToolProgress) {
             model.mergeAgentRuntimeSnapshot({
                 activeTool: latestToolProgress.data.toolname,
-                blockedReason: latestToolProgress.data.statuslines?.find((line) => Boolean(line?.trim())),
+                blockedReason: shouldHideProgressStatusLines(latestToolProgress.data.toolname)
+                    ? undefined
+                    : latestToolProgress.data.statuslines?.find((line) => Boolean(line?.trim())),
             });
         }
     }, [messages, model]);
@@ -409,17 +393,13 @@ const AIPanelComponentInner = memo(() => {
         if (status === "streaming") {
             return;
         }
-        if (localAgentHealth && !localAgentHealth.available) {
-            model.dispatchAgentEvent({ type: "HEALTH_UNAVAILABLE", reason: localAgentHealth.message });
-            return;
-        }
         if (errorMessage) {
             return;
         }
         if (messages.length > 0) {
             model.dispatchAgentEvent({ type: "VERIFY_FINISHED", ok: true });
         }
-    }, [status, localAgentHealth, errorMessage, messages.length, model]);
+    }, [status, errorMessage, messages.length, model]);
 
     useEffect(() => {
         if (agentRuntimeSnapshot.state !== "submitting") {
@@ -437,7 +417,6 @@ const AIPanelComponentInner = memo(() => {
             "waveai:traceid": traceId,
             "waveai:chatid": globalStore.get(model.chatId) || "",
             "waveai:agentmode": globalStore.get(model.agentModeAtom),
-            "waveai:islocal": globalStore.get(model.isLocalAgentAtom),
         } as any);
     }, [agentRuntimeSnapshot.state, model]);
 
@@ -792,15 +771,12 @@ const AIPanelComponentInner = memo(() => {
                                 onContextMenu={(e) => handleWaveAIContextMenu(e, true)}
                             >
                                 <div className="absolute top-2 left-2 z-10">
-                                    <AIModeDropdown />
+                                <AIModeDropdown />
                                 </div>
                                 {model.inBuilder ? (
                                     <AIBuilderWelcomeMessage />
                                 ) : (
-                                    <AIWelcomeMessage
-                                        isLocalAgent={isLocalAgent}
-                                        localAgentProvider={localAgentProvider}
-                                    />
+                                    <AIWelcomeMessage />
                                 )}
                             </div>
                         ) : (

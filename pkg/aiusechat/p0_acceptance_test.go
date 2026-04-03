@@ -43,22 +43,17 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 		}
 	}
 
-	planningPrompt := getModeAwareSystemPromptText(true, "codex", AgentModePlanning)
-	if !strings.Contains(planningPrompt, "planning mode") {
-		t.Fatalf("expected planning prompt to mention planning mode, got %q", planningPrompt)
+	planningPrompt := getModeAwareSystemPromptText(false, "", AgentModePlanning)
+	if !strings.Contains(planningPrompt, "Planning mode remains read-only") {
+		t.Fatalf("expected planning prompt to mention read-only planning mode, got %q", planningPrompt)
 	}
 	if !strings.Contains(planningPrompt, "Do not execute terminal commands") {
 		t.Fatalf("expected planning prompt to forbid terminal execution, got %q", planningPrompt)
 	}
 
-	localPrompt := getModeAwareSystemPromptText(true, "codex", AgentModeDefault)
-	if strings.Contains(localPrompt, "You cannot execute shell commands") {
-		t.Fatalf("expected local default prompt not to deny terminal control, got %q", localPrompt)
-	}
-
-	cloudPrompt := getModeAwareSystemPromptText(false, "", AgentModeDefault)
-	if strings.Contains(cloudPrompt, "You cannot execute shell commands") {
-		t.Fatalf("expected cloud prompt not to deny shell execution when tools are available, got %q", cloudPrompt)
+	defaultPrompt := getModeAwareSystemPromptText(false, "", AgentModeDefault)
+	if strings.Contains(defaultPrompt, "You cannot execute shell commands") {
+		t.Fatalf("expected default prompt not to deny shell execution when tools are available, got %q", defaultPrompt)
 	}
 
 	basePrompt := strings.Join(getSystemPrompt(uctypes.APIType_OpenAIResponses, "gpt-5", false, true, true, false, "", AgentModeDefault), " ")

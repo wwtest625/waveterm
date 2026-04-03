@@ -23,9 +23,6 @@ const ToolDisplayNames: Record<string, string> = {
     edit_text_file: "精准编辑",
     term_get_scrollback: "读取终端输出",
     term_command_output: "读取命令输出",
-    codex_command_execution: "执行命令",
-    codex_dynamic_tool: "运行工具",
-    codex_file_change: "修改文件",
 };
 
 export function getToolDisplayName(toolName?: string): string {
@@ -33,6 +30,10 @@ export function getToolDisplayName(toolName?: string): string {
         return "执行步骤";
     }
     return ToolDisplayNames[toolName] ?? toolName.replace(/_/g, " ");
+}
+
+export function shouldHideProgressStatusLines(toolName?: string): boolean {
+    return toolName === "wave_get_command_result" || toolName === "term_command_output";
 }
 
 type ToolGroupSummary = {
@@ -99,7 +100,7 @@ export function summarizeToolGroup(
         .flatMap((part) => [...(part.data.statuslines ?? [])].reverse())
         .find((line) => typeof line === "string" && line.trim().length > 0);
     const leadToolName = (() => {
-        if (toolNames.some((toolName) => toolName === "wave_run_command" || toolName === "codex_command_execution")) {
+        if (toolNames.some((toolName) => toolName === "wave_run_command")) {
             return "命令执行";
         }
         if (toolNames.some((toolName) => toolName === "edit_text_file")) {
@@ -521,7 +522,9 @@ const AIToolProgress = memo(({ part }: AIToolProgressProps) => {
                 <i className="fa fa-spinner fa-spin text-gray-400"></i>
                 <div className="font-semibold">{progressData.toolname}</div>
             </div>
-            {progressData.statuslines && progressData.statuslines.length > 0 && (
+            {!shouldHideProgressStatusLines(progressData.toolname) &&
+                progressData.statuslines &&
+                progressData.statuslines.length > 0 && (
                 <ToolDesc text={progressData.statuslines} className="text-sm text-gray-400 pl-6 space-y-0.5" />
             )}
         </div>

@@ -6,13 +6,13 @@ import { atoms } from "@/app/store/global";
 import { useAtomValue } from "jotai";
 import { memo, startTransition, useEffect, useRef, useState } from "react";
 import { cn } from "@/util/util";
-import { AIFeedbackButtons } from "./aifeedbackbuttons";
 import { AIModeDropdown } from "./aimode";
 import { AIToolUseGroup } from "./aitooluse";
-import { type WaveUIMessage, type WaveUIMessagePart } from "./aitypes";
+import { type AgentRuntimeSnapshot, type WaveUIMessage, type WaveUIMessagePart } from "./aitypes";
 import { getFirstExecutableCommandFromMessage, isSafeToAutoExecute } from "./autoexecute-util";
 import { AgentMode } from "./waveai-model";
 import { WaveAIModel } from "./waveai-model";
+import { Code } from "@/app/element/streamdown";
 
 interface AIPanelMessagesProps {
     messages: WaveUIMessage[];
@@ -34,6 +34,16 @@ type TaskChainStep = {
     title: string;
     detail?: string;
     status: TaskChainStepStatus;
+    toolName: string;
+};
+
+type TaskChainDisplayState = {
+    progressLabel: string;
+    focusLabel?: string;
+    statusLabel?: string;
+    blockedReason?: string;
+    activeStepId?: string;
+    toneClassName: string;
 };
 
 const RAW_OUTPUT_COLLAPSE_LINES = 5;
@@ -134,7 +144,6 @@ export function getRawOutputDisplayState(outputText: string, maxLines = RAW_OUTP
 function getToolStepTitle(toolName: string): string {
     switch (toolName) {
         case "wave_run_command":
-        case "codex_command_execution":
             return "执行命令";
         case "wave_get_command_result":
             return "获取执行结果";
@@ -168,6 +177,66 @@ function normalizeToolDetail(desc?: string): string | undefined {
     return `${text.slice(0, 120)}...`;
 }
 
+export function getTaskChainDetailLanguage(step: Pick<TaskChainStep, "toolName">): string | undefined {
+    switch (step.toolName) {
+        case "wave_run_command":
+            return "bash";
+        default:
+            return undefined;
+    }
+}
+
+export function shouldRenderStreamingPlainText(isStreaming: boolean, text: string): boolean {
+    return isStreaming && Boolean(text.trim());
+}
+
+function getFirstMeaningfulLine(text?: string): string | undefined {
+    const normalized = text?.trim();
+    if (!normalized) {
+        return undefined;
+    }
+    return normalized
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find(Boolean);
+}
+
+function extractCommandFromToolDesc(toolDesc?: string): string | undefined {
+    const normalized = toolDesc?.trim();
+    if (!normalized) {
+        return undefined;
+    }
+    const quotedMatch = normalized.match(/(?:running|executing|run)\s+["'`]{1}(.+?)["'`]{1}/i);
+    if (quotedMatch?.[1]) {
+        return quotedMatch[1].trim();
+    }
+    const unquotedMatch = normalized.match(/(?:running|executing|run)\s+(.+?)(?:\s+on\s+.+)?$/i);
+    if (unquotedMatch?.[1]) {
+        return unquotedMatch[1].trim();
+    }
+    return normalized;
+}
+
+function formatStepDetail(toolName: string, part: WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }): string | undefined {
+    if (part.type === "data-tooluse") {
+        if (toolName === "wave_run_command") {
+            return extractCommandFromToolDesc(part.data.tooldesc);
+        }
+        if (toolName === "wave_get_command_result" || toolName === "term_command_output" || toolName === "term_get_scrollback") {
+            return getFirstMeaningfulLine(part.data.outputtext) ?? getFirstMeaningfulLine(part.data.tooldesc) ?? normalizeToolDetail(part.data.tooldesc);
+        }
+        return normalizeToolDetail(part.data.tooldesc || part.data.errormessage);
+    }
+
+    if (toolName === "wave_get_command_result" || toolName === "term_command_output") {
+        return undefined;
+    }
+    if (toolName === "term_get_scrollback") {
+        return getFirstMeaningfulLine(part.data.statuslines?.[part.data.statuslines.length - 1]);
+    }
+    return normalizeToolDetail(part.data.statuslines?.[part.data.statuslines.length - 1]);
+}
+
 function deriveToolUseStatus(
     part: WaveUIMessagePart & { type: "data-tooluse" },
     isStreaming: boolean
@@ -197,8 +266,9 @@ export function buildTaskChainSteps(
             const step: TaskChainStep = {
                 id: part.data.toolcallid,
                 title: getToolStepTitle(part.data.toolname),
-                detail: normalizeToolDetail(part.data.tooldesc || part.data.errormessage),
+                detail: formatStepDetail(part.data.toolname, part),
                 status: deriveToolUseStatus(part, isStreaming),
+                toolName: part.data.toolname,
             };
             byToolCallId.set(part.data.toolcallid, step);
             steps.push(step);
@@ -207,15 +277,19 @@ export function buildTaskChainSteps(
         const existing = byToolCallId.get(part.data.toolcallid);
         if (existing != null) {
             if ((existing.status === "pending" || existing.status === "running") && part.data.statuslines?.length) {
-                existing.detail = normalizeToolDetail(part.data.statuslines[part.data.statuslines.length - 1]);
+                if (part.data.toolname === "wave_get_command_result" || part.data.toolname === "term_command_output") {
+                    continue;
+                }
+                existing.detail = formatStepDetail(part.data.toolname, part);
             }
             continue;
         }
         steps.push({
             id: part.data.toolcallid,
             title: getToolStepTitle(part.data.toolname),
-            detail: normalizeToolDetail(part.data.statuslines?.[part.data.statuslines.length - 1]),
+            detail: formatStepDetail(part.data.toolname, part),
             status: isStreaming ? "running" : "pending",
+            toolName: part.data.toolname,
         });
     }
 
@@ -228,25 +302,105 @@ function getTaskChainProgress(steps: TaskChainStep[]): { completed: number; tota
     return { completed, total };
 }
 
-const TaskChain = memo(({ steps }: { steps: TaskChainStep[] }) => {
-    if (steps.length === 0) {
+export function getTaskChainDisplayState(
+    steps: TaskChainStep[],
+    runtime: Pick<AgentRuntimeSnapshot, "state" | "phaseLabel" | "blockedReason" | "activeJobId" | "activeTool" | "lastCommand"> | null
+): TaskChainDisplayState {
+    const progress = getTaskChainProgress(steps);
+    const activeStep = steps.find((step) => step.status === "running") ?? steps.find((step) => step.status === "failed") ?? steps.find((step) => step.status === "pending");
+    const statusLabel = runtime?.phaseLabel || (activeStep ? getTaskStepStateLabel(activeStep.status) : undefined);
+    const focusLabel = runtime?.lastCommand || activeStep?.title || runtime?.activeTool || statusLabel;
+    const blockedReason = runtime?.blockedReason || activeStep?.detail;
+    const toneClassName = getTaskChainToneClass(runtime?.state ?? (activeStep ? activeStep.status : undefined));
+
+    return {
+        progressLabel: `${progress.completed}/${progress.total}`,
+        focusLabel,
+        statusLabel,
+        blockedReason,
+        activeStepId: activeStep?.id,
+        toneClassName,
+    };
+}
+
+function getTaskStepStateLabel(status: TaskChainStepStatus): string {
+    switch (status) {
+        case "completed":
+            return "已完成";
+        case "running":
+            return "进行中";
+        case "failed":
+            return "失败";
+        default:
+            return "等待中";
+    }
+}
+
+function getTaskChainToneClass(state?: AgentRuntimeSnapshot["state"] | TaskChainStepStatus): string {
+    switch (state) {
+        case "failed_retryable":
+        case "failed_fatal":
+        case "unavailable":
+        case "cancelled":
+        case "failed":
+            return "border-red-900/60 bg-red-950/20 text-red-100";
+        case "awaiting_approval":
+        case "retrying":
+            return "border-yellow-800/60 bg-yellow-950/20 text-yellow-100";
+        default:
+            return "border-emerald-900/50 bg-emerald-950/20 text-emerald-100";
+    }
+}
+
+const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRuntimeSnapshot }) => {
+    const toolParts = getToolParts(turn.assistantMessages);
+    const steps = buildTaskChainSteps(toolParts, turn.isStreaming);
+    if (steps.length === 0 && !runtime.visible) {
         return null;
     }
-    const progress = getTaskChainProgress(steps);
-    const activeStep =
-        steps.find((step) => step.status === "running") ?? steps.find((step) => step.status === "failed");
+    const displayState = getTaskChainDisplayState(steps, runtime);
 
     return (
-        <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
-            <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold text-zinc-200">运行任务进度</div>
-                <div className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
-                    {progress.completed}/{progress.total}
+        <div
+            className={cn(
+                "group relative mt-2 overflow-hidden rounded-[18px] border px-3 py-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.12)] transition-all duration-300",
+                "bg-[radial-gradient(circle_at_top_left,rgba(163,230,53,0.12),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.02))]",
+                "hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(0,0,0,0.18)]",
+                displayState.toneClassName
+            )}
+        >
+            <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-lime-300/10 blur-2xl" />
+            </div>
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold tracking-[0.08em]">
+                        <i className="fa-solid fa-list-check text-lime-300" />
+                        <span>任务链</span>
+                        {displayState.statusLabel && (
+                            <span className="rounded-full border border-white/10 bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-normal tracking-[0.14em] text-zinc-200 uppercase">
+                                {displayState.statusLabel}
+                            </span>
+                        )}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-zinc-300">
+                        <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5">
+                            {displayState.progressLabel}
+                        </span>
+                        {displayState.focusLabel && (
+                            <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-zinc-200/80">
+                                当前聚焦 {displayState.focusLabel}
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
-            {activeStep && <div className="mt-2 text-xs text-yellow-300">当前聚焦 {activeStep.title}</div>}
-            <div className="mt-2 space-y-1.5">
+            {displayState.blockedReason && (
+                <div className="mt-1 text-[11px] text-zinc-200/70">{displayState.blockedReason}</div>
+            )}
+            <div className="mt-2 space-y-1">
                 {steps.map((step, index) => {
+                    const isActive = displayState.activeStepId === step.id;
                     const iconClass =
                         step.status === "completed"
                             ? "fa-circle-check text-emerald-400"
@@ -259,16 +413,49 @@ const TaskChain = memo(({ steps }: { steps: TaskChainStep[] }) => {
                         step.status === "failed"
                             ? "text-red-300"
                             : step.status === "completed"
-                              ? "text-zinc-100"
+                            ? "text-zinc-100"
                               : "text-zinc-300";
+                    const stepToneClass = isActive
+                        ? "border-lime-300/25 bg-lime-400/[0.08] shadow-[0_0_0_1px_rgba(163,230,53,0.14)]"
+                        : "border-white/8 bg-black/15";
                     return (
-                        <div key={step.id} className="rounded border border-zinc-800/80 bg-zinc-900/40 px-2.5 py-2">
-                            <div className="flex items-center gap-2 text-sm">
+                        <div
+                            key={step.id}
+                            className={cn(
+                                "rounded-md border px-2 py-1.5 transition-all duration-200",
+                                "hover:border-white/15 hover:bg-white/[0.055] hover:shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
+                                stepToneClass,
+                                isActive && "animate-pulse"
+                            )}
+                        >
+                            <div className="flex items-center gap-2 text-[13px]">
                                 <span className="text-zinc-500">{index + 1}.</span>
-                                <i className={`fa ${iconClass}`}></i>
+                                <i className={`fa ${iconClass} ${isActive ? "animate-pulse" : ""}`}></i>
                                 <span className={titleClass}>{step.title}</span>
                             </div>
-                            {step.detail && <div className="mt-1 pl-7 text-xs text-zinc-500">{step.detail}</div>}
+                            {step.detail && (() => {
+                                const language = getTaskChainDetailLanguage(step);
+                                if (language === "bash") {
+                                    return (
+                                        <div className="mt-0.5 pl-5 overflow-x-auto text-[12px] leading-5 text-zinc-200">
+                                            <Code className={`language-${language} font-mono text-[12px] leading-5 ${isActive ? "text-lime-100" : ""}`}>
+                                                {step.detail}
+                                            </Code>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div
+                                        className={cn(
+                                            "mt-0.5 pl-5 overflow-hidden text-[12px] leading-5",
+                                            isActive ? "text-zinc-100/90" : "text-zinc-400"
+                                        )}
+                                        style={{ maxHeight: "2.8em" }}
+                                    >
+                                        {step.detail}
+                                    </div>
+                                );
+                            })()}
                         </div>
                     );
                 })}
@@ -440,7 +627,7 @@ const StreamingTextBlock = memo(({ text }: { text: string }) => {
     return (
         <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
             <div className="absolute inset-y-0 left-0 w-0.5 bg-emerald-400/70" />
-            <div className="whitespace-pre-wrap break-words pl-2 text-sm leading-6 text-zinc-100">{text}</div>
+            <div className="whitespace-pre-wrap break-words pl-2 text-[13px] leading-6 text-zinc-100">{text}</div>
         </div>
     );
 });
@@ -453,7 +640,7 @@ const AssistantStatusPill = memo(({ turn }: { turn: TaskTurn }) => {
     const label = turn.isStreaming ? "Working" : "Response";
 
     return (
-        <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+        <div className="mb-1.5 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
             <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
             <span>{label}</span>
             {latestCommand && <span className="truncate normal-case tracking-normal text-zinc-500/80">{latestCommand}</span>}
@@ -466,45 +653,10 @@ const AssistantStatusPill = memo(({ turn }: { turn: TaskTurn }) => {
 
 AssistantStatusPill.displayName = "AssistantStatusPill";
 
-const ToolProgressList = memo(({ turn }: { turn: TaskTurn }) => {
-    const toolParts = getToolParts(turn.assistantMessages);
-    const steps = buildTaskChainSteps(toolParts, turn.isStreaming);
-
-    if (steps.length === 0) {
-        return null;
-    }
-
-    return (
-        <div className="mt-3 rounded-2xl border border-white/8 bg-black/20 px-3 py-2">
-            {steps.map((step) => {
-                const dotClass =
-                    step.status === "completed"
-                        ? "bg-emerald-400"
-                        : step.status === "failed"
-                          ? "bg-red-400"
-                          : step.status === "running"
-                            ? "bg-amber-300"
-                            : "bg-zinc-500";
-                return (
-                    <div key={step.id} className="flex items-start gap-2 py-1.5 text-sm text-zinc-200">
-                        <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
-                        <div className="min-w-0">
-                            <div>{step.title}</div>
-                            {step.detail && <div className="truncate text-xs text-zinc-500">{step.detail}</div>}
-                        </div>
-                    </div>
-                );
-            })}
-        </div>
-    );
-});
-
-ToolProgressList.displayName = "ToolProgressList";
-
 const CompletionHeader = memo(() => {
     return (
-        <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-zinc-100">
+        <div className="mb-2 flex items-center gap-2">
+            <div className="flex items-center gap-2 text-[12px] font-medium text-zinc-100">
                 <i className="fa-solid fa-circle-check text-emerald-400" />
                 <span>Task completed</span>
             </div>
@@ -555,11 +707,9 @@ CompactRateLimit.displayName = "CompactRateLimit";
 
 const PanelHero = memo(() => {
     const model = WaveAIModel.getInstance();
-    const isLocalAgent = useAtomValue(model.isLocalAgentAtom);
-    const localAgentProvider = useAtomValue(model.localAgentProviderAtom);
     const agentMode = useAtomValue(model.agentModeAtom);
     const runtime = useAtomValue(model.agentRuntimeAtom);
-    const providerLabel = isLocalAgent ? (localAgentProvider === "claude-code" ? "Claude Code" : "Codex") : "Wave AI";
+    const providerLabel = "Wave AI";
     const modeLabel = getModeLabel(agentMode);
     const stateLabel = runtime.phaseLabel || "Ready";
 
@@ -689,106 +839,130 @@ const ToolTrace = memo(({ turn }: { turn: TaskTurn }) => {
 
 ToolTrace.displayName = "ToolTrace";
 
-const AssistantOutputCard = memo(
-    ({ turn, fallbackOutput }: { turn: TaskTurn; fallbackOutput?: string }) => {
-        const assistantText = getAssistantText(turn.assistantMessages);
-        const rawToolOutput = toOutputText(fallbackOutput);
-        const outputText = assistantText || fallbackOutput || "";
-        const showRawOutputBlock = !turn.isStreaming && rawToolOutput.length > 0;
-        const showEmptyState = !assistantText && !rawToolOutput && !turn.isStreaming;
-        const showCompletionHeader = !turn.isStreaming && assistantText.length > 0;
-        const model = WaveAIModel.getInstance();
-        const approvalState = getLatestApprovalState(turn.assistantMessages);
-        const railStatus = turn.isStreaming ? "streaming" : approvalState === "needs-approval" ? "attention" : "ready";
-        const [rawOutputExpanded, setRawOutputExpanded] = useState(false);
-        const rawOutputDisplay = getRawOutputDisplayState(rawToolOutput);
-        const displayedRawOutput = rawOutputExpanded ? rawOutputDisplay.expandedText : rawOutputDisplay.collapsedText;
+const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fallbackOutput?: string }) => {
+    const assistantText = getAssistantText(turn.assistantMessages);
+    const rawToolOutput = toOutputText(fallbackOutput);
+    const outputText = assistantText || fallbackOutput || "";
+    const showRawOutputBlock = !turn.isStreaming && rawToolOutput.length > 0;
+    const showEmptyState = !assistantText && !rawToolOutput && !turn.isStreaming;
+    const showCompletionHeader = !turn.isStreaming && assistantText.length > 0;
+    const model = WaveAIModel.getInstance();
+    const railStatus = turn.isStreaming ? "streaming" : "ready";
+    const [rawOutputExpanded, setRawOutputExpanded] = useState(false);
+    const rawOutputDisplay = getRawOutputDisplayState(rawToolOutput);
+    const displayedRawOutput = rawOutputExpanded ? rawOutputDisplay.expandedText : rawOutputDisplay.collapsedText;
+    const [copied, setCopied] = useState(false);
 
-        useEffect(() => {
-            setRawOutputExpanded(false);
-        }, [rawToolOutput]);
+    useEffect(() => {
+        setRawOutputExpanded(false);
+    }, [rawToolOutput]);
 
-        return (
-            <div className="flex items-stretch gap-3">
-                <AssistantRail status={railStatus} />
-                <div className="min-w-0 flex-1 rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))] px-4 py-4 shadow-[0_18px_40px_rgba(0,0,0,0.18)]">
-                    <AssistantStatusPill turn={turn} />
-                    {showCompletionHeader && <CompletionHeader />}
+    useEffect(() => {
+        setCopied(false);
+    }, [assistantText, rawToolOutput]);
 
-                    {assistantText && (
-                        <div>
-                            {turn.isStreaming ? (
-                                <StreamingTextBlock text={assistantText} />
-                            ) : (
-                                <WaveStreamdown
-                                    text={outputText}
-                                    className="text-zinc-100 [&_.markdown-content]:mx-0"
-                                    codeBlockMaxWidthAtom={model.codeBlockMaxWidth}
-                                    onClickExecute={(cmd) => model.executeCommandInTerminal(cmd, { source: "manual" })}
-                                />
+    const handleCopy = async () => {
+        const copyText = assistantText || rawToolOutput || outputText;
+        if (!copyText) {
+            return;
+        }
+        await navigator.clipboard.writeText(copyText);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+    };
+
+    return (
+        <div className="flex items-stretch gap-3">
+            <AssistantRail status={railStatus} />
+            <div className="min-w-0 flex-1 rounded-[18px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.025))] px-3.5 py-3.5 shadow-[0_12px_28px_rgba(0,0,0,0.12)]">
+                <AssistantStatusPill turn={turn} />
+                {showCompletionHeader && <CompletionHeader />}
+
+                {assistantText && (
+                    <div>
+                        {shouldRenderStreamingPlainText(turn.isStreaming, assistantText) ? (
+                            <StreamingTextBlock text={assistantText} />
+                        ) : (
+                            <WaveStreamdown
+                                text={assistantText}
+                                parseIncompleteMarkdown={false}
+                                className="text-zinc-100 [&_.markdown-content]:mx-0"
+                                codeBlockMaxWidthAtom={model.codeBlockMaxWidth}
+                                onClickExecute={(cmd) => model.executeCommandInTerminal(cmd, { source: "manual" })}
+                            />
+                        )}
+                    </div>
+                )}
+
+                {showRawOutputBlock && (
+                    <div className="mt-2 overflow-hidden rounded-xl border border-white/8 bg-black/25">
+                        <div className="flex items-center justify-between gap-3 border-b border-white/8 px-2.5 py-1.5">
+                            <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">结果</div>
+                            {rawOutputDisplay.shouldCollapse && (
+                                <button
+                                    type="button"
+                                    onClick={() => setRawOutputExpanded((value) => !value)}
+                                    className="text-[10px] uppercase tracking-[0.18em] text-zinc-400 transition hover:text-zinc-200"
+                                >
+                                    {rawOutputExpanded ? "收起" : `展开 (${rawOutputDisplay.lineCount})`}
+                                </button>
                             )}
                         </div>
-                    )}
-
-                    <ToolProgressList turn={turn} />
-
-                    {showRawOutputBlock && (
-                        <div className="mt-3 overflow-hidden rounded-2xl border border-white/8 bg-black/30">
-                            <div className="flex items-center justify-between gap-3 border-b border-white/8 px-3 py-2">
-                                <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Raw output</div>
-                                {rawOutputDisplay.shouldCollapse && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setRawOutputExpanded((value) => !value)}
-                                        className="text-[11px] uppercase tracking-[0.18em] text-zinc-400 transition hover:text-zinc-200"
-                                    >
-                                        {rawOutputExpanded ? "收起" : `展开全部 (${rawOutputDisplay.lineCount} 行)`}
-                                    </button>
-                                )}
+                        <pre className="overflow-x-auto whitespace-pre-wrap px-2.5 py-2.5 text-sm text-zinc-100">
+                            {displayedRawOutput}
+                        </pre>
+                        {rawOutputDisplay.shouldCollapse && !rawOutputExpanded && (
+                            <div className="border-t border-white/8 px-2.5 py-1.5 text-[10px] text-zinc-500">
+                                仅显示前 {RAW_OUTPUT_COLLAPSE_LINES} 行
                             </div>
-                            <pre className="overflow-x-auto whitespace-pre-wrap px-3 py-3 text-sm text-zinc-100">
-                                {displayedRawOutput}
-                            </pre>
-                            {rawOutputDisplay.shouldCollapse && !rawOutputExpanded && (
-                                <div className="border-t border-white/8 px-3 py-2 text-xs text-zinc-500">
-                                    仅显示前 {RAW_OUTPUT_COLLAPSE_LINES} 行，点击展开查看全部
-                                </div>
-                            )}
-                        </div>
-                    )}
+                        )}
+                    </div>
+                )}
 
-                    {turn.isStreaming && !assistantText && <div className="mt-3 text-sm text-zinc-400">处理中...</div>}
+                {turn.isStreaming && !assistantText && <div className="mt-3 text-sm text-zinc-400">处理中...</div>}
 
-                    {showEmptyState && <div className="mt-3 text-sm text-zinc-400">No visible result returned.</div>}
+                {showEmptyState && <div className="mt-3 text-sm text-zinc-400">No visible result returned.</div>}
 
-                    <InlineCommandActions turn={turn} />
+                <InlineCommandActions turn={turn} />
 
-                    {!turn.isStreaming && assistantText && (
-                        <div className="mt-4 border-t border-white/8 pt-3">
-                            <AIFeedbackButtons messageText={assistantText} />
-                        </div>
-                    )}
+                {!turn.isStreaming && (assistantText || rawToolOutput) && (
+                    <div className="mt-3 flex items-center gap-2 border-t border-white/8 pt-2.5">
+                        <button
+                            type="button"
+                            onClick={handleCopy}
+                            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-200 transition hover:border-white/20 hover:bg-white/[0.07]"
+                        >
+                            <i className={`fa ${copied ? "fa-check" : "fa-copy"}`} />
+                            {copied ? "已复制" : "复制"}
+                        </button>
+                    </div>
+                )}
 
-                    <ToolTrace turn={turn} />
-                </div>
+                <ToolTrace turn={turn} />
             </div>
-        );
-    }
-);
+        </div>
+    );
+});
 
 AssistantOutputCard.displayName = "AssistantOutputCard";
 
-const TaskTurnCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fallbackOutput?: string }) => {
+const TaskTurnCard = memo(
+    ({ turn, fallbackOutput, isLatestTurn }: { turn: TaskTurn; fallbackOutput?: string; isLatestTurn: boolean }) => {
+    const model = WaveAIModel.getInstance();
+    const runtime = useAtomValue(model.agentRuntimeAtom);
+
     if (!turn.userMessage && turn.assistantMessages.length === 0) {
         return null;
     }
     return (
         <div className="space-y-4">
             <UserPromptCard message={turn.userMessage} />
+            {isLatestTurn && <TaskChain turn={turn} runtime={runtime} />}
             <AssistantOutputCard turn={turn} fallbackOutput={fallbackOutput} />
         </div>
     );
-});
+    }
+);
 
 TaskTurnCard.displayName = "TaskTurnCard";
 
@@ -921,7 +1095,7 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
                     const isLastTurn = index === turns.length - 1;
                     const turnOutput = getLatestRawToolOutput(turn.assistantMessages);
                     const fallbackOutput = !turn.isStreaming && (turnOutput || (isLastTurn ? runtimeLastToolStdout : ""));
-                    return <TaskTurnCard key={turn.id} turn={turn} fallbackOutput={fallbackOutput} />;
+                    return <TaskTurnCard key={turn.id} turn={turn} fallbackOutput={fallbackOutput} isLatestTurn={isLastTurn} />;
                 })}
             </div>
         </div>

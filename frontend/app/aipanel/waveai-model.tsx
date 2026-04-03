@@ -60,14 +60,6 @@ export interface DroppedFile {
     previewUrl?: string;
 }
 
-export interface LocalAgentHealth {
-    ok: boolean;
-    provider: string;
-    available: boolean;
-    message: string;
-    command?: string;
-}
-
 export type AgentMode = "default" | "planning" | "auto-approve";
 
 export class WaveAIModel {
@@ -87,12 +79,7 @@ export class WaveAIModel {
 
     widgetAccessAtom!: jotai.Atom<boolean>;
     autoExecuteAtom!: jotai.Atom<boolean>;
-    isLocalAgentAtom!: jotai.Atom<boolean>;
-    localAgentProviderAtom!: jotai.Atom<string>;
     agentModeAtom!: jotai.Atom<AgentMode>;
-    localAgentHealthAtom: jotai.PrimitiveAtom<LocalAgentHealth | null> = jotai.atom<LocalAgentHealth | null>(
-        null
-    ) as jotai.PrimitiveAtom<LocalAgentHealth | null>;
     droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
     chatId!: jotai.PrimitiveAtom<string>;
     currentAIMode!: jotai.PrimitiveAtom<string>;
@@ -143,27 +130,6 @@ export class WaveAIModel {
             const value = get(autoExecuteMetaAtom);
             // 默认为 true，让 AI 可以直接执行命令
             return value ?? true;
-        });
-
-        this.isLocalAgentAtom = jotai.atom((get) => {
-            if (this.inBuilder) {
-                return false;
-            }
-            const isLocalMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:islocal");
-            const value = get(isLocalMetaAtom);
-            return value ?? false;
-        });
-
-        this.localAgentProviderAtom = jotai.atom((get) => {
-            if (this.inBuilder) {
-                return "codex";
-            }
-            const providerMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:provider");
-            const value = get(providerMetaAtom);
-            if (value === "claude-code" || value === "codex") {
-                return value;
-            }
-            return "codex";
         });
 
         this.agentModeAtom = jotai.atom((get) => {
@@ -559,53 +525,12 @@ export class WaveAIModel {
         });
     }
 
-    setLocalAgentEnabled(enabled: boolean) {
-        RpcApi.SetMetaCommand(TabRpcClient, {
-            oref: this.orefContext,
-            meta: { "waveai:islocal": enabled },
-        });
-        this.clearChat();
-    }
-
-    setLocalAgentProvider(provider: "codex" | "claude-code") {
-        RpcApi.SetMetaCommand(TabRpcClient, {
-            oref: this.orefContext,
-            meta: { "waveai:provider": provider, "waveai:islocal": true },
-        });
-        this.clearChat();
-    }
-
     setAgentMode(mode: AgentMode) {
         RpcApi.SetMetaCommand(TabRpcClient, {
             oref: this.orefContext,
             meta: { "waveai:agentmode": mode },
         });
         this.clearChat();
-    }
-
-    async refreshLocalAgentHealth(): Promise<void> {
-        if (this.inBuilder) {
-            globalStore.set(this.localAgentHealthAtom, null);
-            return;
-        }
-        const provider = globalStore.get(this.localAgentProviderAtom) ?? "codex";
-        try {
-            const endpoint = `${getWebServerEndpoint()}/api/local-agent-health?provider=${encodeURIComponent(provider)}`;
-            const response = await fetch(endpoint);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            const data = (await response.json()) as LocalAgentHealth;
-            globalStore.set(this.localAgentHealthAtom, data);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            globalStore.set(this.localAgentHealthAtom, {
-                ok: false,
-                provider,
-                available: false,
-                message: `Health check failed: ${errorMessage}`,
-            });
-        }
     }
 
     private getTargetTerminalModel(): {

@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { getAssistantMessageLayout } from "./aimessage";
-import { buildTaskChainSteps, buildTaskTurns, getRawOutputDisplayState } from "./aipanelmessages";
+import {
+    buildTaskChainSteps,
+    buildTaskTurns,
+    getRawOutputDisplayState,
+    getTaskChainDetailLanguage,
+    getTaskChainDisplayState,
+    shouldRenderStreamingPlainText,
+} from "./aipanelmessages";
 import { getToolDisplayName, summarizeToolGroup } from "./aitooluse";
+import { shouldHideProgressStatusLines } from "./aitooluse";
 
 describe("aipanel task turns", () => {
     it("groups multiple assistant retries into one turn", () => {
@@ -113,7 +121,7 @@ describe("aipanel task turns", () => {
                     data: {
                         toolcallid: "tool-1",
                         toolname: "wave_run_command",
-                        tooldesc: 'running "uname -a"',
+                        tooldesc: 'running "uname -a" on root@192.2.29.9',
                         status: "completed",
                     },
                 } as any,
@@ -124,6 +132,7 @@ describe("aipanel task turns", () => {
                         toolname: "wave_get_command_result",
                         tooldesc: "polling result",
                         status: "pending",
+                        outputtext: "Model name: Intel(R) Xeon(R) Platinum 8369C CPU @ 2.90GHz\nCPU(s): 128",
                     },
                 } as any,
                 {
@@ -150,11 +159,56 @@ describe("aipanel task turns", () => {
 
         expect(steps).toHaveLength(3);
         expect(steps[0].title).toBe("执行命令");
+        expect(steps[0].detail).toBe("uname -a");
+        expect(getTaskChainDetailLanguage(steps[0])).toBe("bash");
         expect(steps[0].status).toBe("completed");
         expect(steps[1].title).toBe("获取执行结果");
+        expect(getTaskChainDetailLanguage(steps[1])).toBeUndefined();
         expect(steps[1].status).toBe("running");
-        expect(steps[1].detail).toContain("polling command result");
+        expect(steps[1].detail).toBe("Model name: Intel(R) Xeon(R) Platinum 8369C CPU @ 2.90GHz");
         expect(steps[2].status).toBe("failed");
+    });
+
+    it("summarizes task chain with runtime focus and approval state", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "lscpu"',
+                        status: "completed",
+                    },
+                } as any,
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-2",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "waiting for approval",
+                        status: "pending",
+                        approval: "needs-approval",
+                    },
+                } as any,
+            ],
+            false
+        );
+        const summary = getTaskChainDisplayState(steps, {
+            state: "awaiting_approval",
+            phaseLabel: "Waiting Approval",
+            blockedReason: "Waiting for tool approval",
+            activeTool: "wave_get_command_result",
+            activeJobId: "job-123",
+            lastCommand: "lscpu",
+        });
+
+        expect(summary.progressLabel).toBe("1/2");
+        expect(summary.focusLabel).toBe("lscpu");
+        expect(summary.statusLabel).toBe("Waiting Approval");
+        expect(summary.blockedReason).toBe("Waiting for tool approval");
+        expect(summary.activeStepId).toBe("tool-2");
+        expect(summary.toneClassName).toContain("yellow");
     });
 
     it("collapses raw output after five lines", () => {
@@ -164,6 +218,18 @@ describe("aipanel task turns", () => {
         expect(state.shouldCollapse).toBe(true);
         expect(state.collapsedText).toBe("one\ntwo\nthree\nfour\nfive");
         expect(state.expandedText).toBe("one\ntwo\nthree\nfour\nfive\nsix");
+    });
+
+    it("hides command result progress lines from tool progress cards", () => {
+        expect(shouldHideProgressStatusLines("wave_get_command_result")).toBe(true);
+        expect(shouldHideProgressStatusLines("term_command_output")).toBe(true);
+        expect(shouldHideProgressStatusLines("read_text_file")).toBe(false);
+    });
+
+    it("renders streaming assistant text as plain text while keeping final text markdown", () => {
+        expect(shouldRenderStreamingPlainText(true, "正在输出 **bold**")).toBe(true);
+        expect(shouldRenderStreamingPlainText(false, "最终结果")).toBe(false);
+        expect(shouldRenderStreamingPlainText(true, "")).toBe(false);
     });
 });
 

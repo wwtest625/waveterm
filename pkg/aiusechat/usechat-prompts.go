@@ -100,32 +100,12 @@ When you decide a file write/edit tool call is needed:
 
 func getModeAwareSystemPromptText(isLocal bool, provider string, mode AgentMode) string {
 	mode = resolveAgentMode(string(mode))
-	if isLocal {
-		switch mode {
-		case AgentModePlanning:
-			return strings.Join([]string{
-				"You are in planning mode.",
-				"Do not execute terminal commands, write files, or make system changes.",
-				"Read, analyze, and propose next steps only.",
-			}, " ")
-		case AgentModeAutoApprove:
-			return strings.Join([]string{
-				"You are in auto-approve mode.",
-				"Low and medium risk actions may be approved automatically by the host.",
-			}, " ")
-		default:
-			if provider != "" {
-				return "Current local provider: " + provider + "."
-			}
-			return ""
-		}
-	}
-
-	base := []string{
-		"In this mode, use only the tools actually provided to you.",
-	}
+	base := []string{`In this mode, use only the tools actually provided to you.`}
 	if mode == AgentModePlanning {
 		base = append(base, "Planning mode remains read-only. Do not execute terminal commands, write files, or make system changes.")
+	}
+	if mode == AgentModeAutoApprove {
+		base = append(base, "Auto-approve mode may reduce approval prompts for safe actions.")
 	}
 	return strings.Join(base, " ")
 }

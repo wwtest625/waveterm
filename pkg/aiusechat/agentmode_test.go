@@ -66,22 +66,3 @@ func TestAgentMode_DefaultAndAutoApprovePolicies(t *testing.T) {
 		t.Fatalf("expected high-risk actions to still require approval, got %q", highRiskApproval)
 	}
 }
-
-func TestAgentMode_CodexApprovalPolicies(t *testing.T) {
-	if err := validateCodexApprovalRequestForAgentMode(AgentModePlanning, "item/commandExecution/requestApproval"); err == nil {
-		t.Fatalf("expected planning mode to block codex command approval request")
-	}
-	if err := validateCodexApprovalRequestForAgentMode(AgentModeDefault, "item/commandExecution/requestApproval"); err != nil {
-		t.Fatalf("expected default mode to allow codex command approval request, got %v", err)
-	}
-
-	autoApproval := applyAgentModeApprovalPolicyForCodexRequest(AgentModeAutoApprove, "item/commandExecution/requestApproval", uctypes.ApprovalNeedsApproval)
-	if autoApproval != uctypes.ApprovalAutoApproved {
-		t.Fatalf("expected auto-approve mode to auto approve codex command request, got %q", autoApproval)
-	}
-
-	defaultApproval := applyAgentModeApprovalPolicyForCodexRequest(AgentModeDefault, "item/commandExecution/requestApproval", uctypes.ApprovalNeedsApproval)
-	if defaultApproval != uctypes.ApprovalNeedsApproval {
-		t.Fatalf("expected default mode to preserve approval for codex command request, got %q", defaultApproval)
-	}
-}

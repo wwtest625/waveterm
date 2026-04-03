@@ -269,7 +269,6 @@ export function inferToolCapability(toolName?: string): ToolCapability {
         case "delete_text_file":
             return "write";
         case "edit_text_file":
-        case "codex_file_change":
             return "edit";
         default:
             return "bash";

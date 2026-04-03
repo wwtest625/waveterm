@@ -59,6 +59,20 @@ func TestParseWaveRunCommandToolInput_PreservesExplicitArgs(t *testing.T) {
 	}
 }
 
+func TestParseWaveRunCommandToolInput_AcceptsStringArgs(t *testing.T) {
+	parsed, err := parseWaveRunCommandToolInput(map[string]any{
+		"connection": "root@example",
+		"command":    "python3",
+		"args":       "-c",
+	})
+	if err != nil {
+		t.Fatalf("parseWaveRunCommandToolInput returned error: %v", err)
+	}
+	if len(parsed.Args) != 1 || parsed.Args[0] != "-c" {
+		t.Fatalf("expected string args to be preserved as a single arg, got %#v", parsed.Args)
+	}
+}
+
 func TestParseWaveRunCommandToolInput_UsesShellForPipeline(t *testing.T) {
 	parsed, err := parseWaveRunCommandToolInput(map[string]any{
 		"connection": "root@example",

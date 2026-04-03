@@ -688,8 +688,6 @@ type PostMessageRequest struct {
 	WidgetAccess  bool              `json:"widgetaccess,omitempty"`
 	AIMode        string            `json:"aimode"`
 	AgentMode     string            `json:"agentmode,omitempty"`
-	IsLocal       bool              `json:"islocal,omitempty"`
-	LocalProvider string            `json:"localprovider,omitempty"`
 }
 
 func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
@@ -735,45 +733,6 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		rtInfo = &waveobj.ObjRTInfo{}
 	}
 
-	if req.IsLocal {
-		localProvider := normalizeLocalProvider(req.LocalProvider)
-		chatOpts := uctypes.WaveChatOpts{
-			ChatId:       req.ChatID,
-			ClientId:     wstore.GetClientId(),
-			WidgetAccess: req.WidgetAccess,
-			TabId:        req.TabId,
-			BlockId:      req.BlockId,
-			BuilderId:    req.BuilderId,
-			BuilderAppId: req.BuilderAppId,
-			AgentMode:    string(resolveAgentMode(req.AgentMode)),
-			Config: uctypes.AIOptsType{
-				Provider:     uctypes.AIProvider_Custom,
-				APIType:      uctypes.APIType_OpenAIChat,
-				Model:        "local-" + localProvider,
-				Endpoint:     "local-agent://" + localProvider,
-				AIMode:       req.AIMode,
-				TimeoutMs:    int(getLocalAgentTimeout().Milliseconds()),
-				Capabilities: []string{},
-			},
-		}
-
-		if req.TabId != "" {
-			tabState, _, err := GenerateTabStateAndTools(r.Context(), req.TabId, req.WidgetAccess, &chatOpts)
-			if err == nil {
-				chatOpts.TabId = req.TabId
-				chatOpts.TabState = tabState
-			}
-		}
-
-		sseHandler := sse.MakeSSEHandlerCh(w, r.Context())
-		defer sseHandler.Close()
-		if err := WaveAILocalAgentPostMessageWrap(r.Context(), sseHandler, &req, chatOpts); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to post local agent message: %v", err), http.StatusInternalServerError)
-			return
-		}
-		return
-	}
-
 	// Get WaveAI settings
 	premium := shouldUsePremium()
 	builderMode := req.BuilderId != ""
@@ -800,7 +759,7 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		BuilderId:            req.BuilderId,
 		BuilderAppId:         req.BuilderAppId,
 	}
-	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), chatOpts.WidgetAccess, req.IsLocal, normalizeLocalProvider(req.LocalProvider), resolveAgentMode(req.AgentMode))
+	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), chatOpts.WidgetAccess, false, "", resolveAgentMode(req.AgentMode))
 
 	if req.TabId != "" {
 		chatOpts.TabStateGenerator = func() (string, []uctypes.ToolDefinition, string, error) {
