@@ -552,6 +552,7 @@ func main() {
 		log.Printf("error initializing mainserver: %v\n", err)
 		return
 	}
+	aiusechat.InitChatStorePersistence()
 
 	err = shellutil.FixupWaveZshHistory()
 	if err != nil {

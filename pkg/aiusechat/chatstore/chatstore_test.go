@@ -4,6 +4,8 @@
 package chatstore
 
 import (
+	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,6 +15,12 @@ import (
 type testGenAIMessage struct {
 	messageId string
 	role      string
+}
+
+type testPersistedGenAIMessage struct {
+	MessageID string           `json:"messageid"`
+	Role      string           `json:"role"`
+	Usage     *uctypes.AIUsage `json:"usage,omitempty"`
 }
 
 func (m *testGenAIMessage) GetMessageId() string {
@@ -25,6 +33,18 @@ func (m *testGenAIMessage) GetUsage() *uctypes.AIUsage {
 
 func (m *testGenAIMessage) GetRole() string {
 	return m.role
+}
+
+func (m *testPersistedGenAIMessage) GetMessageId() string {
+	return m.MessageID
+}
+
+func (m *testPersistedGenAIMessage) GetUsage() *uctypes.AIUsage {
+	return m.Usage
+}
+
+func (m *testPersistedGenAIMessage) GetRole() string {
+	return m.Role
 }
 
 func boolPtr(v bool) *bool {
@@ -153,5 +173,57 @@ func TestChatStore_GetReturnsSessionCopy(t *testing.T) {
 	reloaded := cs.Get("chat-1")
 	if reloaded.SessionMeta.Title != "CPU check" {
 		t.Fatalf("expected session metadata to be copied defensively, got %#v", reloaded.SessionMeta)
+	}
+}
+
+func TestChatStore_PersistenceRoundTrip(t *testing.T) {
+	RegisterMessageCodec("test-api", func(message uctypes.GenAIMessage) ([]byte, error) {
+		return json.Marshal(message)
+	}, func(data []byte) (uctypes.GenAIMessage, error) {
+		var message testPersistedGenAIMessage
+		if err := json.Unmarshal(data, &message); err != nil {
+			return nil, err
+		}
+		return &message, nil
+	})
+
+	storePath := filepath.Join(t.TempDir(), "chatstore.json")
+	opts := &uctypes.AIOptsType{
+		APIType:    "test-api",
+		Model:      "model-a",
+		APIVersion: "2026-01-01",
+	}
+
+	firstStore := NewChatStore(storePath)
+	firstStore.UpsertSessionMeta("chat-1", opts, uctypes.UIChatSessionMetaUpdate{
+		TabId:   "tab-a",
+		Title:   strPtr("Persisted"),
+		Summary: strPtr("Saved to disk"),
+	})
+	if err := firstStore.PostMessage("chat-1", opts, &testPersistedGenAIMessage{
+		MessageID: "msg-1",
+		Role:      "user",
+	}); err != nil {
+		t.Fatalf("PostMessage returned error: %v", err)
+	}
+
+	secondStore := NewChatStore(storePath)
+	sessions := secondStore.ListSessions("tab-a", uctypes.UIChatSessionListOpts{})
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 persisted session, got %#v", sessions)
+	}
+	if sessions[0].Title != "Persisted" {
+		t.Fatalf("expected persisted title, got %#v", sessions[0])
+	}
+
+	chat := secondStore.Get("chat-1")
+	if chat == nil {
+		t.Fatalf("expected persisted chat to reload")
+	}
+	if len(chat.NativeMessages) != 1 {
+		t.Fatalf("expected 1 persisted message, got %#v", chat.NativeMessages)
+	}
+	if got := chat.NativeMessages[0].GetMessageId(); got != "msg-1" {
+		t.Fatalf("expected persisted message id msg-1, got %q", got)
 	}
 }

@@ -4,24 +4,204 @@
 package chatstore
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
+	"github.com/wavetermdev/waveterm/pkg/util/fileutil"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
 type ChatStore struct {
-	lock     sync.Mutex
-	chats    map[string]*uctypes.AIChat
-	sessions map[string]*uctypes.UIChatSessionMeta
+	lock              sync.Mutex
+	chats             map[string]*uctypes.AIChat
+	sessions          map[string]*uctypes.UIChatSessionMeta
+	persistencePath   string
+	persistenceLoaded bool
+	loadOnce          sync.Once
 }
 
-var DefaultChatStore = &ChatStore{
-	chats:    make(map[string]*uctypes.AIChat),
-	sessions: make(map[string]*uctypes.UIChatSessionMeta),
+func NewChatStore(persistencePath string) *ChatStore {
+	return &ChatStore{
+		chats:           make(map[string]*uctypes.AIChat),
+		sessions:        make(map[string]*uctypes.UIChatSessionMeta),
+		persistencePath: persistencePath,
+	}
+}
+
+var DefaultChatStore = NewChatStore("")
+
+func DefaultPersistencePath() string {
+	return filepath.Join(wavebase.GetHomeDir(), wavebase.RemoteWaveHomeDirName, "waveai", "chatstore.json")
+}
+
+func (cs *ChatStore) EnablePersistence(persistencePath string) {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+	cs.persistencePath = persistencePath
+	cs.persistenceLoaded = false
+	cs.loadOnce = sync.Once{}
+}
+
+func (cs *ChatStore) ensureLoaded() {
+	if cs == nil {
+		return
+	}
+	cs.loadOnce.Do(func() {
+		cs.lock.Lock()
+		persistencePath := cs.persistencePath
+		alreadyLoaded := cs.persistenceLoaded
+		cs.lock.Unlock()
+		if persistencePath == "" || alreadyLoaded {
+			return
+		}
+		snapshot, err := loadChatStoreSnapshot(persistencePath)
+		if err != nil {
+			log.Printf("waveai chatstore: failed to load persistence from %s: %v", persistencePath, err)
+		} else {
+			cs.lock.Lock()
+			if cs.chats == nil {
+				cs.chats = make(map[string]*uctypes.AIChat)
+			}
+			if cs.sessions == nil {
+				cs.sessions = make(map[string]*uctypes.UIChatSessionMeta)
+			}
+			for chatId, session := range snapshot.sessions {
+				cs.sessions[chatId] = session.Clone()
+			}
+			for chatId, chat := range snapshot.chats {
+				cs.chats[chatId] = cloneAIChat(chat)
+				if chat.SessionMeta != nil {
+					cs.sessions[chatId] = chat.SessionMeta.Clone()
+				}
+			}
+			cs.persistenceLoaded = true
+			cs.lock.Unlock()
+			return
+		}
+		cs.lock.Lock()
+		cs.persistenceLoaded = true
+		cs.lock.Unlock()
+	})
+}
+
+func (cs *ChatStore) persistLocked() {
+	if cs.persistencePath == "" {
+		return
+	}
+	snapshot, err := cs.buildSnapshotLocked()
+	if err != nil {
+		log.Printf("waveai chatstore: failed to build persistence snapshot: %v", err)
+		return
+	}
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		log.Printf("waveai chatstore: failed to serialize persistence snapshot: %v", err)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(cs.persistencePath), 0700); err != nil {
+		log.Printf("waveai chatstore: failed to create persistence directory %s: %v", filepath.Dir(cs.persistencePath), err)
+		return
+	}
+	if err := fileutil.AtomicWriteFile(cs.persistencePath, data, 0600); err != nil {
+		log.Printf("waveai chatstore: failed to write persistence file %s: %v", cs.persistencePath, err)
+	}
+}
+
+func (cs *ChatStore) buildSnapshotLocked() (*chatStoreSnapshot, error) {
+	snapshot := &chatStoreSnapshot{
+		Version: 1,
+	}
+	for _, session := range cs.sessions {
+		snapshot.Sessions = append(snapshot.Sessions, session.Clone())
+	}
+	slices.SortFunc(snapshot.Sessions, func(a, b *uctypes.UIChatSessionMeta) int {
+		if a == nil && b == nil {
+			return 0
+		}
+		if a == nil {
+			return 1
+		}
+		if b == nil {
+			return -1
+		}
+		if a.Favorite != b.Favorite {
+			if a.Favorite {
+				return -1
+			}
+			return 1
+		}
+		if a.UpdatedTs != b.UpdatedTs {
+			if a.UpdatedTs > b.UpdatedTs {
+				return -1
+			}
+			return 1
+		}
+		if a.CreatedTs != b.CreatedTs {
+			if a.CreatedTs > b.CreatedTs {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.ChatId, b.ChatId)
+	})
+
+	for _, chat := range cs.chats {
+		if chat == nil {
+			continue
+		}
+		persistedChat, err := encodePersistedChat(chat)
+		if err != nil {
+			return nil, err
+		}
+		snapshot.Chats = append(snapshot.Chats, persistedChat)
+	}
+	slices.SortFunc(snapshot.Chats, func(a, b *persistedChat) int {
+		if a == nil && b == nil {
+			return 0
+		}
+		if a == nil {
+			return 1
+		}
+		if b == nil {
+			return -1
+		}
+		if a.SessionMeta != nil && b.SessionMeta != nil {
+			if a.SessionMeta.UpdatedTs != b.SessionMeta.UpdatedTs {
+				if a.SessionMeta.UpdatedTs > b.SessionMeta.UpdatedTs {
+					return -1
+				}
+				return 1
+			}
+		}
+		return strings.Compare(a.ChatId, b.ChatId)
+	})
+	return snapshot, nil
+}
+
+func cloneAIChat(chat *uctypes.AIChat) *uctypes.AIChat {
+	if chat == nil {
+		return nil
+	}
+	copyChat := &uctypes.AIChat{
+		ChatId:      chat.ChatId,
+		APIType:     chat.APIType,
+		Model:       chat.Model,
+		APIVersion:  chat.APIVersion,
+		SessionMeta: copySessionMeta(chat.SessionMeta),
+	}
+	if len(chat.NativeMessages) > 0 {
+		copyChat.NativeMessages = make([]uctypes.GenAIMessage, len(chat.NativeMessages))
+		copy(copyChat.NativeMessages, chat.NativeMessages)
+	}
+	return copyChat
 }
 
 func copySessionMeta(meta *uctypes.UIChatSessionMeta) *uctypes.UIChatSessionMeta {
@@ -124,12 +304,16 @@ func (cs *ChatStore) upsertSessionMetaLocked(chatId string, aiOpts *uctypes.AIOp
 }
 
 func (cs *ChatStore) UpsertSessionMeta(chatId string, aiOpts *uctypes.AIOptsType, update uctypes.UIChatSessionMetaUpdate) *uctypes.UIChatSessionMeta {
+	cs.ensureLoaded()
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
-	return cs.upsertSessionMetaLocked(chatId, aiOpts, update)
+	meta := cs.upsertSessionMetaLocked(chatId, aiOpts, update)
+	cs.persistLocked()
+	return meta
 }
 
 func (cs *ChatStore) GetSession(chatId string) *uctypes.UIChatSessionMeta {
+	cs.ensureLoaded()
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 	return copySessionMeta(cs.sessions[chatId])
@@ -150,6 +334,7 @@ func (cs *ChatStore) UpdateSessionPreviewFromMessage(chatId string, aiOpts *ucty
 }
 
 func (cs *ChatStore) ListSessions(tabId string, opts uctypes.UIChatSessionListOpts) []*uctypes.UIChatSessionMeta {
+	cs.ensureLoaded()
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
@@ -201,6 +386,7 @@ func (cs *ChatStore) ListSessions(tabId string, opts uctypes.UIChatSessionListOp
 }
 
 func (cs *ChatStore) Get(chatId string) *uctypes.AIChat {
+	cs.ensureLoaded()
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
@@ -224,13 +410,17 @@ func (cs *ChatStore) Get(chatId string) *uctypes.AIChat {
 }
 
 func (cs *ChatStore) Delete(chatId string) {
+	cs.ensureLoaded()
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
 	delete(cs.chats, chatId)
+	delete(cs.sessions, chatId)
+	cs.persistLocked()
 }
 
 func (cs *ChatStore) CountUserMessages(chatId string) int {
+	cs.ensureLoaded()
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
@@ -249,6 +439,7 @@ func (cs *ChatStore) CountUserMessages(chatId string) int {
 }
 
 func (cs *ChatStore) PostMessage(chatId string, aiOpts *uctypes.AIOptsType, message uctypes.GenAIMessage) error {
+	cs.ensureLoaded()
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
@@ -290,11 +481,13 @@ func (cs *ChatStore) PostMessage(chatId string, aiOpts *uctypes.AIOptsType, mess
 
 	// Append the new message if no duplicate found
 	chat.NativeMessages = append(chat.NativeMessages, message)
+	cs.persistLocked()
 
 	return nil
 }
 
 func (cs *ChatStore) RemoveMessage(chatId string, messageId string) bool {
+	cs.ensureLoaded()
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
@@ -307,6 +500,9 @@ func (cs *ChatStore) RemoveMessage(chatId string, messageId string) bool {
 	chat.NativeMessages = slices.DeleteFunc(chat.NativeMessages, func(msg uctypes.GenAIMessage) bool {
 		return msg.GetMessageId() == messageId
 	})
-
-	return len(chat.NativeMessages) < initialLen
+	changed := len(chat.NativeMessages) < initialLen
+	if changed {
+		cs.persistLocked()
+	}
+	return changed
 }

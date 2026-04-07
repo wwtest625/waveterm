@@ -96,93 +96,93 @@ const AIWelcomeMessage = memo(() => {
     const aiModeConfigs = jotai.useAtomValue(atoms.waveaiModeConfigAtom);
     const hasCustomModes = Object.keys(aiModeConfigs).some((key) => !key.startsWith("waveai@"));
     return (
-            <div className="text-secondary py-8">
-                <div className="text-center">
-                    <i className="fa fa-sparkles text-4xl text-accent mb-2 block"></i>
-                    <p className="text-lg font-bold text-primary">Welcome to Wave AI</p>
-                </div>
-                <div className="mt-4 text-left max-w-md mx-auto">
-                    <p className="text-sm mb-6">
-                        Wave AI is your terminal assistant with context. I can read your terminal output, analyze
-                        widgets, access files, and help you solve problems faster.
-                    </p>
-                    <div className="bg-accent/10 border border-accent/30 rounded-lg p-4">
-                        <div className="text-sm font-semibold mb-3 text-accent">Getting Started:</div>
-                        <div className="space-y-3 text-sm">
-                            <div className="flex items-start gap-3">
-                                <div className="w-4 text-center flex-shrink-0">
-                                    <i className="fa-solid fa-plug text-accent"></i>
+        <div className="text-secondary py-8">
+            <div className="text-center">
+                <i className="fa fa-sparkles text-4xl text-accent mb-2 block"></i>
+                <p className="text-lg font-bold text-primary">Welcome to Wave AI</p>
+            </div>
+            <div className="mt-4 text-left max-w-md mx-auto">
+                <p className="text-sm mb-6">
+                    Wave AI is your terminal assistant with context. I can read your terminal output, analyze widgets,
+                    access files, and help you solve problems faster.
+                </p>
+                <div className="bg-accent/10 border border-accent/30 rounded-lg p-4">
+                    <div className="text-sm font-semibold mb-3 text-accent">Getting Started:</div>
+                    <div className="space-y-3 text-sm">
+                        <div className="flex items-start gap-3">
+                            <div className="w-4 text-center flex-shrink-0">
+                                <i className="fa-solid fa-plug text-accent"></i>
+                            </div>
+                            <div>
+                                <span className="font-bold">Widget Context</span>
+                                <div className="">When ON, I can read your terminal and analyze widgets.</div>
+                                <div className="">When OFF, I'm sandboxed with no system access.</div>
+                            </div>
+                        </div>
+                        <div className="flex items-start gap-3">
+                            <div className="w-4 text-center flex-shrink-0">
+                                <i className="fa-solid fa-file-import text-accent"></i>
+                            </div>
+                            <div>Drag & drop files or images for analysis</div>
+                        </div>
+                        <div className="flex items-start gap-3">
+                            <div className="w-4 text-center flex-shrink-0">
+                                <i className="fa-solid fa-keyboard text-accent"></i>
+                            </div>
+                            <div className="space-y-1">
+                                <div>
+                                    <KeyCap>{modKey}</KeyCap>
+                                    <KeyCap className="ml-1">K</KeyCap>
+                                    <span className="ml-1.5">to start a new chat</span>
                                 </div>
                                 <div>
-                                    <span className="font-bold">Widget Context</span>
-                                    <div className="">When ON, I can read your terminal and analyze widgets.</div>
-                                    <div className="">When OFF, I'm sandboxed with no system access.</div>
-                                </div>
-                            </div>
-                            <div className="flex items-start gap-3">
-                                <div className="w-4 text-center flex-shrink-0">
-                                    <i className="fa-solid fa-file-import text-accent"></i>
-                                </div>
-                                <div>Drag & drop files or images for analysis</div>
-                            </div>
-                            <div className="flex items-start gap-3">
-                                <div className="w-4 text-center flex-shrink-0">
-                                    <i className="fa-solid fa-keyboard text-accent"></i>
-                                </div>
-                                <div className="space-y-1">
-                                    <div>
-                                        <KeyCap>{modKey}</KeyCap>
-                                        <KeyCap className="ml-1">K</KeyCap>
-                                        <span className="ml-1.5">to start a new chat</span>
-                                    </div>
-                                    <div>
-                                        <KeyCap>{modKey}</KeyCap>
-                                        <KeyCap className="ml-1">Shift</KeyCap>
-                                        <KeyCap className="ml-1">A</KeyCap>
-                                        <span className="ml-1.5">to toggle panel</span>
-                                    </div>
-                                    <div>
-                                        {isWindows() ? (
-                                            <>
-                                                <KeyCap>Alt</KeyCap>
-                                                <KeyCap className="ml-1">0</KeyCap>
-                                                <span className="ml-1.5">to focus</span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <KeyCap>Ctrl</KeyCap>
-                                                <KeyCap className="ml-1">Shift</KeyCap>
-                                                <KeyCap className="ml-1">0</KeyCap>
-                                                <span className="ml-1.5">to focus</span>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="flex items-start gap-3">
-                                <div className="w-4 text-center flex-shrink-0">
-                                    <i className="fa-brands fa-discord text-accent"></i>
+                                    <KeyCap>{modKey}</KeyCap>
+                                    <KeyCap className="ml-1">Shift</KeyCap>
+                                    <KeyCap className="ml-1">A</KeyCap>
+                                    <span className="ml-1.5">to toggle panel</span>
                                 </div>
                                 <div>
-                                    Questions or feedback?{" "}
-                                    <a
-                                        target="_blank"
-                                        href="https://discord.gg/XfvZ334gwU"
-                                        rel="noopener"
-                                        className="text-accent hover:underline cursor-pointer"
-                                    >
-                                        Join our Discord
-                                    </a>
+                                    {isWindows() ? (
+                                        <>
+                                            <KeyCap>Alt</KeyCap>
+                                            <KeyCap className="ml-1">0</KeyCap>
+                                            <span className="ml-1.5">to focus</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <KeyCap>Ctrl</KeyCap>
+                                            <KeyCap className="ml-1">Shift</KeyCap>
+                                            <KeyCap className="ml-1">0</KeyCap>
+                                            <span className="ml-1.5">to focus</span>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    {!hasCustomModes && <BYOKAnnouncement />}
-                    <div className="mt-4 text-center text-[12px] text-muted">
-                        BETA: Free to use. Daily limits keep our costs in check.
+                        <div className="flex items-start gap-3">
+                            <div className="w-4 text-center flex-shrink-0">
+                                <i className="fa-brands fa-discord text-accent"></i>
+                            </div>
+                            <div>
+                                Questions or feedback?{" "}
+                                <a
+                                    target="_blank"
+                                    href="https://discord.gg/XfvZ334gwU"
+                                    rel="noopener"
+                                    className="text-accent hover:underline cursor-pointer"
+                                >
+                                    Join our Discord
+                                </a>
+                            </div>
+                        </div>
                     </div>
                 </div>
+                {!hasCustomModes && <BYOKAnnouncement />}
+                <div className="mt-4 text-center text-[12px] text-muted">
+                    BETA: Free to use. Daily limits keep our costs in check.
+                </div>
             </div>
+        </div>
     );
 });
 
@@ -255,6 +255,7 @@ ConfigChangeModeFixer.displayName = "ConfigChangeModeFixer";
 const AISessionToolbar = memo(() => {
     const model = WaveAIModel.getInstance();
     const sessions = jotai.useAtomValue(model.sessionsAtom);
+    const hiddenSessionIds = jotai.useAtomValue(model.hiddenSessionIdsAtom);
     const activeChatId = jotai.useAtomValue(model.chatId);
     const [query, setQuery] = useState("");
     if (model.inBuilder) {
@@ -266,6 +267,9 @@ const AISessionToolbar = memo(() => {
     }
     const activeSession = sessions.find((session) => session.chatid === activeChatId);
     const filteredSessions = sessions.filter((session) => {
+        if (hiddenSessionIds.includes(session.chatid)) {
+            return false;
+        }
         const needle = query.trim().toLowerCase();
         if (!needle) {
             return true;
@@ -294,24 +298,6 @@ const AISessionToolbar = memo(() => {
                     placeholder="Search history"
                     className="min-w-[120px] flex-1 rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-white outline-none placeholder:text-zinc-500"
                 />
-                <select
-                    value=""
-                    onChange={(e) => {
-                        if (e.target.value) {
-                            void model.switchSession(e.target.value);
-                            e.target.value = "";
-                        }
-                    }}
-                    className="rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-white outline-none"
-                >
-                    <option value="">History</option>
-                    {filteredSessions.map((session) => (
-                        <option key={session.chatid} value={session.chatid}>
-                            {session.favorite ? "★ " : ""}
-                            {session.title || "New Chat"}
-                        </option>
-                    ))}
-                </select>
                 {activeSession && (
                     <button
                         type="button"
@@ -319,7 +305,11 @@ const AISessionToolbar = memo(() => {
                         className="flex h-8 w-8 items-center justify-center rounded-full border border-white/8 bg-white/5 text-xs text-zinc-300 hover:text-yellow-300"
                         title={activeSession.favorite ? "Unfavorite" : "Favorite"}
                     >
-                        <i className={cn(activeSession.favorite ? "fa-solid fa-star text-yellow-300" : "fa-regular fa-star")} />
+                        <i
+                            className={cn(
+                                activeSession.favorite ? "fa-solid fa-star text-yellow-300" : "fa-regular fa-star"
+                            )}
+                        />
                     </button>
                 )}
                 {activeSession && (
@@ -350,21 +340,33 @@ const AISessionToolbar = memo(() => {
             </div>
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
                 {filteredSessions.slice(0, 6).map((session) => (
-                    <button
-                        key={session.chatid}
-                        type="button"
-                        onClick={() => void model.switchSession(session.chatid)}
-                        className={cn(
-                            "max-w-[180px] shrink-0 truncate rounded-full border px-3 py-1 text-xs transition-colors",
-                            session.chatid === activeChatId
-                                ? "border-lime-300/30 bg-lime-300/12 text-lime-100"
-                                : "border-white/8 bg-white/5 text-zinc-300 hover:text-white"
-                        )}
-                        title={session.summary || session.title || "New Chat"}
-                    >
-                        {session.favorite ? "★ " : ""}
-                        {session.title || "New Chat"}
-                    </button>
+                    <div key={session.chatid} className="relative shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => void model.switchSession(session.chatid)}
+                            className={cn(
+                                "max-w-[180px] truncate rounded-full border px-3 py-1 pr-7 text-xs transition-colors",
+                                session.chatid === activeChatId
+                                    ? "border-lime-300/30 bg-lime-300/12 text-lime-100"
+                                    : "border-white/8 bg-white/5 text-zinc-300 hover:text-white"
+                            )}
+                            title={session.summary || session.title || "New Chat"}
+                        >
+                            {session.favorite ? "★ " : ""}
+                            {session.title || "New Chat"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                void model.hideSession(session.chatid);
+                            }}
+                            className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full text-[10px] text-zinc-500 opacity-80 hover:bg-white/10 hover:text-zinc-200"
+                            title="Close tab"
+                            aria-label="Close tab"
+                        >
+                            <i className="fa-solid fa-xmark" />
+                        </button>
+                    </div>
                 ))}
             </div>
         </div>
@@ -665,7 +667,14 @@ const AIPanelComponentInner = memo(() => {
         if (!perf.active || status === "streaming") {
             return;
         }
-        const terminalStates = new Set(["completed", "success", "failed_retryable", "failed_fatal", "cancelled", "unavailable"]);
+        const terminalStates = new Set([
+            "completed",
+            "success",
+            "failed_retryable",
+            "failed_fatal",
+            "cancelled",
+            "unavailable",
+        ]);
         if (!terminalStates.has(agentRuntimeSnapshot.state)) {
             return;
         }
@@ -985,11 +994,7 @@ const AIPanelComponentInner = memo(() => {
                                 className="flex-1 overflow-y-auto p-2 relative"
                                 onContextMenu={(e) => handleWaveAIContextMenu(e, true)}
                             >
-                                {model.inBuilder ? (
-                                    <AIBuilderWelcomeMessage />
-                                ) : (
-                                    <AIWelcomeMessage />
-                                )}
+                                {model.inBuilder ? <AIBuilderWelcomeMessage /> : <AIWelcomeMessage />}
                             </div>
                         ) : (
                             <AIPanelMessages

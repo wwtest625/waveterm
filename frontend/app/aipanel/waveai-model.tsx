@@ -37,7 +37,6 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { BuilderFocusManager } from "@/builder/store/builder-focusmanager";
 import { getWebServerEndpoint } from "@/util/endpoints";
-import { fetch } from "@/util/fetchutil";
 import { base64ToArrayBuffer } from "@/util/util";
 import { ChatStatus } from "ai";
 import * as jotai from "jotai";
@@ -85,9 +84,10 @@ export class WaveAIModel {
     droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
     chatId!: jotai.PrimitiveAtom<string>;
     sessionsAtom: jotai.PrimitiveAtom<WaveChatSessionMeta[]> = jotai.atom([]);
-    commandInteractionAtom: jotai.PrimitiveAtom<CommandInteractionState | null> = jotai.atom(null) as jotai.PrimitiveAtom<
-        CommandInteractionState | null
-    >;
+    hiddenSessionIdsAtom: jotai.PrimitiveAtom<string[]> = jotai.atom([]);
+    commandInteractionAtom: jotai.PrimitiveAtom<CommandInteractionState | null> = jotai.atom(
+        null
+    ) as jotai.PrimitiveAtom<CommandInteractionState | null>;
     currentAIMode!: jotai.PrimitiveAtom<string>;
     aiModeConfigs!: jotai.Atom<Record<string, AIModeConfigType>>;
     hasPremiumAtom!: jotai.Atom<boolean>;
@@ -176,7 +176,7 @@ export class WaveAIModel {
             }
             const aiModeConfigs = get(this.aiModeConfigs);
             if (!telemetryEnabled) {
-                let mode = get(getSettingsKeyAtom("waveai:defaultmode"));
+                const mode = get(getSettingsKeyAtom("waveai:defaultmode"));
                 if (mode == null || mode.startsWith("waveai@")) {
                     return "unknown";
                 }
@@ -445,6 +445,29 @@ export class WaveAIModel {
         });
         if (globalStore.get(this.chatId) === chatId) {
             this.clearChat();
+        }
+    }
+
+    async hideSession(chatId: string): Promise<void> {
+        if (!chatId) {
+            return;
+        }
+        const hiddenSessionIds = globalStore.get(this.hiddenSessionIdsAtom);
+        if (!hiddenSessionIds.includes(chatId)) {
+            globalStore.set(this.hiddenSessionIdsAtom, [...hiddenSessionIds, chatId]);
+        }
+        if (globalStore.get(this.chatId) === chatId) {
+            const nextSession = globalStore
+                .get(this.sessionsAtom)
+                .find(
+                    (item) =>
+                        item.chatid !== chatId && !globalStore.get(this.hiddenSessionIdsAtom).includes(item.chatid)
+                );
+            if (nextSession) {
+                await this.switchSession(nextSession.chatid);
+            } else {
+                this.clearChat();
+            }
         }
     }
 
