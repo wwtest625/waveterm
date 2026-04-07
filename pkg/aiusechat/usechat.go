@@ -46,16 +46,18 @@ var (
 	activeChats = ds.MakeSyncMap[bool]() // key is chatid
 )
 
-func getSystemPrompt(apiType string, model string, isBuilder bool, hasToolsCapability bool, widgetAccess bool, isLocal bool, localProvider string, agentMode AgentMode) []string {
+func getSystemPrompt(apiType string, model string, provider string, isBuilder bool, hasToolsCapability bool, widgetAccess bool, agentMode AgentMode) []string {
 	if isBuilder {
 		return []string{}
 	}
-	useNoToolsPrompt := !hasToolsCapability || !widgetAccess
+	useNoToolsPrompt := !hasToolsCapability || (!widgetAccess && provider != uctypes.AIProvider_Wave)
 	basePrompt := SystemPromptText_OpenAI
 	if useNoToolsPrompt {
 		basePrompt = SystemPromptText_NoTools
+	} else {
+		basePrompt = strings.TrimSpace(basePrompt + " " + SystemPromptText_EditWorkflowAddOn)
 	}
-	basePrompt = strings.TrimSpace(basePrompt + " " + getModeAwareSystemPromptText(isLocal, localProvider, agentMode))
+	basePrompt = strings.TrimSpace(basePrompt + " " + getModeAwareSystemPromptText(provider, agentMode))
 	modelLower := strings.ToLower(model)
 	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek)\b`, modelLower)
 	if needsStrictToolAddOn && !useNoToolsPrompt {
@@ -604,23 +606,44 @@ func ResolveToolCall(toolDef *uctypes.ToolDefinition, toolCall uctypes.WaveToolC
 
 func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, message *uctypes.AIMessage, chatOpts uctypes.WaveChatOpts) error {
 	startTime := time.Now()
+	chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
+		TabId:     chatOpts.TabId,
+		LastState: "submitting",
+	})
+	chatstore.DefaultChatStore.UpdateSessionPreviewFromMessage(chatOpts.ChatId, &chatOpts.Config, chatOpts.TabId, message)
 
 	// Convert AIMessage to native chat message using backend
 	backend, err := GetBackendByAPIType(chatOpts.Config.APIType)
 	if err != nil {
+		chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
+			LastState: "failed",
+		})
 		return err
 	}
 	convertedMessage, err := backend.ConvertAIMessageToNativeChatMessage(*message)
 	if err != nil {
+		chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
+			LastState: "failed",
+		})
 		return fmt.Errorf("message conversion failed: %w", err)
 	}
 
 	// Post message to chat store
 	if err := chatstore.DefaultChatStore.PostMessage(chatOpts.ChatId, &chatOpts.Config, convertedMessage); err != nil {
+		chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
+			LastState: "failed",
+		})
 		return fmt.Errorf("failed to store message: %w", err)
 	}
 
 	metrics, err := RunAIChat(ctx, sseHandler, backend, chatOpts)
+	sessionState := "completed"
+	if err != nil {
+		sessionState = "failed"
+	}
+	chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
+		LastState: sessionState,
+	})
 	if metrics != nil {
 		metrics.RequestDuration = int(time.Since(startTime).Milliseconds())
 		for _, part := range message.Parts {
@@ -679,15 +702,15 @@ func sendAIMetricsTelemetry(ctx context.Context, metrics *uctypes.AIMetrics) {
 
 // PostMessageRequest represents the request body for posting a message
 type PostMessageRequest struct {
-	TabId         string            `json:"tabid,omitempty"`
-	BlockId       string            `json:"blockid,omitempty"`
-	BuilderId     string            `json:"builderid,omitempty"`
-	BuilderAppId  string            `json:"builderappid,omitempty"`
-	ChatID        string            `json:"chatid"`
-	Msg           uctypes.AIMessage `json:"msg"`
-	WidgetAccess  bool              `json:"widgetaccess,omitempty"`
-	AIMode        string            `json:"aimode"`
-	AgentMode     string            `json:"agentmode,omitempty"`
+	TabId        string            `json:"tabid,omitempty"`
+	BlockId      string            `json:"blockid,omitempty"`
+	BuilderId    string            `json:"builderid,omitempty"`
+	BuilderAppId string            `json:"builderappid,omitempty"`
+	ChatID       string            `json:"chatid"`
+	Msg          uctypes.AIMessage `json:"msg"`
+	WidgetAccess bool              `json:"widgetaccess,omitempty"`
+	AIMode       string            `json:"aimode"`
+	AgentMode    string            `json:"agentmode,omitempty"`
 }
 
 func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
@@ -745,6 +768,7 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("WaveAI configuration error: %v", err), http.StatusInternalServerError)
 		return
 	}
+	effectiveWidgetAccess := req.WidgetAccess || aiOpts.Provider == uctypes.AIProvider_Wave
 
 	// Call the core WaveAIPostMessage function
 	chatOpts := uctypes.WaveChatOpts{
@@ -752,18 +776,18 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		ClientId:             wstore.GetClientId(),
 		Config:               *aiOpts,
 		AgentMode:            string(resolveAgentMode(req.AgentMode)),
-		WidgetAccess:         req.WidgetAccess,
+		WidgetAccess:         effectiveWidgetAccess,
 		AllowNativeWebSearch: true,
 		TabId:                req.TabId,
 		BlockId:              req.BlockId,
 		BuilderId:            req.BuilderId,
 		BuilderAppId:         req.BuilderAppId,
 	}
-	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), chatOpts.WidgetAccess, false, "", resolveAgentMode(req.AgentMode))
+	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.Config.Provider, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), effectiveWidgetAccess, resolveAgentMode(req.AgentMode))
 
 	if req.TabId != "" {
 		chatOpts.TabStateGenerator = func() (string, []uctypes.ToolDefinition, string, error) {
-			tabState, tabTools, err := GenerateTabStateAndTools(r.Context(), req.TabId, req.WidgetAccess, &chatOpts)
+			tabState, tabTools, err := GenerateTabStateAndTools(r.Context(), req.TabId, effectiveWidgetAccess, &chatOpts)
 			return tabState, tabTools, req.TabId, err
 		}
 	}

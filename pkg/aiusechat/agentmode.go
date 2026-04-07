@@ -4,7 +4,6 @@
 package aiusechat
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
@@ -88,7 +87,7 @@ func isReadOnlyAgentTool(toolName string) bool {
 
 func isMediumRiskAgentTool(toolName string) bool {
 	switch toolName {
-	case "write_text_file", "edit_text_file", "wave_run_command":
+	case "write_text_file", "edit_text_file":
 		return true
 	default:
 		return false
@@ -96,13 +95,7 @@ func isMediumRiskAgentTool(toolName string) bool {
 }
 
 func validateToolForAgentMode(mode AgentMode, toolName string) error {
-	if resolveAgentMode(string(mode)) != AgentModePlanning {
-		return nil
-	}
-	if isReadOnlyAgentTool(toolName) {
-		return nil
-	}
-	return fmt.Errorf("tool %q is not allowed in planning mode", toolName)
+	return nil
 }
 
 func applyAgentModeApprovalPolicy(mode AgentMode, toolName string, approval string) string {

@@ -40,11 +40,12 @@ type UseChatRequest struct {
 }
 
 type UIChat struct {
-	ChatId     string      `json:"chatid"`
-	APIType    string      `json:"apitype"`
-	Model      string      `json:"model"`
-	APIVersion string      `json:"apiversion"`
-	Messages   []UIMessage `json:"messages"`
+	ChatId      string             `json:"chatid"`
+	APIType     string             `json:"apitype"`
+	Model       string             `json:"model"`
+	APIVersion  string             `json:"apiversion"`
+	SessionMeta *UIChatSessionMeta `json:"sessionmeta,omitempty"`
+	Messages    []UIMessage        `json:"messages"`
 }
 
 type UIMessage struct {
@@ -95,6 +96,52 @@ type UIMessageDataUserFile struct {
 	Size       int    `json:"size,omitempty"`
 	MimeType   string `json:"mimetype,omitempty"`
 	PreviewUrl string `json:"previewurl,omitempty"`
+}
+
+const (
+	PendingActionToolApproval        = "tool-approval"
+	PendingActionCommandConfirmation = "command-confirmation"
+	PendingActionOptionSelect        = "option-select"
+	PendingActionInteractionInput    = "interaction-input"
+	PendingActionCompletionConfirm   = "completion-confirm"
+	PendingActionCanceled            = "canceled"
+)
+
+type UIChatSessionMeta struct {
+	ChatId        string `json:"chatid"`
+	TabId         string `json:"tabid,omitempty"`
+	Title         string `json:"title,omitempty"`
+	Summary       string `json:"summary,omitempty"`
+	CreatedTs     int64  `json:"createdts,omitempty"`
+	UpdatedTs     int64  `json:"updatedts,omitempty"`
+	Favorite      bool   `json:"favorite,omitempty"`
+	LastTaskState string `json:"lasttaskstate,omitempty"`
+	Archived      bool   `json:"archived,omitempty"`
+	Deleted       bool   `json:"deleted,omitempty"`
+}
+
+func (m *UIChatSessionMeta) Clone() *UIChatSessionMeta {
+	if m == nil {
+		return nil
+	}
+	copied := *m
+	return &copied
+}
+
+type UIChatSessionMetaUpdate struct {
+	TabId     string  `json:"tabid,omitempty"`
+	Title     *string `json:"title,omitempty"`
+	Summary   *string `json:"summary,omitempty"`
+	Favorite  *bool   `json:"favorite,omitempty"`
+	LastState string  `json:"laststate,omitempty"`
+	Archived  *bool   `json:"archived,omitempty"`
+	Deleted   *bool   `json:"deleted,omitempty"`
+	UpdatedTs int64   `json:"updatedts,omitempty"`
+}
+
+type UIChatSessionListOpts struct {
+	IncludeArchived bool `json:"includearchived,omitempty"`
+	IncludeDeleted  bool `json:"includedeleted,omitempty"`
 }
 
 // ToolDefinition represents a tool that can be used by the AI model
@@ -282,11 +329,12 @@ func (opts AIOptsType) HasCapability(cap string) bool {
 }
 
 type AIChat struct {
-	ChatId         string         `json:"chatid"`
-	APIType        string         `json:"apitype"`
-	Model          string         `json:"model"`
-	APIVersion     string         `json:"apiversion"`
-	NativeMessages []GenAIMessage `json:"nativemessages"`
+	ChatId         string             `json:"chatid"`
+	APIType        string             `json:"apitype"`
+	Model          string             `json:"model"`
+	APIVersion     string             `json:"apiversion"`
+	SessionMeta    *UIChatSessionMeta `json:"sessionmeta,omitempty"`
+	NativeMessages []GenAIMessage     `json:"nativemessages"`
 }
 
 type AIUsage struct {

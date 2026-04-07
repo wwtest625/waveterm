@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,14 +18,17 @@ import (
 )
 
 type WaveRunCommandToolInput struct {
-	Connection string            `json:"connection"`
-	Cwd        string            `json:"cwd,omitempty"`
-	Command    string            `json:"command"`
-	Args       waveRunCommandArgs `json:"args,omitempty"`
-	Env        map[string]string `json:"env,omitempty"`
+	Connection  string             `json:"connection"`
+	Cwd         string             `json:"cwd,omitempty"`
+	Command     string             `json:"command"`
+	Args        waveRunCommandArgs `json:"args,omitempty"`
+	Env         map[string]string  `json:"env,omitempty"`
+	Interactive bool               `json:"interactive,omitempty"`
 }
 
 type waveRunCommandArgs []string
+
+var dangerousWaveCommandPattern = regexp.MustCompile(`(?i)(\|\s*(bash|sh|zsh|pwsh|powershell|cmd)(\s|$)|(^|\s)sudo(\s|$)|(^|\s)(rm|format|shutdown|reboot|halt|poweroff|init|killall|pkill|fuser|dd|mkfs|fdisk|parted|iptables|ufw|firewall-cmd|chmod|chown|mount|umount|truncate|drop|delete)(\s|$))`)
 
 func (a *waveRunCommandArgs) UnmarshalJSON(data []byte) error {
 	var arr []string
@@ -125,6 +129,18 @@ func shouldUseShellCommand(command string) bool {
 	return strings.ContainsAny(command, `|&;<>()$'"`)
 }
 
+func isDangerousWaveRunCommandText(command string) bool {
+	return dangerousWaveCommandPattern.MatchString(strings.TrimSpace(command))
+}
+
+func isDangerousWaveRunCommandInput(input any) bool {
+	parsed, err := parseWaveRunCommandToolInput(input)
+	if err != nil || parsed == nil {
+		return true
+	}
+	return isDangerousWaveRunCommandText(getWaveRunCommandDisplayText(parsed))
+}
+
 func getWaveRunCommandDisplayText(parsed *WaveRunCommandToolInput) string {
 	if parsed == nil {
 		return ""
@@ -136,6 +152,40 @@ func getWaveRunCommandDisplayText(parsed *WaveRunCommandToolInput) string {
 		return parsed.Command
 	}
 	return strings.Join(append([]string{parsed.Command}, parsed.Args...), " ")
+}
+
+func isLikelyInteractiveWaveRunCommand(parsed *WaveRunCommandToolInput) bool {
+	if parsed == nil {
+		return false
+	}
+	commandText := strings.ToLower(strings.TrimSpace(getWaveRunCommandDisplayText(parsed)))
+	for _, marker := range []string{
+		"ssh",
+		"sudo",
+		"mysql",
+		"psql",
+		"sqlite3",
+		"python",
+		"node",
+		"less",
+		"more",
+		"top",
+		"htop",
+		"vim",
+		"nano",
+	} {
+		if strings.HasPrefix(commandText, marker+" ") || commandText == marker {
+			return true
+		}
+	}
+	return false
+}
+
+func getWaveRunCommandPromptHint(parsed *WaveRunCommandToolInput) string {
+	if !isLikelyInteractiveWaveRunCommand(parsed) {
+		return ""
+	}
+	return "Command is waiting for terminal input"
 }
 
 func parseWaveGetCommandResultToolInput(input any) (*WaveGetCommandResultToolInput, error) {
@@ -185,6 +235,10 @@ func GetWaveRunCommandToolDefinition() uctypes.ToolDefinition {
 					"type":                 "object",
 					"additionalProperties": map[string]any{"type": "string"},
 				},
+				"interactive": map[string]any{
+					"type":        "boolean",
+					"description": "Optional. Force interactive stdin support when the command is expected to ask follow-up questions or prompts.",
+				},
 			},
 			"required":             []string{"command"},
 			"additionalProperties": false,
@@ -219,11 +273,13 @@ func GetWaveRunCommandToolDefinition() uctypes.ToolDefinition {
 			}
 			rpcClient := wshclient.GetBareRpcClient()
 			result, err := wshclient.AgentRunCommandCommand(rpcClient, wshrpc.CommandAgentRunCommandData{
-				ConnName: parsed.Connection,
-				Cwd:      parsed.Cwd,
-				Cmd:      parsed.Command,
-				Args:     parsed.Args,
-				Env:      parsed.Env,
+				ConnName:    parsed.Connection,
+				Cwd:         parsed.Cwd,
+				Cmd:         parsed.Command,
+				Args:        parsed.Args,
+				Env:         parsed.Env,
+				Interactive: parsed.Interactive || isLikelyInteractiveWaveRunCommand(parsed),
+				PromptHint:  getWaveRunCommandPromptHint(parsed),
 			}, nil)
 			if err != nil {
 				return nil, err
@@ -234,7 +290,10 @@ func GetWaveRunCommandToolDefinition() uctypes.ToolDefinition {
 			}, nil
 		},
 		ToolApproval: func(input any) string {
-			return uctypes.ApprovalNeedsApproval
+			if isDangerousWaveRunCommandInput(input) {
+				return uctypes.ApprovalNeedsApproval
+			}
+			return uctypes.ApprovalAutoApproved
 		},
 	}
 }

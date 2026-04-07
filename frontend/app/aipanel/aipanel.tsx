@@ -252,6 +252,213 @@ const ConfigChangeModeFixer = memo(() => {
 
 ConfigChangeModeFixer.displayName = "ConfigChangeModeFixer";
 
+const AISessionToolbar = memo(() => {
+    const model = WaveAIModel.getInstance();
+    const sessions = jotai.useAtomValue(model.sessionsAtom);
+    const activeChatId = jotai.useAtomValue(model.chatId);
+    const [query, setQuery] = useState("");
+    if (model.inBuilder) {
+        return (
+            <div className="border-b border-white/8 bg-black/15 px-2 py-2">
+                <AIModeDropdown />
+            </div>
+        );
+    }
+    const activeSession = sessions.find((session) => session.chatid === activeChatId);
+    const filteredSessions = sessions.filter((session) => {
+        const needle = query.trim().toLowerCase();
+        if (!needle) {
+            return true;
+        }
+        const haystack = `${session.title ?? ""} ${session.summary ?? ""}`.toLowerCase();
+        return haystack.includes(needle);
+    });
+
+    const handleRename = () => {
+        if (!activeSession) {
+            return;
+        }
+        const nextTitle = window.prompt("Rename this session", activeSession.title ?? "New Chat");
+        if (nextTitle && nextTitle.trim()) {
+            void model.renameSession(activeSession.chatid, nextTitle);
+        }
+    };
+
+    return (
+        <div className="border-b border-white/8 bg-black/15 px-2 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+                <AIModeDropdown />
+                <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search history"
+                    className="min-w-[120px] flex-1 rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-white outline-none placeholder:text-zinc-500"
+                />
+                <select
+                    value=""
+                    onChange={(e) => {
+                        if (e.target.value) {
+                            void model.switchSession(e.target.value);
+                            e.target.value = "";
+                        }
+                    }}
+                    className="rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-white outline-none"
+                >
+                    <option value="">History</option>
+                    {filteredSessions.map((session) => (
+                        <option key={session.chatid} value={session.chatid}>
+                            {session.favorite ? "★ " : ""}
+                            {session.title || "New Chat"}
+                        </option>
+                    ))}
+                </select>
+                {activeSession && (
+                    <button
+                        type="button"
+                        onClick={() => void model.toggleSessionFavorite(activeSession.chatid)}
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/8 bg-white/5 text-xs text-zinc-300 hover:text-yellow-300"
+                        title={activeSession.favorite ? "Unfavorite" : "Favorite"}
+                    >
+                        <i className={cn(activeSession.favorite ? "fa-solid fa-star text-yellow-300" : "fa-regular fa-star")} />
+                    </button>
+                )}
+                {activeSession && (
+                    <button
+                        type="button"
+                        onClick={handleRename}
+                        className="rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-zinc-300 hover:text-white"
+                    >
+                        Rename
+                    </button>
+                )}
+                {activeSession && (
+                    <button
+                        type="button"
+                        onClick={() => void model.archiveSession(activeSession.chatid)}
+                        className="rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-zinc-300 hover:text-white"
+                    >
+                        Archive
+                    </button>
+                )}
+                <button
+                    type="button"
+                    onClick={() => model.clearChat()}
+                    className="rounded-full border border-lime-300/20 bg-lime-300/10 px-3 py-1 text-xs text-lime-200 hover:bg-lime-300/15"
+                >
+                    New
+                </button>
+            </div>
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                {filteredSessions.slice(0, 6).map((session) => (
+                    <button
+                        key={session.chatid}
+                        type="button"
+                        onClick={() => void model.switchSession(session.chatid)}
+                        className={cn(
+                            "max-w-[180px] shrink-0 truncate rounded-full border px-3 py-1 text-xs transition-colors",
+                            session.chatid === activeChatId
+                                ? "border-lime-300/30 bg-lime-300/12 text-lime-100"
+                                : "border-white/8 bg-white/5 text-zinc-300 hover:text-white"
+                        )}
+                        title={session.summary || session.title || "New Chat"}
+                    >
+                        {session.favorite ? "★ " : ""}
+                        {session.title || "New Chat"}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+});
+
+AISessionToolbar.displayName = "AISessionToolbar";
+
+const CommandInteractionInput = memo(() => {
+    const model = WaveAIModel.getInstance();
+    const interaction = jotai.useAtomValue(model.commandInteractionAtom);
+    const [input, setInput] = useState("");
+
+    useEffect(() => {
+        setInput("");
+    }, [interaction?.jobId, interaction?.promptHint]);
+
+    if (!interaction) {
+        return null;
+    }
+
+    return (
+        <div className="mx-2 mb-2 rounded-xl border border-amber-300/20 bg-amber-300/8 px-3 py-3 text-sm text-zinc-200">
+            <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                    <div className="font-medium text-amber-100">
+                        {interaction.tuiDetected
+                            ? "Interactive TUI detected"
+                            : interaction.promptHint || "Command is waiting for input"}
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-400">
+                        {interaction.tuiSuppressed
+                            ? "Wave suppressed the TUI so the session stays usable. Continue it in a terminal if you need the full screen app."
+                            : "Submit input below to continue the running command."}
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    onClick={() => void model.cancelExecution()}
+                    className="rounded-full border border-red-300/20 bg-red-300/10 px-3 py-1 text-xs text-red-200"
+                >
+                    Cancel
+                </button>
+            </div>
+            {interaction.outputPreview && (
+                <pre className="mt-2 max-h-28 overflow-auto rounded-lg bg-black/20 p-2 text-[11px] text-zinc-300">
+                    {interaction.outputPreview}
+                </pre>
+            )}
+            {!interaction.tuiSuppressed && (
+                <>
+                    {interaction.inputOptions && interaction.inputOptions.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {interaction.inputOptions.map((option) => (
+                                <button
+                                    key={option}
+                                    type="button"
+                                    onClick={() => setInput(option)}
+                                    className="rounded-full border border-white/8 bg-white/6 px-2 py-1 text-[11px] text-zinc-200"
+                                >
+                                    {option}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    <div className="mt-2 flex gap-2">
+                        <input
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            placeholder={interaction.promptHint || "Type command input"}
+                            className="min-w-0 flex-1 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => void model.submitCommandInteraction(input)}
+                            disabled={!input.trim()}
+                            className={cn(
+                                "rounded-lg px-3 py-2 text-sm",
+                                input.trim()
+                                    ? "bg-amber-300/15 text-amber-100 hover:bg-amber-300/20"
+                                    : "bg-white/5 text-zinc-500"
+                            )}
+                        >
+                            Send
+                        </button>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+});
+
+CommandInteractionInput.displayName = "CommandInteractionInput";
+
 const STREAM_UPDATE_THROTTLE_MS = 34;
 
 const AIPanelComponentInner = memo(() => {
@@ -268,6 +475,7 @@ const AIPanelComponentInner = memo(() => {
     const isPanelVisible = jotai.useAtomValue(model.getPanelVisibleAtom());
     const errorMessage = jotai.useAtomValue(model.errorMessage);
     const agentRuntimeSnapshot = jotai.useAtomValue(model.agentRuntimeAtom);
+    const commandInteraction = jotai.useAtomValue(model.commandInteractionAtom);
     const agentMode = jotai.useAtomValue(model.agentModeAtom);
     const tabModel = maybeUseTabModel();
     const defaultMode = jotai.useAtomValue(getSettingsKeyAtom("waveai:defaultmode")) ?? "waveai@balanced";
@@ -349,8 +557,11 @@ const AIPanelComponentInner = memo(() => {
     });
 
     useEffect(() => {
+        if (commandInteraction || agentRuntimeSnapshot.activeJobId) {
+            return;
+        }
         model.mergeAgentRuntimeSnapshot(derivedAgentStatusSnapshot);
-    }, [derivedAgentStatusSnapshot, model]);
+    }, [agentRuntimeSnapshot.activeJobId, commandInteraction, derivedAgentStatusSnapshot, model]);
 
     useEffect(() => {
         const taskId = globalStore.get(model.chatId) || "waveai";
@@ -396,10 +607,13 @@ const AIPanelComponentInner = memo(() => {
         if (errorMessage) {
             return;
         }
+        if (commandInteraction) {
+            return;
+        }
         if (messages.length > 0) {
             model.dispatchAgentEvent({ type: "VERIFY_FINISHED", ok: true });
         }
-    }, [status, errorMessage, messages.length, model]);
+    }, [status, errorMessage, messages.length, commandInteraction, model]);
 
     useEffect(() => {
         if (agentRuntimeSnapshot.state !== "submitting") {
@@ -451,7 +665,7 @@ const AIPanelComponentInner = memo(() => {
         if (!perf.active || status === "streaming") {
             return;
         }
-        const terminalStates = new Set(["success", "failed_retryable", "failed_fatal", "cancelled", "unavailable"]);
+        const terminalStates = new Set(["completed", "success", "failed_retryable", "failed_fatal", "cancelled", "unavailable"]);
         if (!terminalStates.has(agentRuntimeSnapshot.state)) {
             return;
         }
@@ -765,14 +979,12 @@ const AIPanelComponentInner = memo(() => {
                     <TelemetryRequiredMessage />
                 ) : (
                     <>
+                        <AISessionToolbar />
                         {messages.length === 0 && initialLoadDone ? (
                             <div
                                 className="flex-1 overflow-y-auto p-2 relative"
                                 onContextMenu={(e) => handleWaveAIContextMenu(e, true)}
                             >
-                                <div className="absolute top-2 left-2 z-10">
-                                <AIModeDropdown />
-                                </div>
                                 {model.inBuilder ? (
                                     <AIBuilderWelcomeMessage />
                                 ) : (
@@ -788,6 +1000,7 @@ const AIPanelComponentInner = memo(() => {
                         )}
                         <AIErrorMessage />
                         <AIDroppedFiles model={model} />
+                        <CommandInteractionInput />
                         <AIPanelInput onSubmit={handleSubmit} status={status} model={model} />
                     </>
                 )}

@@ -22,9 +22,19 @@ class RpcApiType {
         return client.wshRpcCall("agentgetcommandresult", data, opts);
     }
 
+    // command "agentcancel" [call]
+    AgentCancelCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("agentcancel", data, opts);
+    }
+
     // command "agentruncommand" [call]
     AgentRunCommandCommand(client: WshClient, data: CommandAgentRunCommandData, opts?: RpcOpts): Promise<CommandAgentRunCommandRtnData> {
         return client.wshRpcCall("agentruncommand", data, opts);
+    }
+
+    // command "agentwritestdin" [call]
+    AgentWriteStdinCommand(client: WshClient, data: CommandAgentWriteStdinData, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("agentwritestdin", data, opts);
     }
 
     // command "agenttermscrollback" [call]
@@ -440,6 +450,11 @@ class RpcApiType {
     // command "getwaveaichat" [call]
     GetWaveAIChatCommand(client: WshClient, data: CommandGetWaveAIChatData, opts?: RpcOpts): Promise<UIChat> {
         return client.wshRpcCall("getwaveaichat", data, opts);
+    }
+
+    // command "listwaveaisessions" [call]
+    ListWaveAISessionsCommand(client: WshClient, data: CommandListWaveAISessionsData, opts?: RpcOpts): Promise<UIChatSessionMeta[]> {
+        return client.wshRpcCall("listwaveaisessions", data, opts);
     }
 
     // command "getwaveaimodeconfig" [call]
@@ -880,6 +895,11 @@ class RpcApiType {
     // command "waveaigettooldiff" [call]
     WaveAIGetToolDiffCommand(client: WshClient, data: CommandWaveAIGetToolDiffData, opts?: RpcOpts): Promise<CommandWaveAIGetToolDiffRtnData> {
         return client.wshRpcCall("waveaigettooldiff", data, opts);
+    }
+
+    // command "updatewaveaisession" [call]
+    UpdateWaveAISessionCommand(client: WshClient, data: CommandUpdateWaveAISessionData, opts?: RpcOpts): Promise<UIChatSessionMeta> {
+        return client.wshRpcCall("updatewaveaisession", data, opts);
     }
 
     // command "waveaitoolapprove" [call]

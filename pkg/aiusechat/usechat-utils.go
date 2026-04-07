@@ -55,14 +55,14 @@ func CombineConsecutiveSameRoleMessages(uiChat *uctypes.UIChat) *uctypes.UIChat 
 	}
 
 	return &uctypes.UIChat{
-		ChatId:     uiChat.ChatId,
-		APIType:    uiChat.APIType,
-		Model:      uiChat.Model,
-		APIVersion: uiChat.APIVersion,
-		Messages:   combined,
+		ChatId:      uiChat.ChatId,
+		APIType:     uiChat.APIType,
+		Model:       uiChat.Model,
+		APIVersion:  uiChat.APIVersion,
+		SessionMeta: uiChat.SessionMeta.Clone(),
+		Messages:    combined,
 	}
 }
-
 
 // ConvertAIChatToUIChat converts an AIChat to a UIChat by routing to the appropriate
 // provider-specific converter based on APIType, then combining consecutive same-role messages.
@@ -80,6 +80,7 @@ func ConvertAIChatToUIChat(aiChat *uctypes.AIChat) (*uctypes.UIChat, error) {
 	if err != nil {
 		return nil, err
 	}
+	uiChat.SessionMeta = aiChat.SessionMeta.Clone()
 
 	return CombineConsecutiveSameRoleMessages(uiChat), nil
 }

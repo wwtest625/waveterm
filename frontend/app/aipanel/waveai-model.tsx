@@ -5,10 +5,12 @@ import {
     AgentRuntimeEvent,
     AgentRuntimeSnapshot,
     AgentRuntimeSnapshotPatch,
+    CommandInteractionState,
     ToolCallEnvelope,
     ToolResultEnvelope,
     UseChatSendMessageType,
     UseChatSetMessagesType,
+    WaveChatSessionMeta,
     WaveUIMessage,
     WaveUIMessagePart,
     agentRuntimeSnapshotEquals,
@@ -82,6 +84,10 @@ export class WaveAIModel {
     agentModeAtom!: jotai.Atom<AgentMode>;
     droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
     chatId!: jotai.PrimitiveAtom<string>;
+    sessionsAtom: jotai.PrimitiveAtom<WaveChatSessionMeta[]> = jotai.atom([]);
+    commandInteractionAtom: jotai.PrimitiveAtom<CommandInteractionState | null> = jotai.atom(null) as jotai.PrimitiveAtom<
+        CommandInteractionState | null
+    >;
     currentAIMode!: jotai.PrimitiveAtom<string>;
     aiModeConfigs!: jotai.Atom<Record<string, AIModeConfigType>>;
     hasPremiumAtom!: jotai.Atom<boolean>;
@@ -116,8 +122,8 @@ export class WaveAIModel {
             if (this.inBuilder) {
                 return true;
             }
-            const widgetAccessMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:widgetcontext");
-            const value = get(widgetAccessMetaAtom);
+            const widgetAccessMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:widgetcontext" as keyof MetaType);
+            const value = get(widgetAccessMetaAtom) as boolean | undefined;
             // 默认为 true，如果用户没有明确设置过
             return value ?? true;
         });
@@ -126,8 +132,8 @@ export class WaveAIModel {
             if (this.inBuilder) {
                 return true;
             }
-            const autoExecuteMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:autoexecute");
-            const value = get(autoExecuteMetaAtom);
+            const autoExecuteMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:autoexecute" as keyof MetaType);
+            const value = get(autoExecuteMetaAtom) as boolean | undefined;
             // 默认为 true，让 AI 可以直接执行命令
             return value ?? true;
         });
@@ -219,6 +225,58 @@ export class WaveAIModel {
 
     getUseChatEndpointUrl(): string {
         return `${getWebServerEndpoint()}/api/post-chat-message`;
+    }
+
+    private getSessionTabId(): string {
+        if (this.inBuilder) {
+            return "";
+        }
+        return globalStore.get(atoms.staticTabId);
+    }
+
+    private sortSessions(sessions: WaveChatSessionMeta[]): WaveChatSessionMeta[] {
+        return [...sessions].sort((left, right) => {
+            if (Boolean(left.favorite) !== Boolean(right.favorite)) {
+                return left.favorite ? -1 : 1;
+            }
+            const leftUpdated = left.updatedts ?? 0;
+            const rightUpdated = right.updatedts ?? 0;
+            if (leftUpdated !== rightUpdated) {
+                return rightUpdated - leftUpdated;
+            }
+            const leftCreated = left.createdts ?? 0;
+            const rightCreated = right.createdts ?? 0;
+            if (leftCreated !== rightCreated) {
+                return rightCreated - leftCreated;
+            }
+            return (left.title ?? "").localeCompare(right.title ?? "");
+        });
+    }
+
+    private summarizeSessionText(text: string, limit: number): string {
+        const normalized = text.trim().replace(/\s+/g, " ");
+        if (normalized.length <= limit) {
+            return normalized;
+        }
+        return `${normalized.slice(0, Math.max(0, limit - 3))}...`;
+    }
+
+    private upsertLocalSession(session: WaveChatSessionMeta | null | undefined): void {
+        if (!session?.chatid) {
+            return;
+        }
+        const current = globalStore.get(this.sessionsAtom);
+        const next = current.filter((item) => item.chatid !== session.chatid);
+        next.push(session);
+        globalStore.set(this.sessionsAtom, this.sortSessions(next));
+    }
+
+    private removeLocalSession(chatId: string): void {
+        const current = globalStore.get(this.sessionsAtom);
+        globalStore.set(
+            this.sessionsAtom,
+            current.filter((item) => item.chatid !== chatId)
+        );
     }
 
     async addFile(file: File): Promise<DroppedFile> {
@@ -314,18 +372,117 @@ export class WaveAIModel {
         globalStore.set(this.droppedFiles, []);
     }
 
+    async loadSessions(opts?: { includeArchived?: boolean; includeDeleted?: boolean }): Promise<WaveChatSessionMeta[]> {
+        if (this.inBuilder) {
+            globalStore.set(this.sessionsAtom, []);
+            return [];
+        }
+        const sessions = await RpcApi.ListWaveAISessionsCommand(
+            TabRpcClient,
+            {
+                tabid: this.getSessionTabId(),
+                includearchived: opts?.includeArchived,
+                includedeleted: opts?.includeDeleted,
+            },
+            null
+        );
+        const normalized = this.sortSessions(sessions ?? []);
+        globalStore.set(this.sessionsAtom, normalized);
+        return normalized;
+    }
+
+    private async persistSessionUpdate(data: CommandUpdateWaveAISessionData): Promise<WaveChatSessionMeta | null> {
+        const session = await RpcApi.UpdateWaveAISessionCommand(TabRpcClient, data, null);
+        if (session) {
+            if (session.deleted) {
+                this.removeLocalSession(session.chatid);
+            } else {
+                this.upsertLocalSession(session);
+            }
+        }
+        return session ?? null;
+    }
+
+    async switchSession(chatId: string): Promise<void> {
+        if (!chatId) {
+            return;
+        }
+        globalStore.set(this.chatId, chatId);
+        globalStore.set(this.commandInteractionAtom, null);
+        await RpcApi.SetRTInfoCommand(TabRpcClient, {
+            oref: this.orefContext,
+            data: { "waveai:chatid": chatId },
+        });
+        const messages = await this.reloadChatFromBackend(chatId);
+        this.useChatSetMessages?.(messages);
+        this.scrollToBottom();
+    }
+
+    async renameSession(chatId: string, title: string): Promise<void> {
+        const trimmed = title.trim();
+        if (!chatId || !trimmed) {
+            return;
+        }
+        await this.persistSessionUpdate({
+            chatid: chatId,
+            tabid: this.getSessionTabId(),
+            title: trimmed,
+        });
+    }
+
+    async toggleSessionFavorite(chatId: string): Promise<void> {
+        const session = globalStore.get(this.sessionsAtom).find((item) => item.chatid === chatId);
+        await this.persistSessionUpdate({
+            chatid: chatId,
+            favorite: !session?.favorite,
+        });
+    }
+
+    async archiveSession(chatId: string): Promise<void> {
+        await this.persistSessionUpdate({
+            chatid: chatId,
+            archived: true,
+        });
+        if (globalStore.get(this.chatId) === chatId) {
+            this.clearChat();
+        }
+    }
+
+    async restoreSession(chatId: string): Promise<void> {
+        await this.persistSessionUpdate({
+            chatid: chatId,
+            archived: false,
+            deleted: false,
+        });
+        await this.loadSessions();
+    }
+
     clearChat() {
         void this.cancelGeneration();
         this.clearFiles();
         this.clearError();
         globalStore.set(this.isChatEmptyAtom, true);
         globalStore.set(this.agentRuntimeAtom, getDefaultAgentRuntimeSnapshot());
+        globalStore.set(this.commandInteractionAtom, null);
         const newChatId = crypto.randomUUID();
         globalStore.set(this.chatId, newChatId);
+        const newSession: WaveChatSessionMeta = {
+            chatid: newChatId,
+            tabid: this.getSessionTabId(),
+            title: "New Chat",
+            updatedts: Date.now(),
+        };
+        this.upsertLocalSession(newSession);
 
         RpcApi.SetRTInfoCommand(TabRpcClient, {
             oref: this.orefContext,
             data: { "waveai:chatid": newChatId },
+        });
+        void this.persistSessionUpdate({
+            chatid: newChatId,
+            tabid: newSession.tabid,
+            title: newSession.title,
+            lasttaskstate: "idle",
         });
 
         this.useChatSetMessages?.([]);
@@ -401,6 +558,9 @@ export class WaveAIModel {
     async reloadChatFromBackend(chatIdValue: string): Promise<WaveUIMessage[]> {
         const chatData = await RpcApi.GetWaveAIChatCommand(TabRpcClient, { chatid: chatIdValue });
         const messages: UIMessage[] = chatData?.messages ?? [];
+        if (chatData?.sessionmeta) {
+            this.upsertLocalSession(chatData.sessionmeta);
+        }
         globalStore.set(this.isChatEmptyAtom, messages.length === 0);
         return messages as WaveUIMessage[];
     }
@@ -427,11 +587,12 @@ export class WaveAIModel {
         const activeJobId = runtime.activeJobId || runtime.lastToolResult?.jobId;
         if (activeJobId) {
             try {
-                await RpcApi.JobControllerExitJobCommand(TabRpcClient, activeJobId);
+                await RpcApi.AgentCancelCommand(TabRpcClient, activeJobId);
             } catch (error) {
                 console.error("Failed to stop execution job:", error);
             }
         }
+        this.clearInteractionResult();
         this.dispatchAgentEvent({ type: "CANCEL_EXECUTION" });
         await this.cancelGeneration();
     }
@@ -521,7 +682,7 @@ export class WaveAIModel {
     setAutoExecute(enabled: boolean) {
         RpcApi.SetMetaCommand(TabRpcClient, {
             oref: this.orefContext,
-            meta: { "waveai:autoexecute": enabled },
+            meta: { "waveai:autoexecute": enabled } as MetaType,
         });
     }
 
@@ -570,6 +731,151 @@ export class WaveAIModel {
         return { connName, cwd };
     }
 
+    private shouldRunInteractively(command: string): boolean {
+        const normalized = command.trim().toLowerCase();
+        if (!normalized) {
+            return false;
+        }
+        return [
+            "ssh",
+            "sudo",
+            "mysql",
+            "psql",
+            "sqlite3",
+            "python",
+            "node",
+            "less",
+            "more",
+            "top",
+            "htop",
+            "vim",
+            "nano",
+        ].some((prefix) => normalized === prefix || normalized.startsWith(`${prefix} `));
+    }
+
+    private buildInteractivePromptHint(command: string): string {
+        if (!this.shouldRunInteractively(command)) {
+            return "";
+        }
+        return "Command is waiting for terminal input";
+    }
+
+    private handleInteractionResult(jobId: string, commandResult: CommandAgentGetCommandResultRtnData): void {
+        const interaction: CommandInteractionState = {
+            jobId,
+            awaitingInput: Boolean(commandResult.awaitinginput),
+            promptHint: commandResult.prompthint || "Command is waiting for terminal input",
+            inputOptions: commandResult.inputoptions,
+            tuiDetected: commandResult.tuidetected,
+            tuiSuppressed: commandResult.tuisuppressed,
+            outputPreview: commandResult.output,
+        };
+        globalStore.set(this.commandInteractionAtom, interaction);
+        this.dispatchAgentEvent({
+            type: "INTERACTION_REQUIRED",
+            reason: interaction.promptHint,
+        });
+    }
+
+    private clearInteractionResult(): void {
+        globalStore.set(this.commandInteractionAtom, null);
+    }
+
+    private async pollCommandJob(
+        tool: ToolCallEnvelope,
+        jobId: string,
+        startedAt: number
+    ): Promise<{ result?: ToolResultEnvelope; requiresInteraction?: boolean }> {
+        let commandResult: CommandAgentGetCommandResultRtnData | null = null;
+        const deadline = Date.now() + 30000;
+        while (Date.now() < deadline) {
+            commandResult = await RpcApi.AgentGetCommandResultCommand(
+                TabRpcClient,
+                {
+                    jobid: jobId,
+                    tailbytes: 32768,
+                },
+                { timeout: 10000 }
+            );
+            if (commandResult.interactive && (commandResult.awaitinginput || commandResult.tuidetected)) {
+                this.handleInteractionResult(jobId, commandResult);
+                return { requiresInteraction: true };
+            }
+            if (commandResult.status !== "running") {
+                break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        if (!commandResult) {
+            commandResult = {
+                jobid: jobId,
+                status: "error",
+                error: "No command result received",
+            };
+        }
+        if (commandResult.status === "running") {
+            commandResult = {
+                ...commandResult,
+                status: "error",
+                error: "Timed out waiting for command completion",
+            };
+        }
+        this.clearInteractionResult();
+        const exitCode = typeof commandResult.exitcode === "number" ? commandResult.exitcode : 1;
+        const ok = commandResult.status === "done" && exitCode === 0 && !commandResult.error;
+        return {
+            result: {
+                requestId: tool.requestId,
+                taskId: tool.taskId,
+                toolName: tool.toolName,
+                jobId,
+                ok,
+                exitCode,
+                stdout: commandResult.output,
+                stderr: commandResult.error,
+                durationMs: Date.now() - startedAt,
+            },
+        };
+    }
+
+    async submitCommandInteraction(input: string): Promise<void> {
+        const interaction = globalStore.get(this.commandInteractionAtom);
+        if (!interaction?.jobId) {
+            return;
+        }
+        await RpcApi.AgentWriteStdinCommand(
+            TabRpcClient,
+            {
+                jobid: interaction.jobId,
+                input,
+                appendnewline: true,
+                clearprompthint: true,
+            },
+            { timeout: 10000 }
+        );
+        this.clearInteractionResult();
+        const runtime = globalStore.get(this.agentRuntimeAtom);
+        if (!runtime.lastToolCall) {
+            return;
+        }
+        this.dispatchAgentEvent({
+            type: "TOOL_CALL_STARTED",
+            tool: {
+                ...runtime.lastToolCall,
+                jobId: interaction.jobId,
+            },
+        });
+        const polled = await this.pollCommandJob(runtime.lastToolCall, interaction.jobId, Date.now());
+        if (polled.requiresInteraction || !polled.result) {
+            return;
+        }
+        if (polled.result.ok) {
+            this.dispatchAgentEvent({ type: "TOOL_CALL_FINISHED", result: polled.result });
+        } else {
+            this.dispatchAgentEvent({ type: "TOOL_CALL_FAILED", result: polled.result, retryable: true });
+        }
+    }
+
     executeCommandInTerminal(command: string, opts?: { source?: "manual" | "auto" }): boolean {
         const normalized = (command ?? "").replace(/\r/g, "").trim();
         if (normalized === "") {
@@ -597,7 +903,7 @@ export class WaveAIModel {
         recordTEvent("action:waveai:executecommand", {
             "action:source": opts?.source ?? "manual",
             "action:blockid": target.blockId,
-        });
+        } as any);
         return true;
     }
 
@@ -663,6 +969,7 @@ export class WaveAIModel {
                 return failedResult;
             }
             const { connName, cwd } = this.getTerminalExecutionContext(blockId);
+            const interactive = this.shouldRunInteractively(command);
             await RpcApi.ConnEnsureCommand(
                 TabRpcClient,
                 {
@@ -677,63 +984,43 @@ export class WaveAIModel {
                     connname: connName,
                     cwd,
                     cmd: command,
+                    interactive,
+                    prompthint: this.buildInteractivePromptHint(command),
+                    suppresstui: true,
                 },
                 { timeout: 15000 }
             );
             const jobId = runResult.jobid;
+            const runningTool: ToolCallEnvelope = {
+                ...tool,
+                jobId,
+                hostScope: { type: connName === "local" ? "local" : "remote", hostId: connName },
+            };
             this.dispatchAgentEvent({
                 type: "TOOL_CALL_STARTED",
-                tool: {
-                    ...tool,
-                    jobId,
-                    hostScope: { type: connName === "local" ? "local" : "remote", hostId: connName },
-                },
+                tool: runningTool,
             });
-
-            let commandResult: CommandAgentGetCommandResultRtnData | null = null;
-            const deadline = Date.now() + 30000;
-            while (Date.now() < deadline) {
-                commandResult = await RpcApi.AgentGetCommandResultCommand(
-                    TabRpcClient,
-                    {
-                        jobid: jobId,
-                        tailbytes: 32768,
-                    },
-                    { timeout: 10000 }
-                );
-                if (commandResult.status !== "running") {
-                    break;
-                }
-                await new Promise((resolve) => setTimeout(resolve, 500));
-            }
-            if (!commandResult) {
-                commandResult = {
-                    jobid: jobId,
-                    status: "error",
-                    error: "No command result received",
+            const polled = await this.pollCommandJob(runningTool, jobId, startedAt);
+            if (polled.requiresInteraction || !polled.result) {
+                recordTEvent("waveai:perf:tool:interaction", {
+                    "waveai:tool": tool.toolName,
+                    "waveai:requestid": tool.requestId,
+                    "waveai:taskid": tool.taskId,
+                    "waveai:jobid": jobId,
+                } as any);
+                return {
+                    requestId: tool.requestId,
+                    taskId: tool.taskId,
+                    toolName: tool.toolName,
+                    jobId,
+                    ok: false,
+                    exitCode: 0,
+                    durationMs: Date.now() - startedAt,
+                    errorCode: "INTERACTION_REQUIRED",
                 };
             }
-            if (commandResult.status === "running") {
-                commandResult = {
-                    ...commandResult,
-                    status: "error",
-                    error: "Timed out waiting for command completion",
-                };
-            }
-            const exitCode = typeof commandResult.exitcode === "number" ? commandResult.exitcode : 1;
-            const ok = commandResult.status === "done" && exitCode === 0 && !commandResult.error;
-
-            const result: ToolResultEnvelope = {
-                requestId: tool.requestId,
-                taskId: tool.taskId,
-                toolName: tool.toolName,
-                jobId,
-                ok,
-                exitCode,
-                stdout: commandResult.output,
-                stderr: commandResult.error,
-                durationMs: Date.now() - startedAt,
-            };
+            const result = polled.result;
+            const ok = result.ok;
             if (ok) {
                 this.dispatchAgentEvent({ type: "TOOL_CALL_FINISHED", result });
             } else {
@@ -869,11 +1156,21 @@ export class WaveAIModel {
             oref: this.orefContext,
         });
         let chatIdValue = rtInfo?.["waveai:chatid"];
+        const sessions = await this.loadSessions();
+        if (!chatIdValue && sessions.length > 0) {
+            chatIdValue = sessions[0].chatid;
+        }
         if (chatIdValue == null) {
             chatIdValue = crypto.randomUUID();
             RpcApi.SetRTInfoCommand(TabRpcClient, {
                 oref: this.orefContext,
                 data: { "waveai:chatid": chatIdValue },
+            });
+            this.upsertLocalSession({
+                chatid: chatIdValue,
+                tabid: this.getSessionTabId(),
+                title: "New Chat",
+                updatedts: Date.now(),
             });
         }
         globalStore.set(this.chatId, chatIdValue);
@@ -915,6 +1212,30 @@ export class WaveAIModel {
             globalStore.get(this.isLoadingChatAtom)
         ) {
             return;
+        }
+
+        const currentChatId = this.getChatId();
+        const trimmedInput = input.trim();
+        if (currentChatId && trimmedInput) {
+            const title = this.summarizeSessionText(trimmedInput, 48);
+            const summary = this.summarizeSessionText(trimmedInput, 140);
+            const session = globalStore.get(this.sessionsAtom).find((item) => item.chatid === currentChatId);
+            this.upsertLocalSession({
+                chatid: currentChatId,
+                tabid: session?.tabid ?? this.getSessionTabId(),
+                title: title || session?.title || "New Chat",
+                summary,
+                favorite: session?.favorite,
+                updatedts: Date.now(),
+                lasttaskstate: "submitting",
+            });
+            void this.persistSessionUpdate({
+                chatid: currentChatId,
+                tabid: this.getSessionTabId(),
+                title,
+                summary,
+                lasttaskstate: "submitting",
+            });
         }
 
         this.clearError();

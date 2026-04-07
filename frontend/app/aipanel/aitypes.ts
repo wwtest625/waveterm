@@ -32,10 +32,48 @@ type WaveUIDataTypes = {
         toolname: string;
         statuslines: string[];
     };
+
+    ask: {
+        actionid: string;
+        kind: string;
+        prompt: string;
+        status?: string;
+        options?: string[];
+    };
+
+    interaction: {
+        jobid: string;
+        awaitinginput?: boolean;
+        prompthint?: string;
+        inputoptions?: string[];
+        tuidetected?: boolean;
+        tuisuppressed?: boolean;
+    };
+
+    todo: {
+        title?: string;
+        items: Array<{
+            label: string;
+            status: "pending" | "in_progress" | "completed";
+        }>;
+    };
+
+    session: UIChatSessionMeta;
 };
 
 export type WaveUIMessage = UIMessage<unknown, WaveUIDataTypes, any>;
 export type WaveUIMessagePart = UIMessagePart<WaveUIDataTypes, any>;
+export type WaveChatSessionMeta = UIChatSessionMeta;
+
+export type CommandInteractionState = {
+    jobId: string;
+    awaitingInput: boolean;
+    promptHint?: string;
+    inputOptions?: string[];
+    tuiDetected?: boolean;
+    tuiSuppressed?: boolean;
+    outputPreview?: string;
+};
 
 export type UseChatSetMessagesType = (
     messages: WaveUIMessage[] | ((messages: WaveUIMessage[]) => WaveUIMessage[])
@@ -118,8 +156,10 @@ export type AgentRuntimeState =
     | "planning"
     | "awaiting_approval"
     | "executing"
+    | "interacting"
     | "verifying"
     | "retrying"
+    | "completed"
     | "success"
     | "failed_retryable"
     | "failed_fatal"
@@ -149,6 +189,7 @@ export type AgentRuntimeEvent =
     | { type: "TOOL_CALL_FINISHED"; result: ToolResultEnvelope }
     | { type: "TOOL_CALL_FAILED"; result: ToolResultEnvelope; retryable?: boolean }
     | { type: "APPROVAL_REQUIRED"; reason?: string }
+    | { type: "INTERACTION_REQUIRED"; reason?: string }
     | { type: "APPROVAL_TIMEOUT"; reason?: string }
     | { type: "APPROVAL_RESOLVED"; approved: boolean; reason?: string }
     | { type: "VERIFY_STARTED"; phaseLabel?: string }
@@ -390,6 +431,14 @@ export function reduceAgentRuntimeSnapshot(
                 phaseLabel: "Waiting Approval",
                 blockedReason: event.reason ?? "Waiting for tool approval",
             };
+        case "INTERACTION_REQUIRED":
+            return {
+                ...current,
+                visible: true,
+                state: "interacting",
+                phaseLabel: "Waiting Input",
+                blockedReason: event.reason ?? "Waiting for command input",
+            };
         case "APPROVAL_TIMEOUT":
             return {
                 ...current,
@@ -418,8 +467,8 @@ export function reduceAgentRuntimeSnapshot(
             return {
                 ...current,
                 visible: true,
-                state: event.ok ? "success" : "failed_retryable",
-                phaseLabel: event.ok ? "Ready" : "Retry Available",
+                state: event.ok ? "completed" : "failed_retryable",
+                phaseLabel: event.ok ? "Completed" : "Retry Available",
                 blockedReason: event.reason,
             };
         case "RETRY_REQUESTED":

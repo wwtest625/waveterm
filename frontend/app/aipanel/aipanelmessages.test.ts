@@ -3,6 +3,7 @@ import { getAssistantMessageLayout } from "./aimessage";
 import {
     buildTaskChainSteps,
     buildTaskTurns,
+    getTaskChainDisplayGroups,
     getRawOutputDisplayState,
     getTaskChainDetailLanguage,
     getTaskChainDisplayState,
@@ -209,6 +210,61 @@ describe("aipanel task turns", () => {
         expect(summary.blockedReason).toBe("Waiting for tool approval");
         expect(summary.activeStepId).toBe("tool-2");
         expect(summary.toneClassName).toContain("yellow");
+    });
+
+    it("pairs command outputs directly under their matching command cards", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "lscpu"',
+                        status: "completed",
+                    },
+                } as any,
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-2",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "cat /proc/meminfo"',
+                        status: "completed",
+                    },
+                } as any,
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-3",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "polling command result for 123",
+                        status: "completed",
+                        outputtext: "Architecture: x86_64",
+                    },
+                } as any,
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-4",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "polling command result for 456",
+                        status: "completed",
+                        outputtext: "MemTotal: 395629656 kB",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        const groups = getTaskChainDisplayGroups(steps);
+
+        expect(groups).toHaveLength(2);
+        expect(groups[0].primary.title).toBe("执行命令");
+        expect(groups[0].secondary?.title).toBe("获取执行结果");
+        expect(groups[0].secondary?.detail).toBe("Architecture: x86_64");
+        expect(groups[1].primary.title).toBe("执行命令");
+        expect(groups[1].secondary?.detail).toBe("MemTotal: 395629656 kB");
     });
 
     it("collapses raw output after five lines", () => {

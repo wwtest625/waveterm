@@ -212,6 +212,12 @@ declare global {
         exitcode?: number;
         exitsignal?: string;
         error?: string;
+        interactive?: boolean;
+        awaitinginput?: boolean;
+        prompthint?: string;
+        inputoptions?: string[];
+        tuidetected?: boolean;
+        tuisuppressed?: boolean;
     };
 
     // wshrpc.CommandAgentRunCommandData
@@ -221,11 +227,23 @@ declare global {
         cmd: string;
         args?: string[];
         env?: {[key: string]: string};
+        interactive?: boolean;
+        prompthint?: string;
+        inputoptions?: string[];
+        suppresstui?: boolean;
     };
 
     // wshrpc.CommandAgentRunCommandRtnData
     type CommandAgentRunCommandRtnData = {
         jobid: string;
+    };
+
+    // wshrpc.CommandAgentWriteStdinData
+    type CommandAgentWriteStdinData = {
+        jobid: string;
+        input?: string;
+        appendnewline?: boolean;
+        clearprompthint?: boolean;
     };
 
     // wshrpc.CommandAgentTermScrollbackData
@@ -412,6 +430,13 @@ declare global {
     // wshrpc.CommandGetWaveAIChatData
     type CommandGetWaveAIChatData = {
         chatid: string;
+    };
+
+    // wshrpc.CommandListWaveAISessionsData
+    type CommandListWaveAISessionsData = {
+        tabid?: string;
+        includearchived?: boolean;
+        includedeleted?: boolean;
     };
 
     // wshrpc.CommandJobCmdExitedData
@@ -727,7 +752,21 @@ declare global {
     // wshrpc.CommandWaveAIToolApproveData
     type CommandWaveAIToolApproveData = {
         toolcallid: string;
+        actionid?: string;
         approval?: string;
+        value?: string;
+    };
+
+    // wshrpc.CommandUpdateWaveAISessionData
+    type CommandUpdateWaveAISessionData = {
+        chatid: string;
+        tabid?: string;
+        title?: string;
+        summary?: string;
+        favorite?: boolean;
+        archived?: boolean;
+        deleted?: boolean;
+        lasttaskstate?: string;
     };
 
     // wshrpc.CommandWaveFileReadStreamData
@@ -1997,7 +2036,22 @@ declare global {
         apitype: string;
         model: string;
         apiversion: string;
+        sessionmeta?: UIChatSessionMeta;
         messages: UIMessage[];
+    };
+
+    // uctypes.UIChatSessionMeta
+    type UIChatSessionMeta = {
+        chatid: string;
+        tabid?: string;
+        title?: string;
+        summary?: string;
+        createdts?: number;
+        updatedts?: number;
+        favorite?: boolean;
+        lasttaskstate?: string;
+        archived?: boolean;
+        deleted?: boolean;
     };
 
     // waveobj.UIContext

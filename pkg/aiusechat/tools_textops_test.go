@@ -176,3 +176,79 @@ func TestEditTextFileDryRunFailsWhenOldStringAppearsMultipleTimes(t *testing.T) 
 		t.Fatalf("expected duplicate match error, got %v", err)
 	}
 }
+
+func TestEditTextFileDryRunReportsAppliedEditCountOnFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetFile := filepath.Join(tmpDir, "count.txt")
+	err := os.WriteFile(targetFile, []byte("alpha\nbeta\ngamma\n"), 0644)
+	if err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	_, _, err = EditTextFileDryRun(map[string]any{
+		"filename": targetFile,
+		"edits": []map[string]any{
+			{
+				"old_str": "beta",
+				"new_str": "delta",
+				"desc":    "rename middle line",
+			},
+			{
+				"old_str": "missing",
+				"new_str": "epsilon",
+				"desc":    "second change",
+			},
+		},
+	}, "")
+	if err == nil {
+		t.Fatal("expected second edit to fail")
+	}
+	if !strings.Contains(err.Error(), "after 1 applied edit(s)") {
+		t.Fatalf("expected applied edit count in error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "retry with a smaller replacement") {
+		t.Fatalf("expected retry hint in error, got %v", err)
+	}
+}
+
+func TestEditTextFileToolDefinitionMentionsSmallBatchesAndLatestFile(t *testing.T) {
+	def := GetEditTextFileToolDefinition()
+	if !strings.Contains(def.Description, "Prefer small batches") {
+		t.Fatalf("expected edit tool description to encourage small batches, got %q", def.Description)
+	}
+
+	inputSchema, ok := def.InputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected object properties schema, got %T", def.InputSchema["properties"])
+	}
+	editsSchema, ok := inputSchema["edits"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected edits schema, got %T", inputSchema["edits"])
+	}
+	editsDesc, ok := editsSchema["description"].(string)
+	if !ok {
+		t.Fatalf("expected edits schema description to be a string, got %T", editsSchema["description"])
+	}
+	if !strings.Contains(editsDesc, "latest file") {
+		t.Fatalf("expected edits schema to mention latest file, got %q", editsDesc)
+	}
+	itemsSchema, ok := editsSchema["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected edits items schema, got %T", editsSchema["items"])
+	}
+	propertiesSchema, ok := itemsSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected edits properties schema, got %T", itemsSchema["properties"])
+	}
+	oldStrSchema, ok := propertiesSchema["old_str"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected old_str schema, got %#v", itemsSchema["properties"])
+	}
+	oldStrDesc, ok := oldStrSchema["description"].(string)
+	if !ok {
+		t.Fatalf("expected old_str description to be a string, got %T", oldStrSchema["description"])
+	}
+	if !strings.Contains(oldStrDesc, "latest file content") {
+		t.Fatalf("expected old_str schema to mention latest file content, got %q", oldStrDesc)
+	}
+}

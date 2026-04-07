@@ -6,14 +6,14 @@
 package wshclient
 
 import (
-	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
-	"github.com/wavetermdev/waveterm/pkg/wshutil"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wconfig"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wps"
-	"github.com/wavetermdev/waveterm/pkg/vdom"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
+	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
+	"github.com/wavetermdev/waveterm/pkg/vdom"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
+	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
 // command "activity", wshserver.ActivityCommand
@@ -34,10 +34,22 @@ func AgentGetCommandResultCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentGet
 	return resp, err
 }
 
+// command "agentcancel", wshserver.AgentCancelCommand
+func AgentCancelCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "agentcancel", data, opts)
+	return err
+}
+
 // command "agentruncommand", wshserver.AgentRunCommandCommand
 func AgentRunCommandCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentRunCommandData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentRunCommandRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentRunCommandRtnData](w, "agentruncommand", data, opts)
 	return resp, err
+}
+
+// command "agentwritestdin", wshserver.AgentWriteStdinCommand
+func AgentWriteStdinCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentWriteStdinData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "agentwritestdin", data, opts)
+	return err
 }
 
 // command "agenttermscrollback", wshserver.AgentTermScrollbackCommand
@@ -533,6 +545,12 @@ func GetVarCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshrpc.R
 // command "getwaveaichat", wshserver.GetWaveAIChatCommand
 func GetWaveAIChatCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWaveAIChatData, opts *wshrpc.RpcOpts) (*uctypes.UIChat, error) {
 	resp, err := sendRpcRequestCallHelper[*uctypes.UIChat](w, "getwaveaichat", data, opts)
+	return resp, err
+}
+
+// command "listwaveaisessions", wshserver.ListWaveAISessionsCommand
+func ListWaveAISessionsCommand(w *wshutil.WshRpc, data wshrpc.CommandListWaveAISessionsData, opts *wshrpc.RpcOpts) ([]*uctypes.UIChatSessionMeta, error) {
+	resp, err := sendRpcRequestCallHelper[[]*uctypes.UIChatSessionMeta](w, "listwaveaisessions", data, opts)
 	return resp, err
 }
 
@@ -1056,6 +1074,12 @@ func WaveAIGetToolDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandWaveAIGetToo
 	return resp, err
 }
 
+// command "updatewaveaisession", wshserver.UpdateWaveAISessionCommand
+func UpdateWaveAISessionCommand(w *wshutil.WshRpc, data wshrpc.CommandUpdateWaveAISessionData, opts *wshrpc.RpcOpts) (*uctypes.UIChatSessionMeta, error) {
+	resp, err := sendRpcRequestCallHelper[*uctypes.UIChatSessionMeta](w, "updatewaveaisession", data, opts)
+	return resp, err
+}
+
 // command "waveaitoolapprove", wshserver.WaveAIToolApproveCommand
 func WaveAIToolApproveCommand(w *wshutil.WshRpc, data wshrpc.CommandWaveAIToolApproveData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "waveaitoolapprove", data, opts)
@@ -1133,5 +1157,3 @@ func WslStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.ConnSta
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.ConnStatus](w, "wslstatus", nil, opts)
 	return resp, err
 }
-
-

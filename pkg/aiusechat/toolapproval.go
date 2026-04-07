@@ -11,15 +11,21 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/web/sse"
 )
 
-type ApprovalRequest struct {
-	approval       string
+type PendingActionResult struct {
+	Status string
+	Value  string
+}
+
+type PendingActionRequest struct {
+	Kind           string
+	result         PendingActionResult
 	done           bool
 	doneChan       chan struct{}
 	mu             sync.Mutex
 	onCloseUnregFn func()
 }
 
-func (req *ApprovalRequest) updateApproval(approval string) {
+func (req *PendingActionRequest) update(result PendingActionResult) {
 	req.mu.Lock()
 	defer req.mu.Unlock()
 
@@ -27,7 +33,7 @@ func (req *ApprovalRequest) updateApproval(approval string) {
 		return
 	}
 
-	req.approval = approval
+	req.result = result
 	req.done = true
 
 	if req.onCloseUnregFn != nil {
@@ -37,83 +43,123 @@ func (req *ApprovalRequest) updateApproval(approval string) {
 	close(req.doneChan)
 }
 
-type ApprovalRegistry struct {
+type PendingActionRegistry struct {
 	mu       sync.Mutex
-	requests map[string]*ApprovalRequest
+	requests map[string]*PendingActionRequest
 }
 
-var globalApprovalRegistry = &ApprovalRegistry{
-	requests: make(map[string]*ApprovalRequest),
+var globalPendingActionRegistry = &PendingActionRegistry{
+	requests: make(map[string]*PendingActionRequest),
 }
 
-func registerToolApprovalRequest(toolCallId string, req *ApprovalRequest) {
-	globalApprovalRegistry.mu.Lock()
-	defer globalApprovalRegistry.mu.Unlock()
-	globalApprovalRegistry.requests[toolCallId] = req
-}
-
-func UnregisterToolApproval(toolCallId string) {
-	globalApprovalRegistry.mu.Lock()
-	defer globalApprovalRegistry.mu.Unlock()
-	req := globalApprovalRegistry.requests[toolCallId]
-	delete(globalApprovalRegistry.requests, toolCallId)
-	if req != nil {
-		req.updateApproval("")
+func (r *PendingActionRegistry) Register(actionId string, req PendingActionRequest) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if req.doneChan == nil {
+		req.doneChan = make(chan struct{})
 	}
+	reqCopy := req
+	r.requests[actionId] = &reqCopy
 }
 
-func getToolApprovalRequest(toolCallId string) (*ApprovalRequest, bool) {
-	globalApprovalRegistry.mu.Lock()
-	defer globalApprovalRegistry.mu.Unlock()
-	req, exists := globalApprovalRegistry.requests[toolCallId]
+func (r *PendingActionRegistry) get(actionId string) (*PendingActionRequest, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	req, exists := r.requests[actionId]
 	return req, exists
 }
 
-func RegisterToolApproval(toolCallId string, sseHandler *sse.SSEHandlerCh) {
-	req := &ApprovalRequest{
-		doneChan: make(chan struct{}),
-	}
-
-	onCloseId := sseHandler.RegisterOnClose(func() {
-		UpdateToolApproval(toolCallId, uctypes.ApprovalCanceled)
-	})
-
-	req.onCloseUnregFn = func() {
-		sseHandler.UnregisterOnClose(onCloseId)
-	}
-
-	registerToolApprovalRequest(toolCallId, req)
-}
-
-func UpdateToolApproval(toolCallId string, approval string) error {
-	req, exists := getToolApprovalRequest(toolCallId)
+func (r *PendingActionRegistry) Update(actionId string, result PendingActionResult) error {
+	req, exists := r.get(actionId)
 	if !exists {
 		return nil
 	}
-
-	req.updateApproval(approval)
+	req.update(result)
 	return nil
 }
 
-func WaitForToolApproval(ctx context.Context, toolCallId string) (string, error) {
-	req, exists := getToolApprovalRequest(toolCallId)
+func (r *PendingActionRegistry) Wait(ctx context.Context, actionId string) (PendingActionResult, error) {
+	req, exists := r.get(actionId)
 	if !exists {
-		return "", nil
+		return PendingActionResult{Status: uctypes.PendingActionCanceled}, nil
 	}
 
 	select {
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return PendingActionResult{}, ctx.Err()
 	case <-req.doneChan:
 	}
 
 	req.mu.Lock()
-	approval := req.approval
+	result := req.result
 	req.mu.Unlock()
 
-	globalApprovalRegistry.mu.Lock()
-	delete(globalApprovalRegistry.requests, toolCallId)
-	globalApprovalRegistry.mu.Unlock()
+	r.mu.Lock()
+	delete(r.requests, actionId)
+	r.mu.Unlock()
 
-	return approval, nil
+	return result, nil
+}
+
+func (r *PendingActionRegistry) Unregister(actionId string) {
+	r.mu.Lock()
+	req := r.requests[actionId]
+	delete(r.requests, actionId)
+	r.mu.Unlock()
+	if req != nil {
+		req.update(PendingActionResult{Status: uctypes.PendingActionCanceled})
+	}
+}
+
+func RegisterPendingAction(actionId string, kind string, sseHandler *sse.SSEHandlerCh) {
+	req := PendingActionRequest{
+		Kind:     kind,
+		doneChan: make(chan struct{}),
+	}
+
+	if sseHandler != nil {
+		onCloseId := sseHandler.RegisterOnClose(func() {
+			UpdatePendingAction(actionId, PendingActionResult{Status: uctypes.PendingActionCanceled})
+		})
+		req.onCloseUnregFn = func() {
+			sseHandler.UnregisterOnClose(onCloseId)
+		}
+	}
+
+	globalPendingActionRegistry.Register(actionId, req)
+}
+
+func UpdatePendingAction(actionId string, result PendingActionResult) error {
+	return globalPendingActionRegistry.Update(actionId, result)
+}
+
+func WaitForPendingAction(ctx context.Context, actionId string) (PendingActionResult, error) {
+	return globalPendingActionRegistry.Wait(ctx, actionId)
+}
+
+func UnregisterPendingAction(actionId string) {
+	globalPendingActionRegistry.Unregister(actionId)
+}
+
+func RegisterToolApproval(toolCallId string, sseHandler *sse.SSEHandlerCh) {
+	RegisterPendingAction(toolCallId, uctypes.PendingActionToolApproval, sseHandler)
+}
+
+func UpdateToolApproval(toolCallId string, approval string) error {
+	return UpdatePendingAction(toolCallId, PendingActionResult{
+		Status: approval,
+		Value:  approval,
+	})
+}
+
+func WaitForToolApproval(ctx context.Context, toolCallId string) (string, error) {
+	result, err := WaitForPendingAction(ctx, toolCallId)
+	if err != nil {
+		return "", err
+	}
+	return result.Status, nil
+}
+
+func UnregisterToolApproval(toolCallId string) {
+	UnregisterPendingAction(toolCallId)
 }

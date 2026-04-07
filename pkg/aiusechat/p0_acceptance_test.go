@@ -43,25 +43,31 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 		}
 	}
 
-	planningPrompt := getModeAwareSystemPromptText(false, "", AgentModePlanning)
-	if !strings.Contains(planningPrompt, "Planning mode remains read-only") {
-		t.Fatalf("expected planning prompt to mention read-only planning mode, got %q", planningPrompt)
+	planningPrompt := getModeAwareSystemPromptText("", AgentModePlanning)
+	if !strings.Contains(planningPrompt, "Use only the tools actually provided to you.") {
+		t.Fatalf("expected planning prompt to keep a short tools rule, got %q", planningPrompt)
 	}
-	if !strings.Contains(planningPrompt, "Do not execute terminal commands") {
-		t.Fatalf("expected planning prompt to forbid terminal execution, got %q", planningPrompt)
-	}
-
-	defaultPrompt := getModeAwareSystemPromptText(false, "", AgentModeDefault)
-	if strings.Contains(defaultPrompt, "You cannot execute shell commands") {
-		t.Fatalf("expected default prompt not to deny shell execution when tools are available, got %q", defaultPrompt)
+	if strings.Contains(planningPrompt, "Planning mode is read-only") {
+		t.Fatalf("expected planning prompt to drop the read-only restriction, got %q", planningPrompt)
 	}
 
-	basePrompt := strings.Join(getSystemPrompt(uctypes.APIType_OpenAIResponses, "gpt-5", false, true, true, false, "", AgentModeDefault), " ")
-	if !strings.Contains(basePrompt, "Minimize tool calls.") {
-		t.Fatalf("expected base prompt to include minimal tool call guidance, got %q", basePrompt)
+	defaultPrompt := getModeAwareSystemPromptText("", AgentModeDefault)
+	if !strings.Contains(defaultPrompt, "Use only the tools actually provided to you.") {
+		t.Fatalf("expected default prompt to keep a short tools rule, got %q", defaultPrompt)
 	}
-	if !strings.Contains(basePrompt, "Do not start with filler phrases") {
-		t.Fatalf("expected base prompt to include no-filler guidance, got %q", basePrompt)
+
+	basePrompt := strings.Join(getSystemPrompt(uctypes.APIType_OpenAIResponses, "gpt-5", uctypes.AIProvider_Wave, false, true, false, AgentModeDefault), " ")
+	if strings.Contains(basePrompt, "cannot access the terminal") {
+		t.Fatalf("expected Wave provider prompt to stay tool-capable, got %q", basePrompt)
+	}
+	if !strings.Contains(basePrompt, "Use tools when available") {
+		t.Fatalf("expected base prompt to keep short tool guidance, got %q", basePrompt)
+	}
+	if !strings.Contains(basePrompt, "short task chain") {
+		t.Fatalf("expected base prompt to keep the short task-chain hint, got %q", basePrompt)
+	}
+	if !strings.Contains(basePrompt, "When editing files, prefer small search/replace batches") {
+		t.Fatalf("expected base prompt to keep the edit workflow hint, got %q", basePrompt)
 	}
 }
 

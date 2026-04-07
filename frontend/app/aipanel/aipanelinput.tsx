@@ -152,7 +152,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                 <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-zinc-500">
                     <div className="truncate">{isChatEmpty ? "Ask, edit, run, verify" : "Continue the session"}</div>
                     <div className="shrink-0">
-                        {runtime.state === "executing" || runtime.state === "awaiting_approval"
+                        {runtime.state === "executing" || runtime.state === "awaiting_approval" || runtime.state === "interacting"
                             ? "Executing"
                             : status === "streaming"
                               ? "Responding"
@@ -198,7 +198,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                 <i className="fa fa-rotate-right text-sm"></i>
                             </button>
                         </Tooltip>
-                    ) : runtime.state === "executing" || runtime.state === "awaiting_approval" ? (
+                    ) : runtime.state === "executing" || runtime.state === "awaiting_approval" || runtime.state === "interacting" ? (
                         <Tooltip content="Stop execution" placement="top" divClassName="absolute bottom-2 right-2">
                             <button
                                 type="button"

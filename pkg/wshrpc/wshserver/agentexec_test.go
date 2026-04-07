@@ -4,7 +4,9 @@
 package wshserver
 
 import (
+	"bufio"
 	"context"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,83 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
+
+type fakeInteractiveProc struct {
+	stdinR    *io.PipeReader
+	stdinW    *io.PipeWriter
+	stdoutR   *io.PipeReader
+	stdoutW   *io.PipeWriter
+	stderrR   *io.PipeReader
+	stderrW   *io.PipeWriter
+	waitCh    chan error
+	killed    bool
+	killMutex sync.Mutex
+}
+
+func newFakeInteractiveProc() *fakeInteractiveProc {
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	stderrR, stderrW := io.Pipe()
+	return &fakeInteractiveProc{
+		stdinR:  stdinR,
+		stdinW:  stdinW,
+		stdoutR: stdoutR,
+		stdoutW: stdoutW,
+		stderrR: stderrR,
+		stderrW: stderrW,
+		waitCh:  make(chan error, 1),
+	}
+}
+
+func (p *fakeInteractiveProc) Start() error {
+	go func() {
+		_, _ = p.stdoutW.Write([]byte("Enter your name: "))
+		line, _ := bufio.NewReader(p.stdinR).ReadString('\n')
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			_, _ = p.stderrW.Write([]byte("no input received"))
+			p.waitCh <- nil
+			return
+		}
+		_, _ = p.stdoutW.Write([]byte("hello " + trimmed + "\n"))
+		_ = p.stdoutW.Close()
+		_ = p.stderrW.Close()
+		p.waitCh <- nil
+	}()
+	return nil
+}
+
+func (p *fakeInteractiveProc) Wait() error {
+	return <-p.waitCh
+}
+
+func (p *fakeInteractiveProc) Kill() {
+	p.killMutex.Lock()
+	defer p.killMutex.Unlock()
+	if p.killed {
+		return
+	}
+	p.killed = true
+	_ = p.stdoutW.Close()
+	_ = p.stderrW.Close()
+	_ = p.stdinW.Close()
+	select {
+	case p.waitCh <- context.Canceled:
+	default:
+	}
+}
+
+func (p *fakeInteractiveProc) StdinPipe() (io.WriteCloser, error) {
+	return p.stdinW, nil
+}
+
+func (p *fakeInteractiveProc) StdoutPipe() (io.Reader, error) {
+	return p.stdoutR, nil
+}
+
+func (p *fakeInteractiveProc) StderrPipe() (io.Reader, error) {
+	return p.stderrR, nil
+}
 
 type agentTestStore struct {
 	mu      sync.Mutex
@@ -176,4 +255,63 @@ func waitForAgentCommandResult(t *testing.T, jobId string, timeout time.Duration
 	}
 	t.Fatalf("timed out waiting for job %s to finish", jobId)
 	return nil
+}
+
+func TestAgentInteractiveCommand_AllowsInputAndReportsInteractionState(t *testing.T) {
+	store := newAgentTestStore()
+	store.install(t)
+
+	origMakeInteractiveController := agentMakeInteractiveController
+	t.Cleanup(func() {
+		agentMakeInteractiveController = origMakeInteractiveController
+	})
+
+	proc := newFakeInteractiveProc()
+	agentMakeInteractiveController = func(ctx context.Context, input agentRunCommandInput) (agentInteractiveController, error) {
+		return proc, nil
+	}
+
+	resp, err := (&WshServer{}).AgentRunCommandCommand(context.Background(), wshrpc.CommandAgentRunCommandData{
+		ConnName:     "local",
+		Cmd:          "fake-interactive",
+		Interactive:  true,
+		PromptHint:   "Enter your name",
+		InputOptions: []string{"alice", "bob"},
+	})
+	if err != nil {
+		t.Fatalf("AgentRunCommandCommand returned error: %v", err)
+	}
+
+	running, err := (&WshServer{}).AgentGetCommandResultCommand(context.Background(), wshrpc.CommandAgentGetCommandResultData{
+		JobId: resp.JobId,
+	})
+	if err != nil {
+		t.Fatalf("AgentGetCommandResultCommand returned error: %v", err)
+	}
+	if !running.Interactive || !running.AwaitingInput {
+		t.Fatalf("expected interactive awaiting-input state, got %#v", running)
+	}
+	if running.PromptHint != "Enter your name" {
+		t.Fatalf("unexpected prompt hint: %#v", running.PromptHint)
+	}
+	if len(running.InputOptions) != 2 {
+		t.Fatalf("expected input options to round-trip, got %#v", running.InputOptions)
+	}
+
+	if err := (&WshServer{}).AgentWriteStdinCommand(context.Background(), wshrpc.CommandAgentWriteStdinData{
+		JobId:           resp.JobId,
+		Input:           "alex",
+		AppendNewline:   true,
+		ClearPromptHint: true,
+	}); err != nil {
+		t.Fatalf("AgentWriteStdinCommand returned error: %v", err)
+	}
+
+	result := waitForAgentCommandResult(t, resp.JobId, 5*time.Second)
+	if result.Status != "done" {
+		t.Fatalf("expected done status, got %#v", result.Status)
+	}
+	if !strings.Contains(result.Output, "hello alex") {
+		t.Fatalf("expected interactive output in result, got %#v", result.Output)
+	}
 }

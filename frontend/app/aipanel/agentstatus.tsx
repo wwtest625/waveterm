@@ -34,6 +34,10 @@ function formatModeLabel(mode: AgentMode): string {
     }
 }
 
+function isThinkingPhaseLabel(phaseLabel?: string): boolean {
+    return typeof phaseLabel === "string" && phaseLabel.trim().toLowerCase() === "thinking";
+}
+
 function getToolUsePhase(
     toolName: string | undefined
 ): Pick<AgentRuntimeStatusSnapshot, "state" | "phaseLabel"> | null {
@@ -70,6 +74,7 @@ function getStateTone(state: AgentRuntimeState): string {
         case "cancelled":
             return "bg-red-950/70 text-red-300";
         case "awaiting_approval":
+        case "interacting":
         case "retrying":
             return "bg-yellow-950/70 text-yellow-300";
         default:
@@ -265,8 +270,8 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
         visible: true,
         providerLabel: formatProviderLabel(input.provider),
         modeLabel: formatModeLabel(input.mode),
-        state: lastAssistantMessage ? "success" : "idle",
-        phaseLabel: lastAssistantMessage ? "Ready" : "Idle",
+        state: lastAssistantMessage ? "completed" : "idle",
+        phaseLabel: lastAssistantMessage ? "Completed" : "Idle",
         lastCommand,
     };
 }
@@ -281,7 +286,8 @@ export function AgentStatus({ snapshot }: { snapshot: AgentRuntimeStatusSnapshot
             <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="rounded-full bg-zinc-800 px-2 py-1 text-zinc-200">{snapshot.providerLabel}</span>
                 <span className="rounded-full bg-zinc-800 px-2 py-1 text-zinc-200">{snapshot.modeLabel}</span>
-                <span className={cn("rounded-full px-2 py-1", getStateTone(snapshot.state))}>
+                <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-1", getStateTone(snapshot.state))}>
+                    {isThinkingPhaseLabel(snapshot.phaseLabel) && <i className="fa-solid fa-spinner fa-spin text-[10px]" />}
                     {snapshot.phaseLabel}
                 </span>
             </div>

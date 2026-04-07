@@ -37,6 +37,11 @@ type TaskChainStep = {
     toolName: string;
 };
 
+type TaskChainDisplayGroup = {
+    primary: TaskChainStep;
+    secondary?: TaskChainStep;
+};
+
 type TaskChainDisplayState = {
     progressLabel: string;
     focusLabel?: string;
@@ -296,6 +301,36 @@ export function buildTaskChainSteps(
     return steps;
 }
 
+function isOutputLikeStep(step: TaskChainStep): boolean {
+    return step.toolName === "wave_get_command_result" || step.toolName === "term_command_output";
+}
+
+export function getTaskChainDisplayGroups(steps: TaskChainStep[]): TaskChainDisplayGroup[] {
+    const groups: TaskChainDisplayGroup[] = [];
+    const pendingCommandGroups: TaskChainDisplayGroup[] = [];
+
+    for (const step of steps) {
+        if (step.toolName === "wave_run_command") {
+            const group: TaskChainDisplayGroup = { primary: step };
+            groups.push(group);
+            pendingCommandGroups.push(group);
+            continue;
+        }
+
+        if (isOutputLikeStep(step)) {
+            const pendingGroup = pendingCommandGroups.find((group) => group.secondary == null);
+            if (pendingGroup) {
+                pendingGroup.secondary = step;
+                continue;
+            }
+        }
+
+        groups.push({ primary: step });
+    }
+
+    return groups;
+}
+
 function getTaskChainProgress(steps: TaskChainStep[]): { completed: number; total: number } {
     const total = steps.length;
     const completed = steps.filter((step) => step.status === "completed").length;
@@ -345,6 +380,7 @@ function getTaskChainToneClass(state?: AgentRuntimeSnapshot["state"] | TaskChain
         case "failed":
             return "border-red-900/60 bg-red-950/20 text-red-100";
         case "awaiting_approval":
+        case "interacting":
         case "retrying":
             return "border-yellow-800/60 bg-yellow-950/20 text-yellow-100";
         default:
@@ -352,9 +388,14 @@ function getTaskChainToneClass(state?: AgentRuntimeSnapshot["state"] | TaskChain
     }
 }
 
+function isThinkingPhaseLabel(label?: string): boolean {
+    return typeof label === "string" && label.trim().toLowerCase() === "thinking";
+}
+
 const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRuntimeSnapshot }) => {
     const toolParts = getToolParts(turn.assistantMessages);
     const steps = buildTaskChainSteps(toolParts, turn.isStreaming);
+    const displayGroups = getTaskChainDisplayGroups(steps);
     if (steps.length === 0 && !runtime.visible) {
         return null;
     }
@@ -392,6 +433,12 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                 当前聚焦 {displayState.focusLabel}
                             </span>
                         )}
+                        {isThinkingPhaseLabel(displayState.statusLabel) && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-zinc-200/80">
+                                <i className="fa-solid fa-spinner fa-spin text-[10px]" />
+                                Thinking
+                            </span>
+                        )}
                     </div>
                 </div>
             </div>
@@ -399,22 +446,24 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                 <div className="mt-1 text-[11px] text-zinc-200/70">{displayState.blockedReason}</div>
             )}
             <div className="mt-2 space-y-1">
-                {steps.map((step, index) => {
-                    const isActive = displayState.activeStepId === step.id;
+                {displayGroups.map((group, index) => {
+                    const step = group.primary;
+                    const secondary = group.secondary;
+                    const isActive = displayState.activeStepId === step.id || displayState.activeStepId === secondary?.id;
                     const iconClass =
                         step.status === "completed"
                             ? "fa-circle-check text-emerald-400"
                             : step.status === "failed"
-                              ? "fa-circle-xmark text-red-400"
-                              : step.status === "running"
-                                ? "fa-spinner fa-spin text-yellow-400"
-                                : "fa-circle text-zinc-500";
+                                ? "fa-circle-xmark text-red-400"
+                                : step.status === "running"
+                                    ? "fa-spinner fa-spin text-yellow-400"
+                                    : "fa-circle text-zinc-500";
                     const titleClass =
                         step.status === "failed"
                             ? "text-red-300"
                             : step.status === "completed"
-                            ? "text-zinc-100"
-                              : "text-zinc-300";
+                                ? "text-zinc-100"
+                                : "text-zinc-300";
                     const stepToneClass = isActive
                         ? "border-lime-300/25 bg-lime-400/[0.08] shadow-[0_0_0_1px_rgba(163,230,53,0.14)]"
                         : "border-white/8 bg-black/15";
@@ -433,29 +482,47 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                 <i className={`fa ${iconClass} ${isActive ? "animate-pulse" : ""}`}></i>
                                 <span className={titleClass}>{step.title}</span>
                             </div>
-                            {step.detail && (() => {
-                                const language = getTaskChainDetailLanguage(step);
-                                if (language === "bash") {
+                            {step.detail &&
+                                (() => {
+                                    const language = getTaskChainDetailLanguage(step);
+                                    if (language === "bash") {
+                                        return (
+                                            <div className="mt-0.5 overflow-x-auto pl-5 text-[12px] leading-5 text-zinc-200">
+                                                <Code
+                                                    className={`language-${language} font-mono text-[12px] leading-5 ${
+                                                        isActive ? "text-lime-100" : ""
+                                                    }`}
+                                                >
+                                                    {step.detail}
+                                                </Code>
+                                            </div>
+                                        );
+                                    }
                                     return (
-                                        <div className="mt-0.5 pl-5 overflow-x-auto text-[12px] leading-5 text-zinc-200">
-                                            <Code className={`language-${language} font-mono text-[12px] leading-5 ${isActive ? "text-lime-100" : ""}`}>
-                                                {step.detail}
-                                            </Code>
+                                        <div
+                                            className={cn(
+                                                "mt-0.5 overflow-hidden pl-5 text-[12px] leading-5",
+                                                isActive ? "text-zinc-100/90" : "text-zinc-400"
+                                            )}
+                                            style={{ maxHeight: "2.8em" }}
+                                        >
+                                            {step.detail}
                                         </div>
                                     );
-                                }
-                                return (
-                                    <div
-                                        className={cn(
-                                            "mt-0.5 pl-5 overflow-hidden text-[12px] leading-5",
-                                            isActive ? "text-zinc-100/90" : "text-zinc-400"
-                                        )}
-                                        style={{ maxHeight: "2.8em" }}
-                                    >
-                                        {step.detail}
+                                })()}
+                            {secondary && (
+                                <div className="mt-2 rounded-md border border-white/8 bg-black/20 px-2 py-1.5">
+                                    <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.08em] text-zinc-300">
+                                        <i className="fa-solid fa-reply text-emerald-300/80" />
+                                        <span>{secondary.title}</span>
                                     </div>
-                                );
-                            })()}
+                                    {secondary.detail && (
+                                        <div className="mt-0.5 pl-5 text-[12px] leading-5 text-zinc-100/90">
+                                            {secondary.detail}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     );
                 })}

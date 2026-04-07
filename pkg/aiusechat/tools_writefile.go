@@ -300,12 +300,24 @@ func EditTextFileDryRun(input any, fileOverride string) ([]byte, []byte, error) 
 		return nil, nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	modifiedContent, err := fileutil.ApplyEdits(originalContent, params.Edits)
+	modifiedContent, _, err := applyEditBatch(originalContent, params.Edits)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return originalContent, modifiedContent, nil
+}
+
+func applyEditBatch(originalContent []byte, edits []fileutil.EditSpec) ([]byte, []fileutil.EditResult, error) {
+	modifiedContent, results := fileutil.ApplyEditsPartial(originalContent, edits)
+	for i, result := range results {
+		if result.Applied {
+			continue
+		}
+		appliedCount := i
+		return nil, results, fmt.Errorf("edit %d/%d (%s) failed after %d applied edit(s): %s; reread the latest file and retry with a smaller replacement", i+1, len(edits), result.Desc, appliedCount, result.Error)
+	}
+	return modifiedContent, results, nil
 }
 
 func editTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse) (any, error) {
@@ -328,15 +340,30 @@ func editTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse) 
 		return nil, err
 	}
 
+	originalContent, err := os.ReadFile(expandedPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	modifiedContent, _, err := applyEditBatch(originalContent, params.Edits)
+	if err != nil {
+		return nil, err
+	}
+
+	fileInfo, err := os.Stat(expandedPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file before writing: %w", err)
+	}
+
 	backupPath, err := filebackup.MakeFileBackup(expandedPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create backup: %w", err)
 	}
 	toolUseData.WriteBackupFileName = backupPath
 
-	err = fileutil.ReplaceInFile(expandedPath, params.Edits)
+	err = os.WriteFile(expandedPath, modifiedContent, fileInfo.Mode())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
 	return map[string]any{
@@ -349,7 +376,7 @@ func GetEditTextFileToolDefinition() uctypes.ToolDefinition {
 	return uctypes.ToolDefinition{
 		Name:        "edit_text_file",
 		DisplayName: "Edit Text File",
-		Description: "Edit a text file using precise search and replace. " +
+		Description: "Edit a text file using precise search and replace. Prefer small batches and reread the latest file before retrying. " +
 			"Each old_str must appear EXACTLY ONCE in the file or the edit will fail. " +
 			"All edits are applied atomically - if any single edit fails, the entire operation fails and no changes are made. " +
 			"Maximum file size: 100KB.",
@@ -364,13 +391,13 @@ func GetEditTextFileToolDefinition() uctypes.ToolDefinition {
 				},
 				"edits": map[string]any{
 					"type":        "array",
-					"description": "Array of edit specifications. All edits are applied atomically - if any edit fails, none are applied.",
+					"description": "Array of edit specifications. Prefer a few small replacements at a time, reread the latest file if one misses, and keep the edit narrow. All edits are applied atomically - if any edit fails, none are applied.",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
 							"old_str": map[string]any{
 								"type":        "string",
-								"description": "The exact string to find and replace. MUST appear exactly once in the file - if it appears zero times or multiple times, the entire edit operation will fail.",
+								"description": "The exact string to find and replace. Use a narrow block from the latest file content. MUST appear exactly once in the file - if it appears zero times or multiple times, the entire edit operation will fail.",
 							},
 							"new_str": map[string]any{
 								"type":        "string",

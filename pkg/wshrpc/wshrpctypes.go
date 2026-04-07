@@ -169,6 +169,8 @@ type WshRpcInterface interface {
 	AiSendMessageCommand(ctx context.Context, data AiMessageData) error
 	WaveAIEnableTelemetryCommand(ctx context.Context) error
 	GetWaveAIChatCommand(ctx context.Context, data CommandGetWaveAIChatData) (*uctypes.UIChat, error)
+	ListWaveAISessionsCommand(ctx context.Context, data CommandListWaveAISessionsData) ([]*uctypes.UIChatSessionMeta, error)
+	UpdateWaveAISessionCommand(ctx context.Context, data CommandUpdateWaveAISessionData) (*uctypes.UIChatSessionMeta, error)
 	GetWaveAIRateLimitCommand(ctx context.Context) (*uctypes.RateLimitInfo, error)
 	WaveAIToolApproveCommand(ctx context.Context, data CommandWaveAIToolApproveData) error
 	WaveAIAddContextCommand(ctx context.Context, data CommandWaveAIAddContextData) error
@@ -181,6 +183,8 @@ type WshRpcInterface interface {
 	SetBlockFocusCommand(ctx context.Context, blockId string) error
 	GetFocusedBlockDataCommand(ctx context.Context) (*FocusedBlockData, error)
 	AgentRunCommandCommand(ctx context.Context, data CommandAgentRunCommandData) (*CommandAgentRunCommandRtnData, error)
+	AgentWriteStdinCommand(ctx context.Context, data CommandAgentWriteStdinData) error
+	AgentCancelCommand(ctx context.Context, jobId string) error
 	AgentGetCommandResultCommand(ctx context.Context, data CommandAgentGetCommandResultData) (*CommandAgentGetCommandResultRtnData, error)
 	AgentTermScrollbackCommand(ctx context.Context, data CommandAgentTermScrollbackData) (*CommandTermGetScrollbackLinesRtnData, error)
 
@@ -756,9 +760,28 @@ type CommandGetWaveAIChatData struct {
 	ChatId string `json:"chatid"`
 }
 
+type CommandListWaveAISessionsData struct {
+	TabId           string `json:"tabid,omitempty"`
+	IncludeArchived bool   `json:"includearchived,omitempty"`
+	IncludeDeleted  bool   `json:"includedeleted,omitempty"`
+}
+
+type CommandUpdateWaveAISessionData struct {
+	ChatId        string `json:"chatid"`
+	TabId         string `json:"tabid,omitempty"`
+	Title         string `json:"title,omitempty"`
+	Summary       string `json:"summary,omitempty"`
+	Favorite      *bool  `json:"favorite,omitempty"`
+	Archived      *bool  `json:"archived,omitempty"`
+	Deleted       *bool  `json:"deleted,omitempty"`
+	LastTaskState string `json:"lasttaskstate,omitempty"`
+}
+
 type CommandWaveAIToolApproveData struct {
 	ToolCallId string `json:"toolcallid"`
+	ActionId   string `json:"actionid,omitempty"`
 	Approval   string `json:"approval,omitempty"`
+	Value      string `json:"value,omitempty"`
 }
 
 type AIAttachedFile struct {
@@ -1131,15 +1154,26 @@ type FocusedBlockData struct {
 }
 
 type CommandAgentRunCommandData struct {
-	ConnName string            `json:"connname"`
-	Cwd      string            `json:"cwd,omitempty"`
-	Cmd      string            `json:"cmd"`
-	Args     []string          `json:"args,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
+	ConnName     string            `json:"connname"`
+	Cwd          string            `json:"cwd,omitempty"`
+	Cmd          string            `json:"cmd"`
+	Args         []string          `json:"args,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	Interactive  bool              `json:"interactive,omitempty"`
+	PromptHint   string            `json:"prompthint,omitempty"`
+	InputOptions []string          `json:"inputoptions,omitempty"`
+	SuppressTui  bool              `json:"suppresstui,omitempty"`
 }
 
 type CommandAgentRunCommandRtnData struct {
 	JobId string `json:"jobid"`
+}
+
+type CommandAgentWriteStdinData struct {
+	JobId           string `json:"jobid"`
+	Input           string `json:"input,omitempty"`
+	AppendNewline   bool   `json:"appendnewline,omitempty"`
+	ClearPromptHint bool   `json:"clearprompthint,omitempty"`
 }
 
 type CommandAgentGetCommandResultData struct {
@@ -1149,12 +1183,18 @@ type CommandAgentGetCommandResultData struct {
 }
 
 type CommandAgentGetCommandResultRtnData struct {
-	JobId      string `json:"jobid"`
-	Status     string `json:"status"`
-	Output     string `json:"output,omitempty"`
-	ExitCode   *int   `json:"exitcode,omitempty"`
-	ExitSignal string `json:"exitsignal,omitempty"`
-	Error      string `json:"error,omitempty"`
+	JobId         string   `json:"jobid"`
+	Status        string   `json:"status"`
+	Output        string   `json:"output,omitempty"`
+	ExitCode      *int     `json:"exitcode,omitempty"`
+	ExitSignal    string   `json:"exitsignal,omitempty"`
+	Error         string   `json:"error,omitempty"`
+	Interactive   bool     `json:"interactive,omitempty"`
+	AwaitingInput bool     `json:"awaitinginput,omitempty"`
+	PromptHint    string   `json:"prompthint,omitempty"`
+	InputOptions  []string `json:"inputoptions,omitempty"`
+	TuiDetected   bool     `json:"tuidetected,omitempty"`
+	TuiSuppressed bool     `json:"tuisuppressed,omitempty"`
 }
 
 type CommandAgentTermScrollbackData struct {

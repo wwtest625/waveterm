@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 )
 
 func TestParseWaveRunCommandToolInput_SplitsCommandWhenArgsOmitted(t *testing.T) {
@@ -144,6 +145,24 @@ func TestWaveRunCommandToolCallDescFallsBackToCurrentTerminal(t *testing.T) {
 	}, nil, nil)
 	if !strings.Contains(desc, `on current terminal`) {
 		t.Fatalf("unexpected tool call description: %q", desc)
+	}
+}
+
+func TestWaveRunCommandToolApproval_AllowsOrdinaryCommands(t *testing.T) {
+	approval := GetWaveRunCommandToolDefinition().ToolApproval(map[string]any{
+		"command": "lscpu | head -n 20",
+	})
+	if approval != uctypes.ApprovalAutoApproved {
+		t.Fatalf("expected ordinary command to auto approve, got %q", approval)
+	}
+}
+
+func TestWaveRunCommandToolApproval_BlocksDangerousCommands(t *testing.T) {
+	approval := GetWaveRunCommandToolDefinition().ToolApproval(map[string]any{
+		"command": "rm -rf /tmp/x",
+	})
+	if approval != uctypes.ApprovalNeedsApproval {
+		t.Fatalf("expected dangerous command to require approval, got %q", approval)
 	}
 }
 

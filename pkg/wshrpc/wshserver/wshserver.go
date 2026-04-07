@@ -1300,7 +1300,15 @@ func (ws *WshServer) WaveAIEnableTelemetryCommand(ctx context.Context) error {
 func (ws *WshServer) GetWaveAIChatCommand(ctx context.Context, data wshrpc.CommandGetWaveAIChatData) (*uctypes.UIChat, error) {
 	aiChat := chatstore.DefaultChatStore.Get(data.ChatId)
 	if aiChat == nil {
-		return nil, nil
+		session := chatstore.DefaultChatStore.GetSession(data.ChatId)
+		if session == nil {
+			return nil, nil
+		}
+		return &uctypes.UIChat{
+			ChatId:      data.ChatId,
+			SessionMeta: session,
+			Messages:    []uctypes.UIMessage{},
+		}, nil
 	}
 	uiChat, err := aiusechat.ConvertAIChatToUIChat(aiChat)
 	if err != nil {
@@ -1309,11 +1317,45 @@ func (ws *WshServer) GetWaveAIChatCommand(ctx context.Context, data wshrpc.Comma
 	return uiChat, nil
 }
 
+func (ws *WshServer) ListWaveAISessionsCommand(ctx context.Context, data wshrpc.CommandListWaveAISessionsData) ([]*uctypes.UIChatSessionMeta, error) {
+	return chatstore.DefaultChatStore.ListSessions(data.TabId, uctypes.UIChatSessionListOpts{
+		IncludeArchived: data.IncludeArchived,
+		IncludeDeleted:  data.IncludeDeleted,
+	}), nil
+}
+
+func (ws *WshServer) UpdateWaveAISessionCommand(ctx context.Context, data wshrpc.CommandUpdateWaveAISessionData) (*uctypes.UIChatSessionMeta, error) {
+	if strings.TrimSpace(data.ChatId) == "" {
+		return nil, fmt.Errorf("chatid is required")
+	}
+	update := uctypes.UIChatSessionMetaUpdate{
+		TabId:     data.TabId,
+		Favorite:  data.Favorite,
+		Archived:  data.Archived,
+		Deleted:   data.Deleted,
+		LastState: data.LastTaskState,
+	}
+	if data.Title != "" {
+		update.Title = &data.Title
+	}
+	if data.Summary != "" {
+		update.Summary = &data.Summary
+	}
+	return chatstore.DefaultChatStore.UpsertSessionMeta(data.ChatId, nil, update), nil
+}
+
 func (ws *WshServer) GetWaveAIRateLimitCommand(ctx context.Context) (*uctypes.RateLimitInfo, error) {
 	return aiusechat.GetGlobalRateLimit(), nil
 }
 
 func (ws *WshServer) WaveAIToolApproveCommand(ctx context.Context, data wshrpc.CommandWaveAIToolApproveData) error {
+	actionId := strings.TrimSpace(data.ActionId)
+	if actionId != "" {
+		return aiusechat.UpdatePendingAction(actionId, aiusechat.PendingActionResult{
+			Status: data.Approval,
+			Value:  data.Value,
+		})
+	}
 	return aiusechat.UpdateToolApproval(data.ToolCallId, data.Approval)
 }
 
@@ -1596,6 +1638,31 @@ func (ws *WshServer) AgentRunCommandCommand(ctx context.Context, data wshrpc.Com
 		log.Printf("[job:%s] warning: failed to update job status to running: %v", jobId, err)
 	}
 
+	if data.Interactive {
+		input := agentRunCommandInput{
+			ConnName:     data.ConnName,
+			Cwd:          data.Cwd,
+			Cmd:          data.Cmd,
+			Args:         data.Args,
+			Env:          maps.Clone(data.Env),
+			Interactive:  data.Interactive,
+			PromptHint:   data.PromptHint,
+			InputOptions: data.InputOptions,
+			SuppressTui:  data.SuppressTui,
+		}
+		if err := startInteractiveAgentJob(ctx, jobId, input); err != nil {
+			_ = agentUpdateJob(context.Background(), jobId, func(job *waveobj.Job) {
+				job.JobManagerStatus = jobcontroller.JobManagerStatus_Done
+				job.JobManagerDoneReason = jobcontroller.JobDoneReason_StartupError
+				job.JobManagerStartupError = err.Error()
+				job.CmdExitTs = time.Now().UnixMilli()
+				job.StreamDone = true
+			})
+			return nil, err
+		}
+		return &wshrpc.CommandAgentRunCommandRtnData{JobId: jobId}, nil
+	}
+
 	go func() {
 		defer func() {
 			panichandler.PanicHandler("AgentRunCommandCommand", recover())
@@ -1651,9 +1718,34 @@ func (ws *WshServer) AgentRunCommandCommand(ctx context.Context, data wshrpc.Com
 	return &wshrpc.CommandAgentRunCommandRtnData{JobId: jobId}, nil
 }
 
+func (ws *WshServer) AgentWriteStdinCommand(ctx context.Context, data wshrpc.CommandAgentWriteStdinData) error {
+	if strings.TrimSpace(data.JobId) == "" {
+		return fmt.Errorf("jobid is required")
+	}
+	job := getInteractiveJob(data.JobId)
+	if job == nil {
+		return fmt.Errorf("interactive job not found: %s", data.JobId)
+	}
+	return job.writeInput(data)
+}
+
+func (ws *WshServer) AgentCancelCommand(ctx context.Context, jobId string) error {
+	if strings.TrimSpace(jobId) == "" {
+		return fmt.Errorf("jobid is required")
+	}
+	if job := getInteractiveJob(jobId); job != nil {
+		job.cancel()
+		return nil
+	}
+	return jobcontroller.TerminateJobManager(ctx, jobId)
+}
+
 func (ws *WshServer) AgentGetCommandResultCommand(ctx context.Context, data wshrpc.CommandAgentGetCommandResultData) (*wshrpc.CommandAgentGetCommandResultRtnData, error) {
 	if strings.TrimSpace(data.JobId) == "" {
 		return nil, fmt.Errorf("jobid is required")
+	}
+	if interactiveJob := getInteractiveJob(data.JobId); interactiveJob != nil {
+		return interactiveJob.snapshot(data.TailBytes), nil
 	}
 	job, err := agentGetJob(ctx, data.JobId)
 	if err != nil {
@@ -1762,6 +1854,10 @@ func (ws *WshServer) AgentTermScrollbackCommand(ctx context.Context, data wshrpc
 }
 
 func (ws *WshServer) JobControllerExitJobCommand(ctx context.Context, jobId string) error {
+	if job := getInteractiveJob(jobId); job != nil {
+		job.cancel()
+		return nil
+	}
 	return jobcontroller.TerminateJobManager(ctx, jobId)
 }
 
