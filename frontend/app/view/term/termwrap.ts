@@ -23,12 +23,12 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { FitAddon } from "@xterm/addon-fit";
 import * as TermTypes from "@xterm/xterm";
 import { Terminal } from "@xterm/xterm";
 import debug from "debug";
 import * as jotai from "jotai";
 import { debounce } from "throttle-debounce";
-import { FitAddon } from "./fitaddon";
 import {
     handleOsc16162Command,
     handleOsc52Command,
@@ -168,7 +168,6 @@ export class TermWrap {
         this.contextLabelAtom = jotai.atom("") as jotai.PrimitiveAtom<string>;
         this.terminal = new Terminal(options);
         this.fitAddon = new FitAddon();
-        this.fitAddon.scrollbarWidth = 6; // this needs to match scrollbar width in term.scss
         this.serializeAddon = new SerializeAddon();
         this.searchAddon = new SearchAddon();
         this.terminal.loadAddon(this.searchAddon);

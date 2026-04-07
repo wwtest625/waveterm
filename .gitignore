@@ -40,3 +40,5 @@ docsite/
 .kilo-format-temp-*
 .ace-tool/
 .sisyphus
+.omx/*
+
