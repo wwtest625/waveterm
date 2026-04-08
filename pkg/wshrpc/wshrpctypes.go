@@ -171,6 +171,7 @@ type WshRpcInterface interface {
 	GetWaveAIChatCommand(ctx context.Context, data CommandGetWaveAIChatData) (*uctypes.UIChat, error)
 	ListWaveAISessionsCommand(ctx context.Context, data CommandListWaveAISessionsData) ([]*uctypes.UIChatSessionMeta, error)
 	UpdateWaveAISessionCommand(ctx context.Context, data CommandUpdateWaveAISessionData) (*uctypes.UIChatSessionMeta, error)
+	DeleteWaveAISessionCommand(ctx context.Context, data CommandDeleteWaveAISessionData) error
 	GetWaveAIRateLimitCommand(ctx context.Context) (*uctypes.RateLimitInfo, error)
 	WaveAIToolApproveCommand(ctx context.Context, data CommandWaveAIToolApproveData) error
 	WaveAIAddContextCommand(ctx context.Context, data CommandWaveAIAddContextData) error
@@ -777,6 +778,10 @@ type CommandUpdateWaveAISessionData struct {
 	LastTaskState string `json:"lasttaskstate,omitempty"`
 }
 
+type CommandDeleteWaveAISessionData struct {
+	ChatId string `json:"chatid"`
+}
+
 type CommandWaveAIToolApproveData struct {
 	ToolCallId string `json:"toolcallid"`
 	ActionId   string `json:"actionid,omitempty"`
@@ -1186,6 +1191,7 @@ type CommandAgentGetCommandResultRtnData struct {
 	JobId         string   `json:"jobid"`
 	Status        string   `json:"status"`
 	Output        string   `json:"output,omitempty"`
+	DurationMs    int64    `json:"durationms,omitempty"`
 	ExitCode      *int     `json:"exitcode,omitempty"`
 	ExitSignal    string   `json:"exitsignal,omitempty"`
 	Error         string   `json:"error,omitempty"`

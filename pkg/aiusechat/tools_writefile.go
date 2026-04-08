@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/filebackup"
@@ -16,6 +17,100 @@ import (
 )
 
 const MaxEditFileSize = 100 * 1024 // 100KB
+
+func isBlockedFile(expandedPath string) (bool, string) {
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" {
+		homeDir = os.Getenv("USERPROFILE")
+	}
+
+	cleanPath := filepath.Clean(expandedPath)
+	baseName := filepath.Base(cleanPath)
+
+	exactPaths := []struct {
+		path   string
+		reason string
+	}{
+		{filepath.Join(homeDir, ".aws", "credentials"), "AWS credentials file"},
+		{filepath.Join(homeDir, ".git-credentials"), "Git credentials file"},
+		{filepath.Join(homeDir, ".netrc"), "netrc credentials file"},
+		{filepath.Join(homeDir, ".pgpass"), "PostgreSQL password file"},
+		{filepath.Join(homeDir, ".my.cnf"), "MySQL credentials file"},
+		{filepath.Join(homeDir, ".kube", "config"), "Kubernetes config file"},
+		{"/etc/shadow", "system password file"},
+		{"/etc/sudoers", "system sudoers file"},
+	}
+
+	for _, ep := range exactPaths {
+		if cleanPath == ep.path {
+			return true, ep.reason
+		}
+	}
+
+	dirPrefixes := []struct {
+		prefix string
+		reason string
+	}{
+		{filepath.Join(homeDir, ".gnupg") + string(filepath.Separator), "GPG directory"},
+		{filepath.Join(homeDir, ".password-store") + string(filepath.Separator), "password store directory"},
+		{"/etc/sudoers.d/", "system sudoers directory"},
+		{"/Library/Keychains/", "macOS keychain directory"},
+		{filepath.Join(homeDir, "Library", "Keychains") + string(filepath.Separator), "macOS keychain directory"},
+	}
+
+	for _, dp := range dirPrefixes {
+		if strings.HasPrefix(cleanPath, dp.prefix) {
+			return true, dp.reason
+		}
+	}
+
+	if strings.Contains(cleanPath, filepath.Join(homeDir, ".secrets")) {
+		return true, "secrets directory"
+	}
+
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		credPath := filepath.Join(localAppData, "Microsoft", "Credentials")
+		if strings.HasPrefix(cleanPath, credPath) {
+			return true, "Windows credentials"
+		}
+	}
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		credPath := filepath.Join(appData, "Microsoft", "Credentials")
+		if strings.HasPrefix(cleanPath, credPath) {
+			return true, "Windows credentials"
+		}
+	}
+
+	if strings.HasPrefix(baseName, "id_") && strings.Contains(cleanPath, ".ssh") {
+		return true, "SSH private key"
+	}
+	if strings.Contains(baseName, "id_rsa") {
+		return true, "SSH private key"
+	}
+	if strings.HasPrefix(baseName, "ssh_host_") && strings.Contains(baseName, "key") {
+		return true, "SSH host key"
+	}
+
+	extensions := map[string]string{
+		".pem":      "certificate/key file",
+		".p12":      "certificate file",
+		".key":      "key file",
+		".pfx":      "certificate file",
+		".pkcs12":   "certificate file",
+		".keystore": "Java keystore file",
+		".jks":      "Java keystore file",
+	}
+
+	if reason, exists := extensions[filepath.Ext(baseName)]; exists {
+		return true, reason
+	}
+
+	if baseName == ".git-credentials" {
+		return true, "Git credentials file"
+	}
+
+	return false, ""
+}
 
 func validateTextFile(expandedPath string, verb string, mustExist bool) (os.FileInfo, error) {
 	if blocked, reason := isBlockedFile(expandedPath); blocked {

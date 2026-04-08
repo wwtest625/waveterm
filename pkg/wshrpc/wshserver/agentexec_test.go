@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -201,6 +202,44 @@ func TestAgentRunCommandCommand_WritesResultToWaveFS(t *testing.T) {
 	}
 	if result.ExitCode == nil || *result.ExitCode != 0 {
 		t.Fatalf("expected exit code 0, got %#v", result.ExitCode)
+	}
+}
+
+func TestAgentGetCommandResultCommand_ReportsDurationMs(t *testing.T) {
+	store := newAgentTestStore()
+	store.install(t)
+
+	jobId := "job-duration"
+	if err := agentInsertJob(context.Background(), &waveobj.Job{
+		OID:              jobId,
+		JobManagerStatus: jobcontroller.JobManagerStatus_Done,
+		CmdStartTs:       1_000,
+		CmdExitTs:        2_250,
+	}); err != nil {
+		t.Fatalf("agentInsertJob returned error: %v", err)
+	}
+
+	result, err := (&WshServer{}).AgentGetCommandResultCommand(context.Background(), wshrpc.CommandAgentGetCommandResultData{
+		JobId:     jobId,
+		TailBytes: 32768,
+	})
+	if err != nil {
+		t.Fatalf("AgentGetCommandResultCommand returned error: %v", err)
+	}
+	if result.DurationMs != 1_250 {
+		t.Fatalf("expected duration 1250ms, got %#v", result.DurationMs)
+	}
+}
+
+func TestCommandDurationMs(t *testing.T) {
+	if got := commandDurationMs(1_000, 2_250); got != 1_250 {
+		t.Fatalf("expected 1250ms, got %d", got)
+	}
+	if got := commandDurationMs(1_000, 0); got <= 0 {
+		t.Fatalf("expected positive running duration, got %d", got)
+	}
+	if got := commandDurationMs(0, 2_250); got != 0 {
+		t.Fatalf("expected zero duration when start is missing, got %d", got)
 	}
 }
 

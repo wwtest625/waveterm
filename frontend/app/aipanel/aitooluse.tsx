@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { BlockModel } from "@/app/block/block-model";
-import { Modal } from "@/app/modals/modal";
 import { recordTEvent } from "@/app/store/global";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { memo, useEffect, useRef, useState } from "react";
 import { WaveUIMessagePart } from "./aitypes";
+import { formatCommandDuration } from "./command-duration";
 import { RestoreBackupModal } from "./restorebackupmodal";
 import { WaveAIModel } from "./waveai-model";
 
@@ -56,6 +56,17 @@ function normalizeSummaryDescription(value?: string | null): string | undefined 
     return text.replace(/\s+/g, " ");
 }
 
+function getRunningSummaryDescription(
+    lastProgressLine: string | undefined,
+    primaryDescription: string | undefined
+): string {
+    const baseDescription = normalizeSummaryDescription(lastProgressLine) ?? primaryDescription;
+    if (baseDescription) {
+        return `${baseDescription}，后台继续刷新`;
+    }
+    return "已返回最新快照，后台继续刷新";
+}
+
 function summarizeErrorMessage(toolName: string | undefined, message?: string | null): string | undefined {
     const text = normalizeSummaryDescription(message);
     if (!text) {
@@ -66,6 +77,12 @@ function summarizeErrorMessage(toolName: string | undefined, message?: string | 
     }
     if (toolName === "wave_get_command_result" && text.includes("job not found")) {
         return "执行结果不存在或已失效";
+    }
+    if (toolName === "wave_get_command_result" && text.includes("command result polling timed out")) {
+        return "后台轮询超时";
+    }
+    if (toolName === "wave_get_command_result" && text.includes("command result polling canceled")) {
+        return "后台轮询已取消";
     }
     if (text.length > 120) {
         return `${text.slice(0, 120)}...`;
@@ -139,8 +156,7 @@ export function summarizeToolGroup(
     if (approvalToolUse) {
         return {
             title: `${getToolDisplayName(approvalToolUse.data.toolname)}待确认`,
-            description:
-                normalizeSummaryDescription(approvalToolUse.data.tooldesc) ?? "等待批准后继续执行",
+            description: normalizeSummaryDescription(approvalToolUse.data.tooldesc) ?? "等待批准后继续执行",
             toneClassName: "border-yellow-800/60 bg-yellow-950/20 text-yellow-100",
             iconClassName: "text-yellow-400",
             icon: "fa-clock",
@@ -151,16 +167,20 @@ export function summarizeToolGroup(
         };
     }
 
-    if (isStreaming || progressParts.length > 0 || tooluseParts.some((part) => part.data.status === "pending")) {
+    if (
+        isStreaming ||
+        progressParts.length > 0 ||
+        tooluseParts.some((part) => part.data.status === "pending" || part.data.status === "running")
+    ) {
+        const isLiveResult = tooluseParts.some((part) => part.data.status === "running");
         return {
             title: `${leadToolName}处理中`,
-            description:
-                normalizeSummaryDescription(lastProgressLine) ??
-                primaryDescription ??
-                "正在执行",
+            description: isLiveResult
+                ? getRunningSummaryDescription(lastProgressLine, primaryDescription)
+                : (normalizeSummaryDescription(lastProgressLine) ?? primaryDescription ?? "正在执行"),
             toneClassName: "border-zinc-700 bg-zinc-900/60 text-zinc-100",
-            iconClassName: "text-zinc-400",
-            icon: "fa-spinner fa-spin",
+            iconClassName: isLiveResult ? "text-yellow-400" : "text-zinc-400",
+            icon: isLiveResult ? "fa-bolt" : "fa-spinner fa-spin",
             defaultExpanded: true,
             canRetry: false,
             needsApproval: false,
@@ -284,20 +304,36 @@ interface AIToolUseBatchItemProps {
 }
 
 const AIToolUseBatchItem = memo(({ part, effectiveApproval }: AIToolUseBatchItemProps) => {
-    const statusIcon = part.data.status === "completed" ? "✓" : part.data.status === "error" ? "✗" : "•";
+    const statusIcon =
+        part.data.status === "completed"
+            ? "✓"
+            : part.data.status === "error"
+              ? "✗"
+              : part.data.status === "running"
+                ? "↻"
+                : "•";
     const statusColor =
         part.data.status === "completed"
             ? "text-success"
             : part.data.status === "error"
               ? "text-error"
-              : "text-gray-400";
+              : part.data.status === "running"
+                ? "text-yellow-400"
+                : "text-gray-400";
     const effectiveErrorMessage = part.data.errormessage || (effectiveApproval === "timeout" ? "Not approved" : null);
 
     return (
         <div className="text-sm pl-2 flex items-start gap-1.5">
             <span className={cn("font-bold flex-shrink-0", statusColor)}>{statusIcon}</span>
             <div className="flex-1">
-                <span className="text-gray-400">{part.data.tooldesc}</span>
+                <div className="flex items-center gap-2">
+                    <span className="text-gray-400">{part.data.tooldesc}</span>
+                    {part.data.durationms != null && part.data.durationms > 0 && (
+                        <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] text-zinc-300">
+                            耗时 {formatCommandDuration(part.data.durationms)}
+                        </span>
+                    )}
+                </div>
                 {effectiveErrorMessage && <div className="text-red-300 mt-0.5">{effectiveErrorMessage}</div>}
             </div>
         </div>
@@ -365,9 +401,22 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
     const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const highlightedBlockIdRef = useRef<string | null>(null);
 
-    const statusIcon = toolData.status === "completed" ? "✓" : toolData.status === "error" ? "✗" : "•";
+    const statusIcon =
+        toolData.status === "completed"
+            ? "✓"
+            : toolData.status === "error"
+              ? "✗"
+              : toolData.status === "running"
+                ? "↻"
+                : "•";
     const statusColor =
-        toolData.status === "completed" ? "text-success" : toolData.status === "error" ? "text-error" : "text-gray-400";
+        toolData.status === "completed"
+            ? "text-success"
+            : toolData.status === "error"
+              ? "text-error"
+              : toolData.status === "running"
+                ? "text-yellow-400"
+                : "text-gray-400";
 
     const baseApproval = userApprovalOverride || toolData.approval;
     const effectiveApproval = getEffectiveApprovalStatus(baseApproval, isStreaming);
@@ -455,6 +504,11 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
             <div className="flex items-center gap-2">
                 <span className="font-bold">{statusIcon}</span>
                 <div className="font-semibold">{toolData.toolname}</div>
+                {toolData.durationms != null && toolData.durationms > 0 && (
+                    <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] text-zinc-300">
+                        耗时 {formatCommandDuration(toolData.durationms)}
+                    </span>
+                )}
                 <div className="flex-1" />
                 {isFileWriteTool &&
                     toolData.inputfilename &&
@@ -525,8 +579,8 @@ const AIToolProgress = memo(({ part }: AIToolProgressProps) => {
             {!shouldHideProgressStatusLines(progressData.toolname) &&
                 progressData.statuslines &&
                 progressData.statuslines.length > 0 && (
-                <ToolDesc text={progressData.statuslines} className="text-sm text-gray-400 pl-6 space-y-0.5" />
-            )}
+                    <ToolDesc text={progressData.statuslines} className="text-sm text-gray-400 pl-6 space-y-0.5" />
+                )}
         </div>
     );
 });

@@ -74,6 +74,7 @@ func makeTerminalBlockDesc(block *waveobj.Block) string {
 	return desc
 }
 
+// Tab state description helpers.
 func MakeBlockShortDesc(block *waveobj.Block) string {
 	if block.Meta == nil {
 		return ""
@@ -133,74 +134,7 @@ func MakeBlockShortDesc(block *waveobj.Block) string {
 	}
 }
 
-func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bool, chatOpts *uctypes.WaveChatOpts) (string, []uctypes.ToolDefinition, error) {
-	if tabid == "" {
-		return "", nil, nil
-	}
-	var blocks []*waveobj.Block
-	if widgetAccess {
-		if _, err := uuid.Parse(tabid); err != nil {
-			return "", nil, fmt.Errorf("tabid must be a valid UUID")
-		}
-
-		tabObj, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabid)
-		if err != nil {
-			return "", nil, fmt.Errorf("error getting tab: %v", err)
-		}
-
-		for _, blockId := range tabObj.BlockIds {
-			block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
-			if err != nil {
-				continue
-			}
-			blocks = append(blocks, block)
-		}
-	}
-	tabState := GenerateCurrentTabStatePrompt(blocks, widgetAccess)
-	// for debugging
-	// log.Printf("TABPROMPT %s\n", tabState)
-	var tools []uctypes.ToolDefinition
-	if widgetAccess {
-		// Only add screenshot tool for:
-		// - openai-responses API type
-		// - google-gemini API type with Gemini 3+ models
-		if chatOpts.Config.APIType == uctypes.APIType_OpenAIResponses ||
-			(chatOpts.Config.APIType == uctypes.APIType_GoogleGemini && aiutil.GeminiSupportsImageToolResults(chatOpts.Config.Model)) {
-			tools = append(tools, GetCaptureScreenshotToolDefinition(tabid))
-		}
-		tools = append(tools, GetReadTextFileToolDefinition())
-		tools = append(tools, GetReadDirToolDefinition())
-		tools = append(tools, GetWriteTextFileToolDefinition())
-		tools = append(tools, GetEditTextFileToolDefinition())
-		tools = append(tools, GetDeleteTextFileToolDefinition())
-		viewTypes := make(map[string]bool)
-		for _, block := range blocks {
-			if block.Meta == nil {
-				continue
-			}
-			viewType, ok := block.Meta["view"].(string)
-			if !ok {
-				continue
-			}
-			viewTypes[viewType] = true
-			if viewType == "tsunami" {
-				blockTools := generateToolsForTsunamiBlock(block)
-				tools = append(tools, blockTools...)
-			}
-		}
-		if viewTypes["term"] {
-			tools = append(tools, GetTermGetScrollbackToolDefinition(tabid))
-			// tools = append(tools, GetTermCommandOutputToolDefinition(tabid))
-			tools = append(tools, GetWaveRunCommandToolDefinition())
-			tools = append(tools, GetWaveGetCommandResultToolDefinition())
-		}
-		if viewTypes["web"] {
-			tools = append(tools, GetWebNavigateToolDefinition(tabid))
-		}
-	}
-	return tabState, tools, nil
-}
-
+// Current tab state prompt helpers.
 func GenerateCurrentTabStatePrompt(blocks []*waveobj.Block, widgetAccess bool) string {
 	if !widgetAccess {
 		return `<current_tab_state>The user has chosen not to share widget context with you</current_tab_state>`
@@ -237,6 +171,70 @@ func GenerateCurrentTabStatePrompt(blocks []*waveobj.Block, widgetAccess bool) s
 	prompt.WriteString("</current_tab_state>")
 	rtn := prompt.String()
 	return rtn
+}
+
+// Tool assembly helpers.
+func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bool, chatOpts *uctypes.WaveChatOpts) (string, []uctypes.ToolDefinition, error) {
+	if tabid == "" {
+		return "", nil, nil
+	}
+	var blocks []*waveobj.Block
+	if widgetAccess {
+		if _, err := uuid.Parse(tabid); err != nil {
+			return "", nil, fmt.Errorf("tabid must be a valid UUID")
+		}
+
+		tabObj, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabid)
+		if err != nil {
+			return "", nil, fmt.Errorf("error getting tab: %v", err)
+		}
+
+		for _, blockId := range tabObj.BlockIds {
+			block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
+			if err != nil {
+				continue
+			}
+			blocks = append(blocks, block)
+		}
+	}
+	tabState := GenerateCurrentTabStatePrompt(blocks, widgetAccess)
+	// for debugging
+	// log.Printf("TABPROMPT %s\n", tabState)
+	var tools []uctypes.ToolDefinition
+	if widgetAccess {
+		// Only add screenshot tool for:
+		// - openai-responses API type
+		// - google-gemini API type with Gemini 3+ models
+		if chatOpts != nil && (chatOpts.Config.APIType == uctypes.APIType_OpenAIResponses ||
+			(chatOpts.Config.APIType == uctypes.APIType_GoogleGemini && aiutil.GeminiSupportsImageToolResults(chatOpts.Config.Model))) {
+			tools = append(tools, GetCaptureScreenshotToolDefinition(tabid))
+		}
+		tools = append(tools, GetWriteTextFileToolDefinition())
+		tools = append(tools, GetEditTextFileToolDefinition())
+		tools = append(tools, GetDeleteTextFileToolDefinition())
+		viewTypes := make(map[string]bool)
+		for _, block := range blocks {
+			if block.Meta == nil {
+				continue
+			}
+			viewType, ok := block.Meta["view"].(string)
+			if !ok {
+				continue
+			}
+			viewTypes[viewType] = true
+			if viewType == "tsunami" {
+				blockTools := generateToolsForTsunamiBlock(block)
+				tools = append(tools, blockTools...)
+			}
+		}
+		if viewTypes["term"] {
+			tools = append(tools, GetTermGetScrollbackToolDefinition(tabid))
+			// tools = append(tools, GetTermCommandOutputToolDefinition(tabid))
+			tools = append(tools, GetWaveRunCommandToolDefinition())
+			tools = append(tools, GetWaveGetCommandResultToolDefinition())
+		}
+	}
+	return tabState, tools, nil
 }
 
 func generateToolsForTsunamiBlock(block *waveobj.Block) []uctypes.ToolDefinition {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat"
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
 	"github.com/wavetermdev/waveterm/pkg/authkey"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
@@ -552,7 +553,7 @@ func main() {
 		log.Printf("error initializing mainserver: %v\n", err)
 		return
 	}
-	aiusechat.InitChatStorePersistence()
+	chatstore.DefaultChatStore.EnablePersistence(chatstore.DefaultPersistencePath())
 
 	err = shellutil.FixupWaveZshHistory()
 	if err != nil {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getDefaultAgentRuntimeSnapshot, reduceAgentRuntimeSnapshot } from "./aitypes";
+import { getDefaultAgentRuntimeSnapshot, reduceAgentRuntimeSnapshot } from "../aitypes";
 
 describe("agent runtime reducer", () => {
     it("enters interacting state when command input is required", () => {
@@ -21,5 +21,14 @@ describe("agent runtime reducer", () => {
 
         expect(next.state).toBe("completed");
         expect(next.phaseLabel).toBe("Completed");
+    });
+
+    it("shows thinking immediately after submit", () => {
+        const next = reduceAgentRuntimeSnapshot(getDefaultAgentRuntimeSnapshot(), {
+            type: "USER_SUBMIT",
+        });
+
+        expect(next.state).toBe("submitting");
+        expect(next.phaseLabel).toBe("Thinking");
     });
 });

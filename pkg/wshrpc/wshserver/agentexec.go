@@ -66,6 +66,7 @@ type agentInteractiveJob struct {
 	mu            sync.Mutex
 	controller    agentInteractiveController
 	stdin         io.WriteCloser
+	cmdStartTs    int64
 	output        bytes.Buffer
 	status        string
 	exitCode      *int
@@ -189,10 +190,12 @@ func (job *agentInteractiveJob) snapshot(tailBytes int64) *wshrpc.CommandAgentGe
 	if status == "" {
 		status = "running"
 	}
+	durationMs := commandDurationMs(job.cmdStartTs, 0)
 	return &wshrpc.CommandAgentGetCommandResultRtnData{
 		JobId:         job.jobId,
 		Status:        status,
 		Output:        output,
+		DurationMs:    durationMs,
 		ExitCode:      job.exitCode,
 		ExitSignal:    job.exitSignal,
 		Error:         job.errText,
@@ -203,6 +206,19 @@ func (job *agentInteractiveJob) snapshot(tailBytes int64) *wshrpc.CommandAgentGe
 		TuiDetected:   job.tuiDetected,
 		TuiSuppressed: job.tuiSuppressed,
 	}
+}
+
+func commandDurationMs(startTs int64, endTs int64) int64 {
+	if startTs <= 0 {
+		return 0
+	}
+	if endTs <= 0 {
+		endTs = time.Now().UnixMilli()
+	}
+	if endTs < startTs {
+		return 0
+	}
+	return endTs - startTs
 }
 
 func (job *agentInteractiveJob) writeInput(data wshrpc.CommandAgentWriteStdinData) error {
@@ -411,7 +427,7 @@ func streamInteractivePipe(job *agentInteractiveJob, reader io.Reader) {
 	}
 }
 
-func startInteractiveAgentJob(ctx context.Context, jobId string, input agentRunCommandInput) error {
+func startInteractiveAgentJob(ctx context.Context, jobId string, startTs int64, input agentRunCommandInput) error {
 	controller, err := agentMakeInteractiveController(ctx, input)
 	if err != nil {
 		return err
@@ -432,6 +448,7 @@ func startInteractiveAgentJob(ctx context.Context, jobId string, input agentRunC
 		jobId:         jobId,
 		controller:    controller,
 		stdin:         stdin,
+		cmdStartTs:    startTs,
 		status:        "running",
 		promptHint:    strings.TrimSpace(input.PromptHint),
 		inputOptions:  slicesClone(input.InputOptions),

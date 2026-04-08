@@ -1344,6 +1344,14 @@ func (ws *WshServer) UpdateWaveAISessionCommand(ctx context.Context, data wshrpc
 	return chatstore.DefaultChatStore.UpsertSessionMeta(data.ChatId, nil, update), nil
 }
 
+func (ws *WshServer) DeleteWaveAISessionCommand(ctx context.Context, data wshrpc.CommandDeleteWaveAISessionData) error {
+	if strings.TrimSpace(data.ChatId) == "" {
+		return fmt.Errorf("chatid is required")
+	}
+	chatstore.DefaultChatStore.Delete(data.ChatId)
+	return nil
+}
+
 func (ws *WshServer) GetWaveAIRateLimitCommand(ctx context.Context) (*uctypes.RateLimitInfo, error) {
 	return aiusechat.GetGlobalRateLimit(), nil
 }
@@ -1650,7 +1658,7 @@ func (ws *WshServer) AgentRunCommandCommand(ctx context.Context, data wshrpc.Com
 			InputOptions: data.InputOptions,
 			SuppressTui:  data.SuppressTui,
 		}
-		if err := startInteractiveAgentJob(ctx, jobId, input); err != nil {
+		if err := startInteractiveAgentJob(ctx, jobId, startTs, input); err != nil {
 			_ = agentUpdateJob(context.Background(), jobId, func(job *waveobj.Job) {
 				job.JobManagerStatus = jobcontroller.JobManagerStatus_Done
 				job.JobManagerDoneReason = jobcontroller.JobDoneReason_StartupError
@@ -1758,6 +1766,7 @@ func (ws *WshServer) AgentGetCommandResultCommand(ctx context.Context, data wshr
 		JobId:      job.OID,
 		ExitCode:   job.CmdExitCode,
 		ExitSignal: job.CmdExitSignal,
+		DurationMs: commandDurationMs(job.CmdStartTs, job.CmdExitTs),
 	}
 	switch job.JobManagerStatus {
 	case jobcontroller.JobManagerStatus_Init:

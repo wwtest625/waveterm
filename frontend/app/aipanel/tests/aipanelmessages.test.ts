@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { getAssistantMessageLayout } from "./aimessage";
+import { getAssistantMessageLayout } from "../aimessage";
 import {
     buildTaskChainSteps,
     buildTaskTurns,
-    getTaskChainDisplayGroups,
+    formatCommandDuration,
     getRawOutputDisplayState,
+    getPendingApprovalToolUses,
     getTaskChainDetailLanguage,
+    getTaskChainDisplayGroups,
     getTaskChainDisplayState,
     shouldRenderStreamingPlainText,
-} from "./aipanelmessages";
-import { getToolDisplayName, summarizeToolGroup } from "./aitooluse";
-import { shouldHideProgressStatusLines } from "./aitooluse";
+} from "../aipanelmessages";
+import { getToolDisplayName, shouldHideProgressStatusLines, summarizeToolGroup } from "../aitooluse";
 
 describe("aipanel task turns", () => {
     it("groups multiple assistant retries into one turn", () => {
@@ -133,6 +134,7 @@ describe("aipanel task turns", () => {
                         toolname: "wave_get_command_result",
                         tooldesc: "polling result",
                         status: "pending",
+                        durationms: 1532,
                         outputtext: "Model name: Intel(R) Xeon(R) Platinum 8369C CPU @ 2.90GHz\nCPU(s): 128",
                     },
                 } as any,
@@ -166,8 +168,15 @@ describe("aipanel task turns", () => {
         expect(steps[1].title).toBe("获取执行结果");
         expect(getTaskChainDetailLanguage(steps[1])).toBeUndefined();
         expect(steps[1].status).toBe("running");
-        expect(steps[1].detail).toBe("Model name: Intel(R) Xeon(R) Platinum 8369C CPU @ 2.90GHz");
+        expect(steps[1].detail).toBe("Model name: Intel(R) Xeon(R) Platinum 8369C CPU @ 2.90GHz\nCPU(s): 128");
+        expect(steps[1].durationLabel).toBe("耗时 1.5s");
         expect(steps[2].status).toBe("failed");
+    });
+
+    it("formats command duration with human readable units", () => {
+        expect(formatCommandDuration(950)).toBe("950ms");
+        expect(formatCommandDuration(1_450)).toBe("1.5s");
+        expect(formatCommandDuration(61_000)).toBe("1m 1s");
     });
 
     it("summarizes task chain with runtime focus and approval state", () => {
@@ -210,6 +219,129 @@ describe("aipanel task turns", () => {
         expect(summary.blockedReason).toBe("Waiting for tool approval");
         expect(summary.activeStepId).toBe("tool-2");
         expect(summary.toneClassName).toContain("yellow");
+    });
+
+    it("finds pending approval tool uses even while the turn is still streaming", () => {
+        const pendingApprovals = getPendingApprovalToolUses([
+            {
+                id: "assistant-1",
+                role: "assistant",
+                parts: [
+                    {
+                        type: "data-tooluse",
+                        data: {
+                            toolcallid: "tool-1",
+                            toolname: "wave_run_command",
+                            tooldesc: 'running "mkdir -p /home/ssl"',
+                            status: "pending",
+                            approval: "needs-approval",
+                        },
+                    },
+                ],
+            } as any,
+        ]);
+
+        expect(pendingApprovals).toHaveLength(1);
+        expect(pendingApprovals[0].data.toolcallid).toBe("tool-1");
+    });
+
+    it("keeps full bash command details intact", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-long",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "bash -lc cat /etc/os-release; echo; echo" on local',
+                        status: "completed",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(steps[0].detail).toBe("bash -lc cat /etc/os-release; echo; echo");
+    });
+
+    it("describes live command snapshots as background refreshing", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "lscpu"',
+                        status: "completed",
+                    },
+                } as any,
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-2",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "polling result",
+                        status: "running",
+                        durationms: 3150,
+                        outputtext: "Model name: Intel(R) Xeon(R) Platinum 8369C CPU @ 2.90GHz",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        const summary = summarizeToolGroup(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "lscpu"',
+                        status: "completed",
+                    },
+                } as any,
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-2",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "polling result",
+                        status: "running",
+                        durationms: 3150,
+                        outputtext: "Model name: Intel(R) Xeon(R) Platinum 8369C CPU @ 2.90GHz",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(steps[1].status).toBe("running");
+        expect(steps[1].durationLabel).toBe("耗时 3.2s");
+        expect(summary.title).toBe("命令执行处理中");
+        expect(summary.description).toContain("后台继续刷新");
+    });
+
+    it("shows background refresh text when a live snapshot has no output yet", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "polling result",
+                        status: "running",
+                        durationms: 900,
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(steps[0].detail).toBe("已返回最新快照，后台继续刷新");
+        expect(steps[0].durationLabel).toBe("耗时 900ms");
     });
 
     it("pairs command outputs directly under their matching command cards", () => {
@@ -265,6 +397,60 @@ describe("aipanel task turns", () => {
         expect(groups[0].secondary?.detail).toBe("Architecture: x86_64");
         expect(groups[1].primary.title).toBe("执行命令");
         expect(groups[1].secondary?.detail).toBe("MemTotal: 395629656 kB");
+    });
+
+    it("keeps a compact multi-line preview for command results", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "polling command result for 456",
+                        status: "completed",
+                        outputtext:
+                            'PRETTY_NAME="Ubuntu 22.04 LTS"\nNAME="Ubuntu"\nVERSION_ID="22.04"\nVERSION="22.04 (Jammy Jellyfish)"\nVERSION_CODENAME=jammy\nID=ubuntu',
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(steps[0].detail).toBe(
+            'PRETTY_NAME="Ubuntu 22.04 LTS"\nNAME="Ubuntu"\nVERSION_ID="22.04"\nVERSION="22.04 (Jammy Jellyfish)"\nVERSION_CODENAME=jammy\n...'
+        );
+    });
+
+    it("collapses identical consecutive tool steps into one visual row", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "read_dir",
+                        tooldesc: 'reading directory "/opt/spug" (max_entries: 500)',
+                        status: "error",
+                        errormessage: "permission denied",
+                    },
+                } as any,
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-2",
+                        toolname: "read_dir",
+                        tooldesc: 'reading directory "/opt/spug" (max_entries: 500)',
+                        status: "error",
+                        errormessage: "permission denied",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(steps).toHaveLength(1);
+        expect(steps[0].duplicateCount).toBe(2);
     });
 
     it("collapses raw output after five lines", () => {
@@ -395,6 +581,42 @@ describe("aitooluse summaries", () => {
         expect(summary.description).toBe("远端命令启动失败");
         expect(summary.defaultExpanded).toBe(false);
         expect(summary.canRetry).toBe(true);
+    });
+
+    it("translates wave command polling timeout and cancel errors", () => {
+        const timeoutSummary = summarizeToolGroup(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-timeout",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "polling result",
+                        status: "error",
+                        errormessage: "command result polling timed out",
+                    },
+                } as any,
+            ],
+            false
+        );
+        const canceledSummary = summarizeToolGroup(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-canceled",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "polling result",
+                        status: "error",
+                        errormessage: "command result polling canceled",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(timeoutSummary.description).toBe("后台轮询超时");
+        expect(canceledSummary.description).toBe("后台轮询已取消");
     });
 
     it("keeps processing groups expanded while running", () => {

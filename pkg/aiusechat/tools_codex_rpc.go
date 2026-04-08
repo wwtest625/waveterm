@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
+	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
 	"github.com/wavetermdev/waveterm/pkg/service/blockservice"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
@@ -98,7 +99,38 @@ func resolveWaveRunCommandTarget(parsed *WaveRunCommandToolInput, toolUseData *u
 	if resolved.Cwd == "" {
 		resolved.Cwd = strings.TrimSpace(termCtx.Cwd)
 	}
+	if err := validateRemoteLinuxWaveRunCommand(&resolved); err != nil {
+		return nil, "", err
+	}
 	return &resolved, resolved.Connection, nil
+}
+
+func isWindowsShellWaveCommand(commandText string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(commandText))
+	return strings.HasPrefix(normalized, "powershell ") ||
+		normalized == "powershell" ||
+		strings.HasPrefix(normalized, "pwsh ") ||
+		normalized == "pwsh" ||
+		strings.HasPrefix(normalized, "cmd ") ||
+		normalized == "cmd"
+}
+
+func validateRemoteLinuxWaveRunCommand(parsed *WaveRunCommandToolInput) error {
+	if parsed == nil {
+		return fmt.Errorf("command is required")
+	}
+	connName := strings.TrimSpace(parsed.Connection)
+	if connName == "" {
+		return fmt.Errorf("remote linux connection is required")
+	}
+	if conncontroller.IsLocalConnName(connName) || conncontroller.IsWslConnName(connName) {
+		return fmt.Errorf("wave_run_command only supports remote linux connections; local execution is disabled")
+	}
+	commandText := getWaveRunCommandDisplayText(parsed)
+	if isWindowsShellWaveCommand(commandText) {
+		return fmt.Errorf("wave_run_command only supports linux shell commands on remote connections")
+	}
+	return nil
 }
 
 func normalizeWaveRunCommandToolInput(input *WaveRunCommandToolInput) {
@@ -216,7 +248,7 @@ func GetWaveRunCommandToolDefinition() uctypes.ToolDefinition {
 	return uctypes.ToolDefinition{
 		Name:        "wave_run_command",
 		DisplayName: "Run Command via Wave RPC",
-		Description: "Start a background command on a Wave connection using Wave RPC job execution. If connection is omitted, Wave uses the current terminal in the same tab by default.",
+		Description: "Start a background command on a Wave connection using Wave RPC job execution. If connection is omitted, Wave uses the current terminal in the same tab by default. When that terminal is already remote, run the target shell command directly there instead of wrapping it in ssh, unless the user explicitly asked for a nested SSH hop.",
 		ToolLogName: "wave:runcommand",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -302,7 +334,7 @@ func GetWaveGetCommandResultToolDefinition() uctypes.ToolDefinition {
 	return uctypes.ToolDefinition{
 		Name:        "wave_get_command_result",
 		DisplayName: "Poll Wave Command Result",
-		Description: "Poll a Wave RPC background command until it finishes and return the latest output.",
+		Description: "Fetch the latest Wave RPC background command snapshot. The scheduler continues polling in the background.",
 		ToolLogName: "wave:getcommandresult",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -331,26 +363,14 @@ func GetWaveGetCommandResultToolDefinition() uctypes.ToolDefinition {
 				return nil, err
 			}
 			rpcClient := wshclient.GetBareRpcClient()
-			deadline := time.Now().Add(30 * time.Second)
-			var terminalSeenAt time.Time
-			for {
-				result, err := wshclient.AgentGetCommandResultCommand(rpcClient, wshrpc.CommandAgentGetCommandResultData{
-					JobId:     parsed.JobId,
-					TailBytes: 32768,
-				}, nil)
-				if err != nil {
-					return nil, err
-				}
-				now := time.Now()
-				if shouldReturnWaveCommandResult(result, now, deadline, &terminalSeenAt) {
-					return result, nil
-				}
-				select {
-				case <-context.Background().Done():
-					return result, nil
-				case <-time.After(250 * time.Millisecond):
-				}
+			result, err := wshclient.AgentGetCommandResultCommand(rpcClient, wshrpc.CommandAgentGetCommandResultData{
+				JobId:     parsed.JobId,
+				TailBytes: 32768,
+			}, nil)
+			if err != nil {
+				return nil, err
 			}
+			return result, nil
 		},
 	}
 }
@@ -361,8 +381,6 @@ func shouldReturnWaveCommandResult(
 	deadline time.Time,
 	terminalSeenAt *time.Time,
 ) bool {
-	const outputFlushGraceWindow = 5 * time.Second
-
 	if result == nil {
 		return true
 	}
@@ -375,15 +393,5 @@ func shouldReturnWaveCommandResult(
 		}
 		return false
 	}
-	if strings.TrimSpace(result.Error) != "" || strings.TrimSpace(result.Output) != "" {
-		return true
-	}
-	if terminalSeenAt == nil {
-		return true
-	}
-	if terminalSeenAt.IsZero() {
-		*terminalSeenAt = now
-		return false
-	}
-	return now.Sub(*terminalSeenAt) >= outputFlushGraceWindow
+	return true
 }

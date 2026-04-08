@@ -16,8 +16,10 @@ type WaveUIDataTypes = {
         toolcallid: string;
         toolname: string;
         tooldesc: string;
-        status: "pending" | "error" | "completed";
+        status: "pending" | "running" | "error" | "completed";
+        jobid?: string;
         runts?: number;
+        durationms?: number;
         errormessage?: string;
         outputtext?: string;
         approval?: "needs-approval" | "user-approved" | "user-denied" | "auto-approved" | "timeout";
@@ -341,6 +343,7 @@ export function toolCallFromPart(part: WaveUIMessagePart & { type: "data-tooluse
         requestId: part.data.toolcallid,
         taskId,
         toolName: part.data.toolname,
+        jobId: part.data.jobid,
         capability: inferToolCapability(part.data.toolname),
         args: {
             description: part.data.tooldesc,
@@ -362,11 +365,12 @@ export function toolResultFromPart(
         requestId: part.data.toolcallid,
         taskId,
         toolName: part.data.toolname,
+        jobId: part.data.jobid,
         ok: part.data.status === "completed",
         exitCode: part.data.status === "completed" ? 0 : 1,
         stdout: part.data.outputtext,
         stderr: part.data.errormessage,
-        durationMs: 0,
+        durationMs: part.data.durationms ?? 0,
         artifacts:
             part.data.inputfilename || part.data.writebackupfilename
                 ? {
@@ -387,7 +391,7 @@ export function reduceAgentRuntimeSnapshot(
                 ...current,
                 visible: true,
                 state: "submitting",
-                phaseLabel: "Submitting",
+                phaseLabel: "Thinking",
                 blockedReason: undefined,
             };
         case "TOOL_CALL_STARTED":

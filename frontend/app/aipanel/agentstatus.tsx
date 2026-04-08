@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
+import { shouldHideProgressStatusLines } from "./aitooluse";
 import { AgentRuntimeSnapshot, AgentRuntimeState, WaveUIMessage } from "./aitypes";
 import { getFirstExecutableCommandFromMessage } from "./autoexecute-util";
-import { shouldHideProgressStatusLines } from "./aitooluse";
 import { AgentMode } from "./waveai-model";
 
 export type AgentRuntimeStatusSnapshot = AgentRuntimeSnapshot;
@@ -39,12 +39,17 @@ function isThinkingPhaseLabel(phaseLabel?: string): boolean {
 }
 
 function getToolUsePhase(
-    toolName: string | undefined
+    toolName: string | undefined,
+    toolStatus?: string
 ): Pick<AgentRuntimeStatusSnapshot, "state" | "phaseLabel"> | null {
     switch (toolName) {
         case "term_get_scrollback":
         case "term_command_output":
+            return { state: "planning", phaseLabel: "Reading Terminal" };
         case "wave_get_command_result":
+            if (toolStatus === "running") {
+                return { state: "executing", phaseLabel: "Executing Command" };
+            }
             return { state: "planning", phaseLabel: "Reading Terminal" };
         case "wave_run_command":
             return { state: "executing", phaseLabel: "Executing Command" };
@@ -169,7 +174,12 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
         .reverse()
         .find((part) => part.type === "data-toolprogress");
     const toolPhase =
-        lastToolUse?.type === "data-tooluse" ? getToolUsePhase(lastToolUse.data?.toolname as string | undefined) : null;
+        lastToolUse?.type === "data-tooluse"
+            ? getToolUsePhase(
+                  lastToolUse.data?.toolname as string | undefined,
+                  lastToolUse.data?.status as string | undefined
+              )
+            : null;
     const progressStatusLine =
         lastToolProgress?.type === "data-toolprogress" &&
         Array.isArray(lastToolProgress.data?.statuslines) &&
@@ -266,6 +276,20 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
         };
     }
 
+    if (lastToolUse?.type === "data-tooluse" && lastToolUse.data?.status === "running" && toolPhase != null) {
+        return {
+            visible: true,
+            providerLabel: formatProviderLabel(input.provider),
+            modeLabel: formatModeLabel(input.mode),
+            state: toolPhase.state,
+            phaseLabel: toolPhase.phaseLabel,
+            lastCommand,
+            activeTool: lastToolUse.data?.toolname as string | undefined,
+            activeJobId: lastToolUse.data?.jobid as string | undefined,
+            blockedReason: lastToolUse.data?.errormessage || lastToolUse.data?.tooldesc,
+        };
+    }
+
     return {
         visible: true,
         providerLabel: formatProviderLabel(input.provider),
@@ -286,8 +310,15 @@ export function AgentStatus({ snapshot }: { snapshot: AgentRuntimeStatusSnapshot
             <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="rounded-full bg-zinc-800 px-2 py-1 text-zinc-200">{snapshot.providerLabel}</span>
                 <span className="rounded-full bg-zinc-800 px-2 py-1 text-zinc-200">{snapshot.modeLabel}</span>
-                <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-1", getStateTone(snapshot.state))}>
-                    {isThinkingPhaseLabel(snapshot.phaseLabel) && <i className="fa-solid fa-spinner fa-spin text-[10px]" />}
+                <span
+                    className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2 py-1",
+                        getStateTone(snapshot.state)
+                    )}
+                >
+                    {isThinkingPhaseLabel(snapshot.phaseLabel) && (
+                        <i className="fa-solid fa-spinner fa-spin text-[10px]" />
+                    )}
                     {snapshot.phaseLabel}
                 </span>
             </div>

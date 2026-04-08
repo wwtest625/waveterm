@@ -24,6 +24,7 @@ export interface AIPanelInputRef {
 export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps) => {
     const [input, setInput] = useAtom(model.inputAtom);
     const runtime = useAtomValue(model.agentRuntimeAtom);
+    const isThinking = runtime.state === "submitting" || runtime.state === "planning";
     const isFocused = useAtomValue(model.isWaveAIFocusedAtom);
     const isChatEmpty = useAtomValue(model.isChatEmptyAtom);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -152,11 +153,15 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                 <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-zinc-500">
                     <div className="truncate">{isChatEmpty ? "Ask, edit, run, verify" : "Continue the session"}</div>
                     <div className="shrink-0">
-                        {runtime.state === "executing" || runtime.state === "awaiting_approval" || runtime.state === "interacting"
-                            ? "Executing"
-                            : status === "streaming"
-                              ? "Responding"
-                              : "Ready"}
+                        {isThinking
+                            ? "Thinking"
+                            : runtime.state === "executing" ||
+                                runtime.state === "awaiting_approval" ||
+                                runtime.state === "interacting"
+                              ? "Executing"
+                              : status === "streaming"
+                                ? "Responding"
+                                : "Ready"}
                     </div>
                 </div>
                 <div className="relative overflow-hidden rounded-[22px] border border-white/10 bg-black/20 shadow-[0_14px_32px_rgba(0,0,0,0.16)]">
@@ -198,7 +203,9 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                 <i className="fa fa-rotate-right text-sm"></i>
                             </button>
                         </Tooltip>
-                    ) : runtime.state === "executing" || runtime.state === "awaiting_approval" || runtime.state === "interacting" ? (
+                    ) : runtime.state === "executing" ||
+                      runtime.state === "awaiting_approval" ||
+                      runtime.state === "interacting" ? (
                         <Tooltip content="Stop execution" placement="top" divClassName="absolute bottom-2 right-2">
                             <button
                                 type="button"
@@ -210,6 +217,17 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                             >
                                 <i className="fa fa-stop text-sm"></i>
                             </button>
+                        </Tooltip>
+                    ) : isThinking ? (
+                        <Tooltip content="Thinking" placement="top" divClassName="absolute bottom-2 right-2">
+                            <div
+                                className={cn(
+                                    "flex h-9 w-9 items-center justify-center rounded-full",
+                                    "border border-lime-300/20 bg-lime-300/10 text-lime-200"
+                                )}
+                            >
+                                <i className="fa fa-spinner fa-spin text-sm"></i>
+                            </div>
                         </Tooltip>
                     ) : status === "streaming" ? (
                         <Tooltip content="Stop Response" placement="top" divClassName="absolute bottom-2 right-2">
@@ -225,7 +243,11 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                             </button>
                         </Tooltip>
                     ) : (
-                        <Tooltip content="Send message (Enter)" placement="top" divClassName="absolute bottom-2 right-2">
+                        <Tooltip
+                            content="Send message (Enter)"
+                            placement="top"
+                            divClassName="absolute bottom-2 right-2"
+                        >
                             <button
                                 type="submit"
                                 disabled={status !== "ready" || !input.trim()}

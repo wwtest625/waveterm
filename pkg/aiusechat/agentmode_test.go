@@ -13,14 +13,12 @@ func TestAgentMode_AllowsToolsInPlanningMode(t *testing.T) {
 	for _, toolName := range []string{
 		"write_text_file",
 		"term_inject_command",
-		"read_dir",
 		"builder_list_files",
 		"tsunami_getdata_deadbeef",
 		"tsunami_getconfig_deadbeef",
 		"term_command_output",
 		"wave_get_command_result",
 		"wave_run_command",
-		"web_navigate",
 	} {
 		if err := validateToolForAgentMode(AgentModePlanning, toolName); err != nil {
 			t.Fatalf("expected planning mode to allow %s, got %v", toolName, err)

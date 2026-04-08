@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 )
 
 func TestParseWaveRunCommandToolInput_SplitsCommandWhenArgsOmitted(t *testing.T) {
@@ -118,78 +117,58 @@ func TestParseWaveGetCommandResultToolInput_AcceptsJobIdAlias(t *testing.T) {
 	}
 }
 
-func TestWaveRunCommandToolCallDescUsesNormalizedCommand(t *testing.T) {
-	desc := GetWaveRunCommandToolDefinition().ToolCallDesc(map[string]any{
-		"connection": "root@example",
-		"cwd":        "/tmp",
-		"command":    "cat /proc/cpuinfo",
-	}, nil, nil)
-	if !strings.Contains(desc, `running "cat /proc/cpuinfo" on root@example in /tmp`) {
-		t.Fatalf("unexpected tool call description: %q", desc)
-	}
-}
-
-func TestWaveRunCommandToolCallDescKeepsShellCommandReadable(t *testing.T) {
-	desc := GetWaveRunCommandToolDefinition().ToolCallDesc(map[string]any{
-		"connection": "root@example",
-		"command":    `lscpu | grep "Model name"`,
-	}, nil, nil)
-	if !strings.Contains(desc, `lscpu | grep`) || !strings.Contains(desc, `on root@example`) {
-		t.Fatalf("unexpected tool call description: %q", desc)
-	}
-}
-
-func TestWaveRunCommandToolCallDescFallsBackToCurrentTerminal(t *testing.T) {
-	desc := GetWaveRunCommandToolDefinition().ToolCallDesc(map[string]any{
-		"command": "uname -a",
-	}, nil, nil)
-	if !strings.Contains(desc, `on current terminal`) {
-		t.Fatalf("unexpected tool call description: %q", desc)
-	}
-}
-
-func TestWaveRunCommandToolApproval_AllowsOrdinaryCommands(t *testing.T) {
-	approval := GetWaveRunCommandToolDefinition().ToolApproval(map[string]any{
-		"command": "lscpu | head -n 20",
+func TestValidateRemoteLinuxWaveRunCommand_RejectsLocalConnection(t *testing.T) {
+	err := validateRemoteLinuxWaveRunCommand(&WaveRunCommandToolInput{
+		Connection: "local",
+		Command:    "uname",
 	})
-	if approval != uctypes.ApprovalAutoApproved {
-		t.Fatalf("expected ordinary command to auto approve, got %q", approval)
+	if err == nil {
+		t.Fatalf("expected local connection to be rejected")
+	}
+	if !strings.Contains(err.Error(), "local execution is disabled") {
+		t.Fatalf("expected local execution error, got %v", err)
 	}
 }
 
-func TestWaveRunCommandToolApproval_BlocksDangerousCommands(t *testing.T) {
-	approval := GetWaveRunCommandToolDefinition().ToolApproval(map[string]any{
-		"command": "rm -rf /tmp/x",
+func TestValidateRemoteLinuxWaveRunCommand_RejectsWslConnection(t *testing.T) {
+	err := validateRemoteLinuxWaveRunCommand(&WaveRunCommandToolInput{
+		Connection: "wsl://Ubuntu",
+		Command:    "uname",
 	})
-	if approval != uctypes.ApprovalNeedsApproval {
-		t.Fatalf("expected dangerous command to require approval, got %q", approval)
+	if err == nil {
+		t.Fatalf("expected wsl connection to be rejected")
+	}
+	if !strings.Contains(err.Error(), "local execution is disabled") {
+		t.Fatalf("expected local execution error, got %v", err)
 	}
 }
 
-func TestWaveRunCommandToolSchema_CommandOnlyRequired(t *testing.T) {
-	schema := GetWaveRunCommandToolDefinition().InputSchema
-	required, ok := schema["required"].([]string)
-	if !ok {
-		t.Fatalf("expected required to be []string, got %#v", schema["required"])
+func TestValidateRemoteLinuxWaveRunCommand_RejectsWindowsShellCommand(t *testing.T) {
+	err := validateRemoteLinuxWaveRunCommand(&WaveRunCommandToolInput{
+		Connection: "root@example",
+		Command:    "powershell",
+		Args:       []string{"-Command", "Get-CimInstance Win32_OperatingSystem"},
+	})
+	if err == nil {
+		t.Fatalf("expected windows shell command to be rejected")
 	}
-	if len(required) != 1 || required[0] != "command" {
-		t.Fatalf("expected only command to be required, got %#v", required)
-	}
-}
-
-func TestWaveGetCommandResultToolSchema_IsPlainObjectAtTopLevel(t *testing.T) {
-	schema := GetWaveGetCommandResultToolDefinition().InputSchema
-	if schema["type"] != "object" {
-		t.Fatalf("expected top-level schema type object, got %#v", schema["type"])
-	}
-	for _, forbiddenKey := range []string{"oneOf", "anyOf", "allOf", "enum", "not"} {
-		if _, found := schema[forbiddenKey]; found {
-			t.Fatalf("top-level schema must not include %s: %#v", forbiddenKey, schema[forbiddenKey])
-		}
+	if !strings.Contains(err.Error(), "linux shell commands") {
+		t.Fatalf("expected linux shell error, got %v", err)
 	}
 }
 
-func TestShouldReturnWaveCommandResult_WaitsBrieflyForLateOutput(t *testing.T) {
+func TestValidateRemoteLinuxWaveRunCommand_AllowsRemoteLinuxCommand(t *testing.T) {
+	err := validateRemoteLinuxWaveRunCommand(&WaveRunCommandToolInput{
+		Connection: "root@example",
+		Command:    "uname",
+		Args:       []string{"-a"},
+	})
+	if err != nil {
+		t.Fatalf("expected remote linux command to be allowed, got %v", err)
+	}
+}
+
+func TestShouldReturnWaveCommandResult_ReturnsImmediatelyWhenDone(t *testing.T) {
 	now := time.Now()
 	deadline := now.Add(30 * time.Second)
 	var terminalSeenAt time.Time
@@ -198,11 +177,8 @@ func TestShouldReturnWaveCommandResult_WaitsBrieflyForLateOutput(t *testing.T) {
 		Output: "",
 	}
 
-	if shouldReturnWaveCommandResult(result, now, deadline, &terminalSeenAt) {
-		t.Fatalf("expected first empty done result to wait for output flush")
-	}
-	if terminalSeenAt.IsZero() {
-		t.Fatalf("expected terminalSeenAt to be recorded")
+	if !shouldReturnWaveCommandResult(result, now, deadline, &terminalSeenAt) {
+		t.Fatalf("expected done result to return immediately")
 	}
 }
 
@@ -217,19 +193,5 @@ func TestShouldReturnWaveCommandResult_ReturnsWhenOutputPresent(t *testing.T) {
 
 	if !shouldReturnWaveCommandResult(result, now, deadline, &terminalSeenAt) {
 		t.Fatalf("expected non-empty output to return immediately")
-	}
-}
-
-func TestShouldReturnWaveCommandResult_ReturnsAfterGraceWindow(t *testing.T) {
-	now := time.Now()
-	deadline := now.Add(30 * time.Second)
-	seenAt := now.Add(-6 * time.Second)
-	result := &wshrpc.CommandAgentGetCommandResultRtnData{
-		Status: "done",
-		Output: "",
-	}
-
-	if !shouldReturnWaveCommandResult(result, now, deadline, &seenAt) {
-		t.Fatalf("expected empty done result to return after grace window")
 	}
 }

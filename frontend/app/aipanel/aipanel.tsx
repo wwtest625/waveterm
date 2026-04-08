@@ -16,6 +16,7 @@ import { DefaultChatTransport } from "ai";
 import * as jotai from "jotai";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useDrop } from "react-dnd";
+import { Popover, PopoverButton, PopoverContent } from "../element/popover";
 import { deriveAgentRuntimeStatus } from "./agentstatus";
 import { formatFileSizeError, isAcceptableFile, validateFileSize } from "./ai-utils";
 import { AIDroppedFiles } from "./aidroppedfiles";
@@ -252,6 +253,34 @@ const ConfigChangeModeFixer = memo(() => {
 
 ConfigChangeModeFixer.displayName = "ConfigChangeModeFixer";
 
+export function getHorizontalSessionTabs(
+    sessions: WaveChatSessionMeta[],
+    hiddenSessionIds: string[],
+    activeChatId: string | null | undefined,
+    maxTabs = 3
+): WaveChatSessionMeta[] {
+    const visibleSessions = sessions.filter((session) => !hiddenSessionIds.includes(session.chatid));
+    const normalizedMaxTabs = Math.max(1, maxTabs);
+    const defaultTabs = visibleSessions.slice(0, normalizedMaxTabs);
+    if (!activeChatId) {
+        return defaultTabs;
+    }
+    if (defaultTabs.some((session) => session.chatid === activeChatId)) {
+        return defaultTabs;
+    }
+    const activeSession = visibleSessions.find((session) => session.chatid === activeChatId);
+    if (!activeSession) {
+        return defaultTabs;
+    }
+    const tabsWithActive = [...defaultTabs.slice(0, normalizedMaxTabs - 1), activeSession];
+    const visibleIndexByChatId = new Map(visibleSessions.map((session, index) => [session.chatid, index]));
+    return tabsWithActive.sort((left, right) => {
+        const leftIndex = visibleIndexByChatId.get(left.chatid) ?? Number.MAX_SAFE_INTEGER;
+        const rightIndex = visibleIndexByChatId.get(right.chatid) ?? Number.MAX_SAFE_INTEGER;
+        return leftIndex - rightIndex;
+    });
+}
+
 const AISessionToolbar = memo(() => {
     const model = WaveAIModel.getInstance();
     const sessions = jotai.useAtomValue(model.sessionsAtom);
@@ -265,7 +294,6 @@ const AISessionToolbar = memo(() => {
             </div>
         );
     }
-    const activeSession = sessions.find((session) => session.chatid === activeChatId);
     const filteredSessions = sessions.filter((session) => {
         if (hiddenSessionIds.includes(session.chatid)) {
             return false;
@@ -277,59 +305,125 @@ const AISessionToolbar = memo(() => {
         const haystack = `${session.title ?? ""} ${session.summary ?? ""}`.toLowerCase();
         return haystack.includes(needle);
     });
-
-    const handleRename = () => {
-        if (!activeSession) {
-            return;
-        }
-        const nextTitle = window.prompt("Rename this session", activeSession.title ?? "New Chat");
-        if (nextTitle && nextTitle.trim()) {
-            void model.renameSession(activeSession.chatid, nextTitle);
-        }
-    };
+    const recentSessions = getHorizontalSessionTabs(sessions, hiddenSessionIds, activeChatId, 3);
 
     return (
         <div className="border-b border-white/8 bg-black/15 px-2 py-2">
             <div className="flex flex-wrap items-center gap-2">
                 <AIModeDropdown />
-                <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search history"
-                    className="min-w-[120px] flex-1 rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-white outline-none placeholder:text-zinc-500"
-                />
-                {activeSession && (
-                    <button
-                        type="button"
-                        onClick={() => void model.toggleSessionFavorite(activeSession.chatid)}
-                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/8 bg-white/5 text-xs text-zinc-300 hover:text-yellow-300"
-                        title={activeSession.favorite ? "Unfavorite" : "Favorite"}
+                <Popover className="min-w-0 flex-1" placement="bottom-start" onDismiss={() => setQuery("")}>
+                    <PopoverButton
+                        className="flex min-w-[120px] items-center justify-between rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-zinc-300 hover:text-white"
+                        as="div"
                     >
-                        <i
-                            className={cn(
-                                activeSession.favorite ? "fa-solid fa-star text-yellow-300" : "fa-regular fa-star"
+                        <span>History</span>
+                        <i className="fa-solid fa-chevron-down text-[10px]" />
+                    </PopoverButton>
+                    <PopoverContent className="w-[360px] max-w-[calc(100vw-24px)] rounded-xl border border-white/10 bg-zinc-900/96 p-2 shadow-2xl backdrop-blur">
+                        <div className="mb-2 px-1">
+                            <input
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                placeholder="Search history"
+                                className="w-full rounded-full border border-white/8 bg-white/5 px-3 py-1.5 text-xs text-white outline-none placeholder:text-zinc-500"
+                            />
+                        </div>
+                        <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                            {filteredSessions.map((session) => (
+                                <div
+                                    key={session.chatid}
+                                    className={cn(
+                                        "group flex items-center gap-2 rounded-lg border px-2 py-1.5 transition-colors",
+                                        session.chatid === activeChatId
+                                            ? "border-lime-300/25 bg-lime-300/10"
+                                            : "border-white/8 bg-white/3 hover:bg-white/5"
+                                    )}
+                                >
+                                    <button
+                                        type="button"
+                                        onClick={() => void model.switchSession(session.chatid)}
+                                        className={cn(
+                                            "min-w-0 flex-1 truncate text-left text-xs transition-colors",
+                                            session.chatid === activeChatId
+                                                ? "text-lime-100"
+                                                : "text-zinc-300 hover:text-white"
+                                        )}
+                                        title={session.summary || session.title || "New Chat"}
+                                    >
+                                        {session.favorite ? "★ " : ""}
+                                        {session.title || "New Chat"}
+                                    </button>
+                                    <div
+                                        className={cn(
+                                            "flex items-center gap-1 opacity-100 transition-opacity",
+                                            session.chatid === activeChatId
+                                                ? "opacity-100"
+                                                : "opacity-0 group-hover:opacity-100"
+                                        )}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                void model.toggleSessionFavorite(session.chatid);
+                                            }}
+                                            className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-400 hover:bg-white/8 hover:text-yellow-300"
+                                            title={session.favorite ? "Unfavorite" : "Favorite"}
+                                            aria-label={session.favorite ? "Unfavorite session" : "Favorite session"}
+                                        >
+                                            <i
+                                                className={cn(
+                                                    session.favorite
+                                                        ? "fa-solid fa-star text-yellow-300"
+                                                        : "fa-regular fa-star"
+                                                )}
+                                            />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const nextTitle = window.prompt(
+                                                    "Rename this session",
+                                                    session.title ?? "New Chat"
+                                                );
+                                                if (nextTitle && nextTitle.trim()) {
+                                                    void model.renameSession(session.chatid, nextTitle);
+                                                }
+                                            }}
+                                            className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-400 hover:bg-white/8 hover:text-white"
+                                            title="Rename"
+                                            aria-label="Rename session"
+                                        >
+                                            <i className="fa-regular fa-pen-to-square" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (
+                                                    window.confirm(
+                                                        `Delete "${session.title || "New Chat"}" permanently?`
+                                                    )
+                                                ) {
+                                                    void model.deleteSession(session.chatid);
+                                                }
+                                            }}
+                                            className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-400 hover:bg-red-400/10 hover:text-red-300"
+                                            title="Delete"
+                                            aria-label="Delete session"
+                                        >
+                                            <i className="fa-regular fa-trash-can" />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                            {filteredSessions.length === 0 && (
+                                <div className="px-2 py-3 text-xs text-zinc-500">No matching history</div>
                             )}
-                        />
-                    </button>
-                )}
-                {activeSession && (
-                    <button
-                        type="button"
-                        onClick={handleRename}
-                        className="rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-zinc-300 hover:text-white"
-                    >
-                        Rename
-                    </button>
-                )}
-                {activeSession && (
-                    <button
-                        type="button"
-                        onClick={() => void model.archiveSession(activeSession.chatid)}
-                        className="rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-zinc-300 hover:text-white"
-                    >
-                        Archive
-                    </button>
-                )}
+                        </div>
+                    </PopoverContent>
+                </Popover>
                 <button
                     type="button"
                     onClick={() => model.clearChat()}
@@ -339,13 +433,13 @@ const AISessionToolbar = memo(() => {
                 </button>
             </div>
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                {filteredSessions.slice(0, 6).map((session) => (
+                {recentSessions.map((session) => (
                     <div key={session.chatid} className="relative shrink-0">
                         <button
                             type="button"
                             onClick={() => void model.switchSession(session.chatid)}
                             className={cn(
-                                "max-w-[180px] truncate rounded-full border px-3 py-1 pr-7 text-xs transition-colors",
+                                "max-w-[220px] truncate rounded-full border px-3 py-1 pr-7 text-xs transition-colors",
                                 session.chatid === activeChatId
                                     ? "border-lime-300/30 bg-lime-300/12 text-lime-100"
                                     : "border-white/8 bg-white/5 text-zinc-300 hover:text-white"
@@ -368,6 +462,9 @@ const AISessionToolbar = memo(() => {
                         </button>
                     </div>
                 ))}
+                {recentSessions.length === 0 && (
+                    <div className="px-1 py-1 text-xs text-zinc-500">No recent sessions</div>
+                )}
             </div>
         </div>
     );
@@ -574,14 +671,25 @@ const AIPanelComponentInner = memo(() => {
         if (latestToolUse) {
             const lastToolCall = toolCallFromPart(latestToolUse, taskId);
             const lastToolResult = toolResultFromPart(latestToolUse, taskId) ?? undefined;
+            const isRunningTool = latestToolUse.data.status === "running";
             const progressBlockedReason =
                 !shouldHideProgressStatusLines(latestToolProgress?.data?.toolname) &&
                 latestToolProgress?.data?.statuslines?.find((line) => Boolean(line?.trim()));
             model.mergeAgentRuntimeSnapshot({
                 lastToolCall,
                 lastToolResult,
-                activeTool: latestToolUse.data.toolname,
                 blockedReason: latestToolUse.data.errormessage ?? latestToolUse.data.tooldesc ?? progressBlockedReason,
+                ...(isRunningTool && latestToolUse.data.jobid
+                    ? {
+                          state: "executing" as const,
+                          phaseLabel: "Executing Command",
+                          activeTool: latestToolUse.data.toolname,
+                          activeJobId: latestToolUse.data.jobid,
+                      }
+                    : {
+                          activeTool: undefined,
+                          activeJobId: undefined,
+                      }),
             });
             if (latestToolUse.data.approval === "needs-approval") {
                 model.dispatchAgentEvent({

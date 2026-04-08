@@ -448,6 +448,45 @@ export class WaveAIModel {
         }
     }
 
+    async deleteSession(chatId: string): Promise<void> {
+        if (!chatId) {
+            return;
+        }
+        try {
+            const deletingActiveSession = globalStore.get(this.chatId) === chatId;
+            await RpcApi.DeleteWaveAISessionCommand(
+                TabRpcClient,
+                {
+                    chatid: chatId,
+                },
+                null
+            );
+            const hiddenSessionIds = globalStore.get(this.hiddenSessionIdsAtom);
+            if (hiddenSessionIds.includes(chatId)) {
+                globalStore.set(
+                    this.hiddenSessionIdsAtom,
+                    hiddenSessionIds.filter((id) => id !== chatId)
+                );
+            }
+            const sessions = await this.loadSessions();
+            const remainingSessions = sessions.filter(
+                (item) => item.chatid !== chatId && !globalStore.get(this.hiddenSessionIdsAtom).includes(item.chatid)
+            );
+            if (deletingActiveSession) {
+                const nextSession = remainingSessions[0];
+                if (nextSession) {
+                    await this.switchSession(nextSession.chatid);
+                } else {
+                    this.clearChat();
+                }
+            }
+        } catch (error) {
+            console.error("Failed to delete session:", error);
+            const message = error instanceof Error ? error.message : "Unknown error";
+            this.setError(`Failed to delete session: ${message}`);
+        }
+    }
+
     async hideSession(chatId: string): Promise<void> {
         if (!chatId) {
             return;

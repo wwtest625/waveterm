@@ -1080,6 +1080,12 @@ func UpdateWaveAISessionCommand(w *wshutil.WshRpc, data wshrpc.CommandUpdateWave
 	return resp, err
 }
 
+// command "deletewaveaisession", wshserver.DeleteWaveAISessionCommand
+func DeleteWaveAISessionCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteWaveAISessionData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "deletewaveaisession", data, opts)
+	return err
+}
+
 // command "waveaitoolapprove", wshserver.WaveAIToolApproveCommand
 func WaveAIToolApproveCommand(w *wshutil.WshRpc, data wshrpc.CommandWaveAIToolApproveData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "waveaitoolapprove", data, opts)

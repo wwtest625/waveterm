@@ -78,7 +78,7 @@ func isReadOnlyAgentTool(toolName string) bool {
 		return true
 	}
 	switch toolName {
-	case "read_text_file", "read_dir", "capture_screenshot", "term_get_scrollback", "term_command_output", "builder_list_files", "wave_get_command_result":
+	case "capture_screenshot", "term_get_scrollback", "term_command_output", "builder_list_files", "wave_get_command_result":
 		return true
 	default:
 		return false

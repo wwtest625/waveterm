@@ -32,6 +32,8 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/web/sse"
 	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -46,7 +48,7 @@ var (
 	activeChats = ds.MakeSyncMap[bool]() // key is chatid
 )
 
-func getSystemPrompt(apiType string, model string, provider string, isBuilder bool, hasToolsCapability bool, widgetAccess bool, agentMode AgentMode) []string {
+func getSystemPrompt(apiType string, model string, provider string, isBuilder bool, hasToolsCapability bool, widgetAccess bool, agentMode AgentMode, currentMessageText string) []string {
 	if isBuilder {
 		return []string{}
 	}
@@ -260,6 +262,160 @@ func extractToolOutputText(toolName string, resultText string) string {
 	return truncateToolOutputText(trimmedResult)
 }
 
+func parseWaveCommandResultSnapshot(resultText string) (*wshrpc.CommandAgentGetCommandResultRtnData, bool) {
+	trimmed := strings.TrimSpace(resultText)
+	if trimmed == "" {
+		return nil, false
+	}
+	var parsed wshrpc.CommandAgentGetCommandResultRtnData
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		return nil, false
+	}
+	if strings.TrimSpace(parsed.JobId) == "" {
+		return nil, false
+	}
+	return &parsed, true
+}
+
+func parseWaveCommandJobID(resultText string) string {
+	trimmed := strings.TrimSpace(resultText)
+	if trimmed == "" {
+		return ""
+	}
+	var parsed struct {
+		JobID string `json:"job_id"`
+		JobId string `json:"jobid"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(parsed.JobID) != "" {
+		return strings.TrimSpace(parsed.JobID)
+	}
+	return strings.TrimSpace(parsed.JobId)
+}
+
+var waveCommandResultPollers = struct {
+	mu   sync.Mutex
+	jobs map[string]struct{}
+}{
+	jobs: make(map[string]struct{}),
+}
+
+func tryStartWaveCommandResultPoller(
+	ctx context.Context,
+	chatOpts uctypes.WaveChatOpts,
+	backend UseChatBackend,
+	toolCallID string,
+	snapshot *wshrpc.CommandAgentGetCommandResultRtnData,
+) {
+	if snapshot == nil || strings.TrimSpace(snapshot.JobId) == "" {
+		return
+	}
+	pollerKey := chatOpts.ChatId + ":" + toolCallID
+	waveCommandResultPollers.mu.Lock()
+	if _, exists := waveCommandResultPollers.jobs[pollerKey]; exists {
+		waveCommandResultPollers.mu.Unlock()
+		return
+	}
+	waveCommandResultPollers.jobs[pollerKey] = struct{}{}
+	waveCommandResultPollers.mu.Unlock()
+
+	initialToolUse := uctypes.UIMessageDataToolUse{
+		ToolCallId: toolCallID,
+		ToolName:   "wave_get_command_result",
+		Status:     uctypes.ToolUseStatusCompleted,
+		JobId:      snapshot.JobId,
+		DurationMs: snapshot.DurationMs,
+		OutputText: extractToolOutputText("wave_get_command_result", snapshot.Output),
+	}
+	if snapshot.Status == "running" {
+		initialToolUse.Status = "running"
+	}
+	if strings.TrimSpace(snapshot.Error) != "" {
+		initialToolUse.Status = uctypes.ToolUseStatusError
+		initialToolUse.ErrorMessage = snapshot.Error
+	}
+
+	go func() {
+		defer func() {
+			waveCommandResultPollers.mu.Lock()
+			delete(waveCommandResultPollers.jobs, pollerKey)
+			waveCommandResultPollers.mu.Unlock()
+		}()
+
+		current := initialToolUse
+		currentOutput := current.OutputText
+		currentDuration := current.DurationMs
+		terminalSeenAt := time.Time{}
+		deadline := time.Now().Add(60 * time.Second)
+		rpcClient := wshclient.GetBareRpcClient()
+		for {
+			if err := ctx.Err(); err != nil {
+				current.Status = uctypes.ToolUseStatusError
+				current.ErrorMessage = "command result polling canceled"
+				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
+				return
+			}
+			if time.Now().After(deadline) {
+				current.Status = uctypes.ToolUseStatusError
+				current.ErrorMessage = "command result polling timed out"
+				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
+				return
+			}
+			result, err := wshclient.AgentGetCommandResultCommand(rpcClient, wshrpc.CommandAgentGetCommandResultData{
+				JobId:     snapshot.JobId,
+				TailBytes: 32768,
+			}, nil)
+			if err != nil {
+				log.Printf("failed to poll wave command result for %s: %v", snapshot.JobId, err)
+				current.Status = uctypes.ToolUseStatusError
+				current.ErrorMessage = err.Error()
+				current.DurationMs = currentDuration
+				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
+				return
+			}
+			current.DurationMs = result.DurationMs
+			current.OutputText = extractToolOutputText("wave_get_command_result", result.Output)
+			if result.Status == "error" {
+				current.Status = uctypes.ToolUseStatusError
+				current.ErrorMessage = result.Error
+				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
+				return
+			}
+			if result.Status == "running" {
+				current.Status = "running"
+				current.ErrorMessage = ""
+				if current.OutputText != currentOutput || current.DurationMs != currentDuration {
+					currentOutput = current.OutputText
+					currentDuration = current.DurationMs
+					updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
+				}
+				select {
+				case <-ctx.Done():
+				case <-time.After(250 * time.Millisecond):
+				}
+				continue
+			}
+			if shouldReturnWaveCommandResult(result, time.Now(), deadline, &terminalSeenAt) {
+				current.Status = uctypes.ToolUseStatusCompleted
+				current.ErrorMessage = ""
+				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
+				return
+			}
+			if current.OutputText != currentOutput || current.DurationMs != currentDuration {
+				currentOutput = current.OutputText
+				currentDuration = current.DurationMs
+				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
+			}
+			select {
+			case <-ctx.Done():
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+	}()
+}
+
 func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCall, chatOpts uctypes.WaveChatOpts, toolDef *uctypes.ToolDefinition, sseHandler *sse.SSEHandlerCh) uctypes.AIToolResult {
 	if toolCall.ToolUseData == nil {
 		return uctypes.AIToolResult{
@@ -350,7 +506,30 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 		toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
 		toolCall.ToolUseData.ErrorMessage = result.ErrorText
 		toolCall.ToolUseData.OutputText = ""
+	} else if toolCall.Name == "wave_get_command_result" {
+		if snapshot, ok := parseWaveCommandResultSnapshot(result.Text); ok {
+			toolCall.ToolUseData.JobId = snapshot.JobId
+			toolCall.ToolUseData.DurationMs = snapshot.DurationMs
+			toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
+			if snapshot.Status == "running" {
+				toolCall.ToolUseData.Status = "running"
+				toolCall.ToolUseData.ErrorMessage = ""
+				tryStartWaveCommandResultPoller(sseHandler.Context(), chatOpts, backend, toolCall.ID, snapshot)
+			} else if snapshot.Status == "error" || strings.TrimSpace(snapshot.Error) != "" {
+				toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
+				toolCall.ToolUseData.ErrorMessage = snapshot.Error
+			} else {
+				toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
+				toolCall.ToolUseData.ErrorMessage = ""
+			}
+		} else {
+			toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
+			toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
+		}
 	} else {
+		if toolCall.Name == "wave_run_command" {
+			toolCall.ToolUseData.JobId = parseWaveCommandJobID(result.Text)
+		}
 		toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
 		toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
 	}
@@ -364,6 +543,20 @@ func processToolCall(backend UseChatBackend, toolCall uctypes.WaveToolCall, chat
 
 	toolDef := chatOpts.GetToolDefinition(toolCall.Name)
 	result := processToolCallInternal(backend, toolCall, chatOpts, toolDef, sseHandler)
+	finalizeToolCallProcessing(backend, chatOpts, sseHandler, toolCall, toolDef, result, metrics)
+
+	return result
+}
+
+func finalizeToolCallProcessing(
+	backend UseChatBackend,
+	chatOpts uctypes.WaveChatOpts,
+	sseHandler *sse.SSEHandlerCh,
+	toolCall uctypes.WaveToolCall,
+	toolDef *uctypes.ToolDefinition,
+	result uctypes.AIToolResult,
+	metrics *uctypes.AIMetrics,
+) {
 
 	if result.ErrorText != "" {
 		log.Printf("  error=%s\n", result.ErrorText)
@@ -380,8 +573,119 @@ func processToolCall(backend UseChatBackend, toolCall uctypes.WaveToolCall, chat
 		_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, *toolCall.ToolUseData)
 		updateToolUseDataInChat(backend, chatOpts, toolCall.ID, *toolCall.ToolUseData)
 	}
+}
 
-	return result
+type toolExecutionGroup struct {
+	Start    int
+	End      int
+	Parallel bool
+}
+
+func buildToolCallDedupKey(toolName string, input any) (string, error) {
+	inputJSON, err := json.Marshal(input)
+	if err != nil {
+		return "", err
+	}
+	return toolName + "\n" + string(inputJSON), nil
+}
+
+func buildToolCallDedupKeys(toolCalls []uctypes.WaveToolCall) []string {
+	keys := make([]string, len(toolCalls))
+	for i, toolCall := range toolCalls {
+		key, err := buildToolCallDedupKey(toolCall.Name, toolCall.Input)
+		if err != nil {
+			keys[i] = toolCall.Name + "\n" + toolCall.ID
+			continue
+		}
+		keys[i] = key
+	}
+	return keys
+}
+
+func canProcessToolCallInParallel(toolCall uctypes.WaveToolCall) bool {
+	if toolCall.ToolUseData == nil {
+		return false
+	}
+	if toolCall.ToolUseData.Approval == uctypes.ApprovalNeedsApproval {
+		return false
+	}
+	switch toolCall.Name {
+	case "capture_screenshot", "term_get_scrollback", "term_command_output", "builder_list_files", "wave_get_command_result", "wave_run_command":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildToolExecutionPlan(toolCalls []uctypes.WaveToolCall) []toolExecutionGroup {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+	var plan []toolExecutionGroup
+	for i := 0; i < len(toolCalls); {
+		parallel := canProcessToolCallInParallel(toolCalls[i])
+		start := i
+		i++
+		if parallel {
+			for i < len(toolCalls) && canProcessToolCallInParallel(toolCalls[i]) {
+				i++
+			}
+		}
+		plan = append(plan, toolExecutionGroup{
+			Start:    start,
+			End:      i,
+			Parallel: parallel,
+		})
+	}
+	return plan
+}
+
+func processToolCallBatch(
+	backend UseChatBackend,
+	toolCalls []uctypes.WaveToolCall,
+	chatOpts uctypes.WaveChatOpts,
+	sseHandler *sse.SSEHandlerCh,
+	metrics *uctypes.AIMetrics,
+) []uctypes.AIToolResult {
+	results := make([]uctypes.AIToolResult, len(toolCalls))
+	type batchResult struct {
+		index    int
+		result   uctypes.AIToolResult
+		toolCall uctypes.WaveToolCall
+		toolDef  *uctypes.ToolDefinition
+	}
+	resultCh := make(chan batchResult, len(toolCalls))
+
+	var wg sync.WaitGroup
+	for idx := range toolCalls {
+		toolCall := toolCalls[idx]
+		toolDef := chatOpts.GetToolDefinition(toolCall.Name)
+		wg.Add(1)
+		go func(index int, call uctypes.WaveToolCall, def *uctypes.ToolDefinition) {
+			defer wg.Done()
+			inputJSON, _ := json.Marshal(call.Input)
+			logutil.DevPrintf("TOOLUSE(P) name=%s id=%s input=%s approval=%q\n", call.Name, call.ID, utilfn.TruncateString(string(inputJSON), 40), call.ToolUseData.Approval)
+			resultCh <- batchResult{
+				index:    index,
+				result:   processToolCallInternal(backend, call, chatOpts, def, sseHandler),
+				toolCall: call,
+				toolDef:  def,
+			}
+		}(idx, toolCall, toolDef)
+	}
+
+	wg.Wait()
+	close(resultCh)
+
+	finalized := make([]batchResult, len(toolCalls))
+	for item := range resultCh {
+		finalized[item.index] = item
+	}
+	for idx, item := range finalized {
+		results[idx] = item.result
+		finalizeToolCallProcessing(backend, chatOpts, sseHandler, item.toolCall, item.toolDef, item.result, metrics)
+	}
+	return results
 }
 
 func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopReason, chatOpts uctypes.WaveChatOpts, sseHandler *sse.SSEHandlerCh, metrics *uctypes.AIMetrics) {
@@ -407,21 +711,89 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 	}
 	// At this point, all ToolCalls are guaranteed to have non-nil ToolUseData
 
-	var toolResults []uctypes.AIToolResult
-	for _, toolCall := range stopReason.ToolCalls {
+	toolResults := make([]uctypes.AIToolResult, len(stopReason.ToolCalls))
+	processed := make([]bool, len(stopReason.ToolCalls))
+	dedupKeys := buildToolCallDedupKeys(stopReason.ToolCalls)
+	seenResultsByKey := make(map[string]uctypes.AIToolResult)
+	for _, group := range buildToolExecutionPlan(stopReason.ToolCalls) {
 		if sseHandler.Err() != nil {
 			log.Printf("AI tool processing stopped: %v\n", sseHandler.Err())
 			break
 		}
+		if group.Parallel {
+			var uniqueToolCalls []uctypes.WaveToolCall
+			var uniqueIndices []int
+			for idx := group.Start; idx < group.End; idx++ {
+				key := dedupKeys[idx]
+				if prior, ok := seenResultsByKey[key]; ok {
+					toolResults[idx] = prior
+					processed[idx] = true
+					if stopReason.ToolCalls[idx].ToolUseData != nil {
+						stopReason.ToolCalls[idx].ToolUseData.Status = stopReason.ToolCalls[idx].ToolUseData.Status
+					}
+					continue
+				}
+				alreadyQueued := false
+				for _, existingIndex := range uniqueIndices {
+					if dedupKeys[existingIndex] == key {
+						alreadyQueued = true
+						break
+					}
+				}
+				if alreadyQueued {
+					continue
+				}
+				uniqueToolCalls = append(uniqueToolCalls, stopReason.ToolCalls[idx])
+				uniqueIndices = append(uniqueIndices, idx)
+			}
+			results := processToolCallBatch(backend, uniqueToolCalls, chatOpts, sseHandler, metrics)
+			for idx, result := range results {
+				origIndex := uniqueIndices[idx]
+				key := dedupKeys[origIndex]
+				seenResultsByKey[key] = result
+				toolResults[origIndex] = result
+				processed[origIndex] = true
+				for dupIndex := group.Start; dupIndex < group.End; dupIndex++ {
+					if dupIndex == origIndex || processed[dupIndex] || dedupKeys[dupIndex] != key {
+						continue
+					}
+					toolResults[dupIndex] = result
+					processed[dupIndex] = true
+					if stopReason.ToolCalls[dupIndex].ToolUseData != nil {
+						stopReason.ToolCalls[dupIndex].ToolUseData.Status = stopReason.ToolCalls[origIndex].ToolUseData.Status
+						stopReason.ToolCalls[dupIndex].ToolUseData.ErrorMessage = stopReason.ToolCalls[origIndex].ToolUseData.ErrorMessage
+						stopReason.ToolCalls[dupIndex].ToolUseData.OutputText = stopReason.ToolCalls[origIndex].ToolUseData.OutputText
+						stopReason.ToolCalls[dupIndex].ToolUseData.DurationMs = stopReason.ToolCalls[origIndex].ToolUseData.DurationMs
+						stopReason.ToolCalls[dupIndex].ToolUseData.ToolDesc = stopReason.ToolCalls[origIndex].ToolUseData.ToolDesc
+						_ = sseHandler.AiMsgData("data-tooluse", stopReason.ToolCalls[dupIndex].ID, *stopReason.ToolCalls[dupIndex].ToolUseData)
+						updateToolUseDataInChat(backend, chatOpts, stopReason.ToolCalls[dupIndex].ID, *stopReason.ToolCalls[dupIndex].ToolUseData)
+					}
+				}
+			}
+			continue
+		}
+		toolCall := stopReason.ToolCalls[group.Start]
+		key := dedupKeys[group.Start]
+		if prior, ok := seenResultsByKey[key]; ok {
+			toolResults[group.Start] = prior
+			processed[group.Start] = true
+			if toolCall.ToolUseData != nil {
+				_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, *toolCall.ToolUseData)
+				updateToolUseDataInChat(backend, chatOpts, toolCall.ID, *toolCall.ToolUseData)
+			}
+			continue
+		}
 		result := processToolCall(backend, toolCall, chatOpts, sseHandler, metrics)
-		toolResults = append(toolResults, result)
+		toolResults[group.Start] = result
+		processed[group.Start] = true
+		seenResultsByKey[key] = result
 	}
 
 	// Cleanup: unregister approvals, remove incomplete/canceled tool calls, and filter results
 	var filteredResults []uctypes.AIToolResult
 	for i, toolCall := range stopReason.ToolCalls {
 		UnregisterToolApproval(toolCall.ID)
-		hasResult := i < len(toolResults)
+		hasResult := processed[i]
 		shouldRemove := !hasResult || (toolCall.ToolUseData != nil && toolCall.ToolUseData.Approval == uctypes.ApprovalCanceled)
 		if shouldRemove {
 			backend.RemoveToolUseCall(chatOpts.ChatId, toolCall.ID)
@@ -776,6 +1148,7 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		ClientId:             wstore.GetClientId(),
 		Config:               *aiOpts,
 		AgentMode:            string(resolveAgentMode(req.AgentMode)),
+		CurrentMessageText:   req.Msg.GetContent(),
 		WidgetAccess:         effectiveWidgetAccess,
 		AllowNativeWebSearch: true,
 		TabId:                req.TabId,
@@ -783,7 +1156,7 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		BuilderId:            req.BuilderId,
 		BuilderAppId:         req.BuilderAppId,
 	}
-	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.Config.Provider, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), effectiveWidgetAccess, resolveAgentMode(req.AgentMode))
+	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.Config.Provider, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), effectiveWidgetAccess, resolveAgentMode(req.AgentMode), req.Msg.GetContent())
 
 	if req.TabId != "" {
 		chatOpts.TabStateGenerator = func() (string, []uctypes.ToolDefinition, string, error) {

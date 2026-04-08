@@ -3,7 +3,9 @@
 
 package aiusechat
 
-import "strings"
+import (
+	"strings"
+)
 
 // 基础系统提示词尽量短。
 // 只保留角色、工具边界、任务链和输出格式这几件最值钱的事。
@@ -16,18 +18,6 @@ var SystemPromptText_OpenAI = strings.Join([]string{
 	`Think in a short task chain: current step, next step, result.`,
 	// 能用工具就用工具，不要空讲。
 	`Use tools when available instead of describing them.`,
-	// 真要动手时，动作要窄，别一口气开太大。
-	`When a tool is useful, keep the command or action narrow.`,
-	// 命令和代码保持块状，方便复制。
-	`For shell commands and code, use fenced Markdown blocks.`,
-	// 危险操作先提醒，再给安全路径。
-	`If a request is dangerous, warn briefly and offer a safer path.`,
-	// 输出太长时先概括，再保留短的细节块。
-	`If output is long, summarize first and keep the detailed block short.`,
-	// 文件编辑走小步替换，失败后先重读再缩小范围。
-	`When editing files, prefer small search/replace batches. If an edit misses, reread the latest file and retry with fewer changes.`,
-	// 没有的权限不要装作有。
-	`Never invent access you do not have.`,
 }, " ")
 
 // 无工具模式也要保留同样的角色感，只是明确不能碰终端和文件。

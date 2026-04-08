@@ -56,7 +56,7 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 		t.Fatalf("expected default prompt to keep a short tools rule, got %q", defaultPrompt)
 	}
 
-	basePrompt := strings.Join(getSystemPrompt(uctypes.APIType_OpenAIResponses, "gpt-5", uctypes.AIProvider_Wave, false, true, false, AgentModeDefault), " ")
+	basePrompt := strings.Join(getSystemPrompt(uctypes.APIType_OpenAIResponses, "gpt-5", uctypes.AIProvider_Wave, false, true, false, AgentModeDefault, ""), " ")
 	if strings.Contains(basePrompt, "cannot access the terminal") {
 		t.Fatalf("expected Wave provider prompt to stay tool-capable, got %q", basePrompt)
 	}
@@ -66,9 +66,19 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	if !strings.Contains(basePrompt, "short task chain") {
 		t.Fatalf("expected base prompt to keep the short task-chain hint, got %q", basePrompt)
 	}
-	if !strings.Contains(basePrompt, "When editing files, prefer small search/replace batches") {
+	if !strings.Contains(basePrompt, "For file edits, prefer the latest file content") {
 		t.Fatalf("expected base prompt to keep the edit workflow hint, got %q", basePrompt)
 	}
+	if strings.Contains(basePrompt, "minimize the number of separate commands") {
+		t.Fatalf("expected base prompt to stay concise and omit old command-consolidation text, got %q", basePrompt)
+	}
+	if strings.Contains(basePrompt, "Do not wrap it in ssh") {
+		t.Fatalf("expected base prompt to omit old ssh-specific guidance, got %q", basePrompt)
+	}
+	if strings.Contains(basePrompt, "Filesystem tools read the Wave host machine's local files only") {
+		t.Fatalf("expected base prompt to omit filesystem-only wording after removing read-only file tools, got %q", basePrompt)
+	}
+
 }
 
 func TestP0AcceptanceCriteria_CurrentProofIsOnlyModeAndHostFoundations(t *testing.T) {

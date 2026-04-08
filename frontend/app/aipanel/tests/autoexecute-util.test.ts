@@ -3,7 +3,7 @@ import {
     extractExecutableCommandsFromMarkdown,
     getFirstExecutableCommandFromMessage,
     isSafeToAutoExecute,
-} from "./autoexecute-util";
+} from "../autoexecute-util";
 
 describe("extractExecutableCommandsFromMarkdown", () => {
     it("extracts unlabeled and shell fences", () => {

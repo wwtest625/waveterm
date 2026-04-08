@@ -3,16 +3,17 @@
 
 import { WaveStreamdown } from "@/app/element/streamdown";
 import { atoms } from "@/app/store/global";
+import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { memo, startTransition, useEffect, useRef, useState } from "react";
-import { cn } from "@/util/util";
 import { AIModeDropdown } from "./aimode";
 import { AIToolUseGroup } from "./aitooluse";
 import { type AgentRuntimeSnapshot, type WaveUIMessage, type WaveUIMessagePart } from "./aitypes";
 import { getFirstExecutableCommandFromMessage, isSafeToAutoExecute } from "./autoexecute-util";
-import { AgentMode } from "./waveai-model";
-import { WaveAIModel } from "./waveai-model";
-import { Code } from "@/app/element/streamdown";
+import { formatCommandDuration } from "./command-duration";
+import { AgentMode, WaveAIModel } from "./waveai-model";
+
+export { formatCommandDuration } from "./command-duration";
 
 interface AIPanelMessagesProps {
     messages: WaveUIMessage[];
@@ -33,8 +34,10 @@ type TaskChainStep = {
     id: string;
     title: string;
     detail?: string;
+    durationLabel?: string;
     status: TaskChainStepStatus;
     toolName: string;
+    duplicateCount?: number;
 };
 
 type TaskChainDisplayGroup = {
@@ -182,6 +185,13 @@ function normalizeToolDetail(desc?: string): string | undefined {
     return `${text.slice(0, 120)}...`;
 }
 
+function getDurationLabel(durationMs?: number): string | undefined {
+    if (durationMs == null || durationMs <= 0) {
+        return undefined;
+    }
+    return `耗时 ${formatCommandDuration(durationMs)}`;
+}
+
 export function getTaskChainDetailLanguage(step: Pick<TaskChainStep, "toolName">): string | undefined {
     switch (step.toolName) {
         case "wave_run_command":
@@ -206,6 +216,26 @@ function getFirstMeaningfulLine(text?: string): string | undefined {
         .find(Boolean);
 }
 
+function getMeaningfulOutputPreview(text?: string, maxLines = 5): string | undefined {
+    const normalized = text?.trim();
+    if (!normalized) {
+        return undefined;
+    }
+    const lines = normalized
+        .split(/\r?\n/)
+        .map((line) => line.trimEnd())
+        .filter((line, index, arr) => line.trim().length > 0 || (index > 0 && arr[index - 1].trim().length > 0));
+    if (lines.length === 0) {
+        return undefined;
+    }
+    const previewLines = lines.slice(0, maxLines);
+    const preview = previewLines.join("\n").trim();
+    if (lines.length <= maxLines) {
+        return preview;
+    }
+    return `${preview}\n...`;
+}
+
 function extractCommandFromToolDesc(toolDesc?: string): string | undefined {
     const normalized = toolDesc?.trim();
     if (!normalized) {
@@ -222,13 +252,31 @@ function extractCommandFromToolDesc(toolDesc?: string): string | undefined {
     return normalized;
 }
 
-function formatStepDetail(toolName: string, part: WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }): string | undefined {
+function formatStepDetail(
+    toolName: string,
+    part: WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }
+): string | undefined {
     if (part.type === "data-tooluse") {
         if (toolName === "wave_run_command") {
             return extractCommandFromToolDesc(part.data.tooldesc);
         }
-        if (toolName === "wave_get_command_result" || toolName === "term_command_output" || toolName === "term_get_scrollback") {
-            return getFirstMeaningfulLine(part.data.outputtext) ?? getFirstMeaningfulLine(part.data.tooldesc) ?? normalizeToolDetail(part.data.tooldesc);
+        if (
+            toolName === "wave_get_command_result" ||
+            toolName === "term_command_output" ||
+            toolName === "term_get_scrollback"
+        ) {
+            if (toolName === "wave_get_command_result" && part.data.status === "running") {
+                const outputPreview = getMeaningfulOutputPreview(part.data.outputtext, 3);
+                if (outputPreview) {
+                    return outputPreview;
+                }
+                return "已返回最新快照，后台继续刷新";
+            }
+            return (
+                getMeaningfulOutputPreview(part.data.outputtext) ??
+                getFirstMeaningfulLine(part.data.tooldesc) ??
+                normalizeToolDetail(part.data.tooldesc)
+            );
         }
         return normalizeToolDetail(part.data.tooldesc || part.data.errormessage);
     }
@@ -250,6 +298,9 @@ function deriveToolUseStatus(
     if (part.data.status === "error" || approval === "user-denied" || approval === "timeout") {
         return "failed";
     }
+    if (part.data.status === "running") {
+        return "running";
+    }
     if (part.data.status === "completed") {
         return "completed";
     }
@@ -266,17 +317,34 @@ export function buildTaskChainSteps(
     const steps: TaskChainStep[] = [];
     const byToolCallId = new Map<string, TaskChainStep>();
 
+    const appendStep = (step: TaskChainStep) => {
+        const previous = steps.at(-1);
+        if (
+            previous &&
+            previous.toolName === step.toolName &&
+            previous.status === step.status &&
+            previous.detail === step.detail &&
+            previous.durationLabel === step.durationLabel
+        ) {
+            previous.duplicateCount = (previous.duplicateCount ?? 1) + 1;
+            return previous;
+        }
+        steps.push(step);
+        return step;
+    };
+
     for (const part of parts) {
         if (part.type === "data-tooluse") {
             const step: TaskChainStep = {
                 id: part.data.toolcallid,
                 title: getToolStepTitle(part.data.toolname),
                 detail: formatStepDetail(part.data.toolname, part),
+                durationLabel: getDurationLabel(part.data.durationms),
                 status: deriveToolUseStatus(part, isStreaming),
                 toolName: part.data.toolname,
             };
-            byToolCallId.set(part.data.toolcallid, step);
-            steps.push(step);
+            const appended = appendStep(step);
+            byToolCallId.set(part.data.toolcallid, appended);
             continue;
         }
         const existing = byToolCallId.get(part.data.toolcallid);
@@ -289,7 +357,7 @@ export function buildTaskChainSteps(
             }
             continue;
         }
-        steps.push({
+        appendStep({
             id: part.data.toolcallid,
             title: getToolStepTitle(part.data.toolname),
             detail: formatStepDetail(part.data.toolname, part),
@@ -339,10 +407,16 @@ function getTaskChainProgress(steps: TaskChainStep[]): { completed: number; tota
 
 export function getTaskChainDisplayState(
     steps: TaskChainStep[],
-    runtime: Pick<AgentRuntimeSnapshot, "state" | "phaseLabel" | "blockedReason" | "activeJobId" | "activeTool" | "lastCommand"> | null
+    runtime: Pick<
+        AgentRuntimeSnapshot,
+        "state" | "phaseLabel" | "blockedReason" | "activeJobId" | "activeTool" | "lastCommand"
+    > | null
 ): TaskChainDisplayState {
     const progress = getTaskChainProgress(steps);
-    const activeStep = steps.find((step) => step.status === "running") ?? steps.find((step) => step.status === "failed") ?? steps.find((step) => step.status === "pending");
+    const activeStep =
+        steps.find((step) => step.status === "running") ??
+        steps.find((step) => step.status === "failed") ??
+        steps.find((step) => step.status === "pending");
     const statusLabel = runtime?.phaseLabel || (activeStep ? getTaskStepStateLabel(activeStep.status) : undefined);
     const focusLabel = runtime?.lastCommand || activeStep?.title || runtime?.activeTool || statusLabel;
     const blockedReason = runtime?.blockedReason || activeStep?.detail;
@@ -445,25 +519,28 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
             {displayState.blockedReason && (
                 <div className="mt-1 text-[11px] text-zinc-200/70">{displayState.blockedReason}</div>
             )}
+            <TaskChainApprovalActions turn={turn} />
             <div className="mt-2 space-y-1">
                 {displayGroups.map((group, index) => {
                     const step = group.primary;
                     const secondary = group.secondary;
-                    const isActive = displayState.activeStepId === step.id || displayState.activeStepId === secondary?.id;
+                    const isActive =
+                        displayState.activeStepId === step.id || displayState.activeStepId === secondary?.id;
+                    const durationLabel = step.durationLabel ?? secondary?.durationLabel;
                     const iconClass =
                         step.status === "completed"
                             ? "fa-circle-check text-emerald-400"
                             : step.status === "failed"
-                                ? "fa-circle-xmark text-red-400"
-                                : step.status === "running"
-                                    ? "fa-spinner fa-spin text-yellow-400"
-                                    : "fa-circle text-zinc-500";
+                              ? "fa-circle-xmark text-red-400"
+                              : step.status === "running"
+                                ? "fa-spinner fa-spin text-yellow-400"
+                                : "fa-circle text-zinc-500";
                     const titleClass =
                         step.status === "failed"
                             ? "text-red-300"
                             : step.status === "completed"
-                                ? "text-zinc-100"
-                                : "text-zinc-300";
+                              ? "text-zinc-100"
+                              : "text-zinc-300";
                     const stepToneClass = isActive
                         ? "border-lime-300/25 bg-lime-400/[0.08] shadow-[0_0_0_1px_rgba(163,230,53,0.14)]"
                         : "border-white/8 bg-black/15";
@@ -481,6 +558,16 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                 <span className="text-zinc-500">{index + 1}.</span>
                                 <i className={`fa ${iconClass} ${isActive ? "animate-pulse" : ""}`}></i>
                                 <span className={titleClass}>{step.title}</span>
+                                {(step.duplicateCount ?? 1) > 1 && (
+                                    <span className="rounded-full border border-white/10 bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-zinc-300">
+                                        ×{step.duplicateCount}
+                                    </span>
+                                )}
+                                {step.status === "running" && step.toolName === "wave_get_command_result" && (
+                                    <span className="rounded-full border border-yellow-400/30 bg-yellow-400/10 px-2 py-0.5 text-[10px] font-medium tracking-[0.08em] text-yellow-200">
+                                        后台刷新中
+                                    </span>
+                                )}
                             </div>
                             {step.detail &&
                                 (() => {
@@ -488,13 +575,14 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                     if (language === "bash") {
                                         return (
                                             <div className="mt-0.5 overflow-x-auto pl-5 text-[12px] leading-5 text-zinc-200">
-                                                <Code
-                                                    className={`language-${language} font-mono text-[12px] leading-5 ${
-                                                        isActive ? "text-lime-100" : ""
-                                                    }`}
+                                                <pre
+                                                    className={cn(
+                                                        "m-0 whitespace-pre-wrap break-words rounded-md border border-white/8 bg-black/20 px-2 py-1 font-mono text-[12px] leading-5",
+                                                        isActive ? "text-lime-100" : "text-zinc-200"
+                                                    )}
                                                 >
                                                     {step.detail}
-                                                </Code>
+                                                </pre>
                                             </div>
                                         );
                                     }
@@ -510,6 +598,9 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                         </div>
                                     );
                                 })()}
+                            {durationLabel && (
+                                <div className="mt-1 pl-5 text-[11px] text-zinc-400">{durationLabel}</div>
+                            )}
                             {secondary && (
                                 <div className="mt-2 rounded-md border border-white/8 bg-black/20 px-2 py-1.5">
                                     <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.08em] text-zinc-300">
@@ -519,6 +610,11 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                     {secondary.detail && (
                                         <div className="mt-0.5 pl-5 text-[12px] leading-5 text-zinc-100/90">
                                             {secondary.detail}
+                                        </div>
+                                    )}
+                                    {secondary.durationLabel && step.durationLabel == null && (
+                                        <div className="mt-0.5 pl-5 text-[11px] text-zinc-400">
+                                            {secondary.durationLabel}
                                         </div>
                                     )}
                                 </div>
@@ -555,6 +651,68 @@ function getLatestApprovalState(messages: WaveUIMessage[]): "needs-approval" | "
     }
     return null;
 }
+
+export function getPendingApprovalToolUses(
+    messages: WaveUIMessage[]
+): Array<WaveUIMessagePart & { type: "data-tooluse" }> {
+    return getToolParts(messages).filter(
+        (part): part is WaveUIMessagePart & { type: "data-tooluse" } =>
+            part.type === "data-tooluse" && part.data.approval === "needs-approval"
+    );
+}
+
+const TaskChainApprovalActions = memo(({ turn }: { turn: TaskTurn }) => {
+    const model = WaveAIModel.getInstance();
+    const pendingApprovals = getPendingApprovalToolUses(turn.assistantMessages);
+
+    if (pendingApprovals.length === 0) {
+        return null;
+    }
+
+    const handleApproveAll = () => {
+        pendingApprovals.forEach((part) => {
+            model.toolUseSendApproval(part.data.toolcallid, "user-approved");
+        });
+    };
+
+    const handleDenyAll = () => {
+        pendingApprovals.forEach((part) => {
+            model.toolUseSendApproval(part.data.toolcallid, "user-denied");
+        });
+    };
+
+    const label = pendingApprovals.length > 1 ? `审批 ${pendingApprovals.length} 个步骤` : "等待审批";
+
+    return (
+        <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-amber-100">
+            <div className="flex items-center gap-2 text-xs font-medium">
+                <i className="fa-solid fa-triangle-exclamation text-amber-300" />
+                <span>{label}</span>
+            </div>
+            <div className="mt-1 text-[12px] text-amber-50/80">
+                这一步需要确认后才能继续。审批按钮已直接显示在任务链里。
+            </div>
+            <div className="mt-2 flex gap-2">
+                <button
+                    type="button"
+                    onClick={handleApproveAll}
+                    className="cursor-pointer rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-100 transition hover:border-emerald-200/35 hover:bg-emerald-300/15"
+                >
+                    Approve
+                </button>
+                <button
+                    type="button"
+                    onClick={handleDenyAll}
+                    className="cursor-pointer rounded-full border border-red-300/20 bg-red-300/10 px-3 py-1.5 text-xs text-red-100 transition hover:border-red-200/35 hover:bg-red-300/15"
+                >
+                    Deny
+                </button>
+            </div>
+        </div>
+    );
+});
+
+TaskChainApprovalActions.displayName = "TaskChainApprovalActions";
 
 export function buildTaskTurns(messages: WaveUIMessage[], status: string): TaskTurn[] {
     const turns: TaskTurn[] = [];
@@ -710,7 +868,9 @@ const AssistantStatusPill = memo(({ turn }: { turn: TaskTurn }) => {
         <div className="mb-1.5 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
             <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
             <span>{label}</span>
-            {latestCommand && <span className="truncate normal-case tracking-normal text-zinc-500/80">{latestCommand}</span>}
+            {latestCommand && (
+                <span className="truncate normal-case tracking-normal text-zinc-500/80">{latestCommand}</span>
+            )}
             {!latestCommand && toolParts.length > 0 && (
                 <span className="normal-case tracking-normal text-zinc-500/80">{toolParts.length} tool event</span>
             )}
@@ -789,8 +949,12 @@ const PanelHero = memo(() => {
                         <span>{providerLabel}</span>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">{modeLabel}</span>
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">{stateLabel}</span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">
+                            {modeLabel}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">
+                            {stateLabel}
+                        </span>
                         <CompactRateLimit />
                     </div>
                 </div>
@@ -910,7 +1074,7 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
     const assistantText = getAssistantText(turn.assistantMessages);
     const rawToolOutput = toOutputText(fallbackOutput);
     const outputText = assistantText || fallbackOutput || "";
-    const showRawOutputBlock = !turn.isStreaming && rawToolOutput.length > 0;
+    const showRawOutputBlock = !turn.isStreaming && rawToolOutput.length > 0 && assistantText.length === 0;
     const showEmptyState = !assistantText && !rawToolOutput && !turn.isStreaming;
     const showCompletionHeader = !turn.isStreaming && assistantText.length > 0;
     const model = WaveAIModel.getInstance();
@@ -1015,19 +1179,19 @@ AssistantOutputCard.displayName = "AssistantOutputCard";
 
 const TaskTurnCard = memo(
     ({ turn, fallbackOutput, isLatestTurn }: { turn: TaskTurn; fallbackOutput?: string; isLatestTurn: boolean }) => {
-    const model = WaveAIModel.getInstance();
-    const runtime = useAtomValue(model.agentRuntimeAtom);
+        const model = WaveAIModel.getInstance();
+        const runtime = useAtomValue(model.agentRuntimeAtom);
 
-    if (!turn.userMessage && turn.assistantMessages.length === 0) {
-        return null;
-    }
-    return (
-        <div className="space-y-4">
-            <UserPromptCard message={turn.userMessage} />
-            {isLatestTurn && <TaskChain turn={turn} runtime={runtime} />}
-            <AssistantOutputCard turn={turn} fallbackOutput={fallbackOutput} />
-        </div>
-    );
+        if (!turn.userMessage && turn.assistantMessages.length === 0) {
+            return null;
+        }
+        return (
+            <div className="space-y-4">
+                <UserPromptCard message={turn.userMessage} />
+                {isLatestTurn && <TaskChain turn={turn} runtime={runtime} />}
+                <AssistantOutputCard turn={turn} fallbackOutput={fallbackOutput} />
+            </div>
+        );
     }
 );
 
@@ -1161,8 +1325,16 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
                 {turns.map((turn, index) => {
                     const isLastTurn = index === turns.length - 1;
                     const turnOutput = getLatestRawToolOutput(turn.assistantMessages);
-                    const fallbackOutput = !turn.isStreaming && (turnOutput || (isLastTurn ? runtimeLastToolStdout : ""));
-                    return <TaskTurnCard key={turn.id} turn={turn} fallbackOutput={fallbackOutput} isLatestTurn={isLastTurn} />;
+                    const fallbackOutput =
+                        !turn.isStreaming && (turnOutput || (isLastTurn ? runtimeLastToolStdout : ""));
+                    return (
+                        <TaskTurnCard
+                            key={turn.id}
+                            turn={turn}
+                            fallbackOutput={fallbackOutput}
+                            isLatestTurn={isLastTurn}
+                        />
+                    );
                 })}
             </div>
         </div>

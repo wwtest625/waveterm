@@ -13,67 +13,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/util/fileutil"
 )
 
-func TestReadTextFileCallbackReadsRequestedRangeFromStart(t *testing.T) {
-	tmpDir := t.TempDir()
-	testFile := filepath.Join(tmpDir, "sample.txt")
-	err := os.WriteFile(testFile, []byte("line1\nline2\nline3\nline4\n"), 0644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	result, err := readTextFileCallback(map[string]any{
-		"filename": testFile,
-		"offset":   1,
-		"count":    2,
-	}, &uctypes.UIMessageDataToolUse{})
-	if err != nil {
-		t.Fatalf("readTextFileCallback returned error: %v", err)
-	}
-
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map result, got %T", result)
-	}
-	if resultMap["data"] != "line2\nline3" {
-		t.Fatalf("expected line2/line3 slice, got %#v", resultMap["data"])
-	}
-}
-
-func TestReadTextFileCallbackReadsRequestedRangeFromEnd(t *testing.T) {
-	tmpDir := t.TempDir()
-	testFile := filepath.Join(tmpDir, "tail.txt")
-	err := os.WriteFile(testFile, []byte("line1\nline2\nline3\nline4\n"), 0644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	result, err := readTextFileCallback(map[string]any{
-		"filename": testFile,
-		"origin":   "end",
-		"count":    2,
-	}, &uctypes.UIMessageDataToolUse{})
-	if err != nil {
-		t.Fatalf("readTextFileCallback returned error: %v", err)
-	}
-
-	resultMap := result.(map[string]any)
-	if resultMap["data"] != "line3\nline4" {
-		t.Fatalf("expected last two lines, got %#v", resultMap["data"])
-	}
-}
-
-func TestReadTextFileCallbackRejectsRelativePath(t *testing.T) {
-	_, err := readTextFileCallback(map[string]any{
-		"filename": "relative.txt",
-	}, &uctypes.UIMessageDataToolUse{})
-	if err == nil {
-		t.Fatal("expected relative path to fail")
-	}
-	if !strings.Contains(err.Error(), "path must be absolute") {
-		t.Fatalf("expected absolute path error, got %v", err)
-	}
-}
-
 func TestWriteTextFileCallbackCreatesNestedFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	targetFile := filepath.Join(tmpDir, "nested", "created.txt")

@@ -242,7 +242,9 @@ type UIMessageDataToolUse struct {
 	ToolName            string `json:"toolname"`
 	ToolDesc            string `json:"tooldesc"`
 	Status              string `json:"status"`
+	JobId               string `json:"jobid,omitempty"`
 	RunTs               int64  `json:"runts,omitempty"`
+	DurationMs          int64  `json:"durationms,omitempty"`
 	ErrorMessage        string `json:"errormessage,omitempty"`
 	OutputText          string `json:"outputtext,omitempty"`
 	Approval            string `json:"approval,omitempty"`
@@ -424,6 +426,19 @@ func (m *AIMessage) GetMessageId() string {
 	return m.MessageId
 }
 
+func (m *AIMessage) GetContent() string {
+	if len(m.Parts) == 0 {
+		return ""
+	}
+	var content strings.Builder
+	for _, part := range m.Parts {
+		if part.Type == "text" {
+			content.WriteString(part.Text)
+		}
+	}
+	return content.String()
+}
+
 func (m *AIMessage) Validate() error {
 	if m.MessageId == "" {
 		return fmt.Errorf("messageid must be set")
@@ -551,6 +566,7 @@ type WaveChatOpts struct {
 	ClientId             string
 	Config               AIOptsType
 	AgentMode            string
+	CurrentMessageText   string
 	Tools                []ToolDefinition
 	SystemPrompt         []string
 	TabStateGenerator    func() (string, []ToolDefinition, string, error)

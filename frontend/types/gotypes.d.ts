@@ -155,6 +155,23 @@ declare global {
         cmdexitsignal?: string;
     };
 
+    type UiMessageDataToolUse = {
+        toolcallid: string;
+        toolname: string;
+        tooldesc: string;
+        status: string;
+        jobid?: string;
+        runts?: number;
+        durationms?: number;
+        errormessage?: string;
+        outputtext?: string;
+        approval?: string;
+        tabid?: string;
+        blockid?: string;
+        writebackupfilename?: string;
+        inputfilename?: string;
+    };
+
     // wshrpc.BlocksListEntry
     type BlocksListEntry = {
         windowid: string;
@@ -209,6 +226,7 @@ declare global {
         jobid: string;
         status: string;
         output?: string;
+        durationms?: number;
         exitcode?: number;
         exitsignal?: string;
         error?: string;
@@ -437,6 +455,11 @@ declare global {
         tabid?: string;
         includearchived?: boolean;
         includedeleted?: boolean;
+    };
+
+    // wshrpc.CommandDeleteWaveAISessionData
+    type CommandDeleteWaveAISessionData = {
+        chatid: string;
     };
 
     // wshrpc.CommandJobCmdExitedData
