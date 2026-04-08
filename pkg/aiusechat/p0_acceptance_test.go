@@ -63,6 +63,9 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	if !strings.Contains(basePrompt, "Use tools when available") {
 		t.Fatalf("expected base prompt to keep short tool guidance, got %q", basePrompt)
 	}
+	if !strings.Contains(basePrompt, "call wave_run_command or the relevant terminal tool") {
+		t.Fatalf("expected base prompt to direct shell tasks to terminal tools, got %q", basePrompt)
+	}
 	if !strings.Contains(basePrompt, "short task chain") {
 		t.Fatalf("expected base prompt to keep the short task-chain hint, got %q", basePrompt)
 	}

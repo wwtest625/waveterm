@@ -226,6 +226,30 @@ type EditResult struct {
 	Error   string `json:"error,omitempty"`
 }
 
+func normalizeLineEndingsToLF(input string) string {
+	normalized := strings.ReplaceAll(input, "\r\n", "\n")
+	return strings.ReplaceAll(normalized, "\r", "\n")
+}
+
+func convertLineEndingsToStyle(input string, lineEnding string) string {
+	normalized := normalizeLineEndingsToLF(input)
+	if lineEnding == "\r\n" {
+		return strings.ReplaceAll(normalized, "\n", "\r\n")
+	}
+	return normalized
+}
+
+func lineEndingCandidates(content []byte) []string {
+	candidates := make([]string, 0, 2)
+	if bytes.Contains(content, []byte("\r\n")) {
+		candidates = append(candidates, "\r\n")
+	}
+	if bytes.Contains(content, []byte("\n")) {
+		candidates = append(candidates, "\n")
+	}
+	return candidates
+}
+
 // applyEdit applies a single edit to the content and returns the modified content and result.
 func applyEdit(content []byte, edit EditSpec, index int) ([]byte, EditResult) {
 	result := EditResult{
@@ -244,6 +268,29 @@ func applyEdit(content []byte, edit EditSpec, index int) ([]byte, EditResult) {
 	oldBytes := []byte(edit.OldStr)
 	count := bytes.Count(content, oldBytes)
 	if count == 0 {
+		for _, lineEnding := range lineEndingCandidates(content) {
+			convertedOldStr := convertLineEndingsToStyle(edit.OldStr, lineEnding)
+			if convertedOldStr == edit.OldStr {
+				continue
+			}
+
+			convertedOldBytes := []byte(convertedOldStr)
+			convertedCount := bytes.Count(content, convertedOldBytes)
+			if convertedCount == 0 {
+				continue
+			}
+			if convertedCount > 1 {
+				result.Applied = false
+				result.Error = fmt.Sprintf("old_str appears %d times after normalizing line endings, must appear exactly once", convertedCount)
+				return content, result
+			}
+
+			convertedNewStr := convertLineEndingsToStyle(edit.NewStr, lineEnding)
+			modifiedContent := bytes.Replace(content, convertedOldBytes, []byte(convertedNewStr), 1)
+			result.Applied = true
+			return modifiedContent, result
+		}
+
 		result.Applied = false
 		result.Error = "old_str not found in file"
 		return content, result

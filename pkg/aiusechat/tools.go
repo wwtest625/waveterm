@@ -6,6 +6,7 @@ package aiusechat
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/user"
 	"strings"
 
@@ -18,6 +19,24 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
+
+func logGeneratedTabTools(tabid string, widgetAccess bool, blocks int, tools []uctypes.ToolDefinition) {
+	if !wavebase.IsDevMode() {
+		return
+	}
+	toolNames := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		toolNames = append(toolNames, tool.Name)
+	}
+	log.Printf(
+		"waveai tab tools: tab=%s widgetAccess=%t blocks=%d tools=%d [%s]\n",
+		tabid,
+		widgetAccess,
+		blocks,
+		len(tools),
+		strings.Join(toolNames, ", "),
+	)
+}
 
 func makeTerminalBlockDesc(block *waveobj.Block) string {
 	connection, hasConnection := block.Meta["connection"].(string)
@@ -234,6 +253,7 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 			tools = append(tools, GetWaveGetCommandResultToolDefinition())
 		}
 	}
+	logGeneratedTabTools(tabid, widgetAccess, len(blocks), tools)
 	return tabState, tools, nil
 }
 

@@ -30,6 +30,7 @@ type WaveRunCommandToolInput struct {
 type waveRunCommandArgs []string
 
 var dangerousWaveCommandPattern = regexp.MustCompile(`(?i)(\|\s*(bash|sh|zsh|pwsh|powershell|cmd)(\s|$)|(^|\s)sudo(\s|$)|(^|\s)(rm|format|shutdown|reboot|halt|poweroff|init|killall|pkill|fuser|dd|mkfs|fdisk|parted|iptables|ufw|firewall-cmd|chmod|chown|mount|umount|truncate|drop|delete)(\s|$))`)
+var streamPreferredWaveCommandPattern = regexp.MustCompile(`(?i)\b(apt|apt-get|yum|dnf|pacman|zypper|apk|brew)\s+(install|upgrade|update|dist-upgrade|full-upgrade|remove|autoremove)\b|\b(curl|wget|aria2c|rsync|scp|sftp)\b|\b(tail|journalctl|docker|kubectl)\b[^\n]*\s-f(\s|$)|\bwatch\b`)
 
 func (a *waveRunCommandArgs) UnmarshalJSON(data []byte) error {
 	var arr []string
@@ -213,6 +214,17 @@ func isLikelyInteractiveWaveRunCommand(parsed *WaveRunCommandToolInput) bool {
 	return false
 }
 
+func isLikelyStreamingWaveRunCommand(parsed *WaveRunCommandToolInput) bool {
+	if parsed == nil {
+		return false
+	}
+	commandText := strings.ToLower(strings.TrimSpace(getWaveRunCommandDisplayText(parsed)))
+	if commandText == "" {
+		return false
+	}
+	return streamPreferredWaveCommandPattern.MatchString(commandText)
+}
+
 func getWaveRunCommandPromptHint(parsed *WaveRunCommandToolInput) string {
 	if !isLikelyInteractiveWaveRunCommand(parsed) {
 		return ""
@@ -310,7 +322,7 @@ func GetWaveRunCommandToolDefinition() uctypes.ToolDefinition {
 				Cmd:         parsed.Command,
 				Args:        parsed.Args,
 				Env:         parsed.Env,
-				Interactive: parsed.Interactive || isLikelyInteractiveWaveRunCommand(parsed),
+				Interactive: parsed.Interactive || isLikelyInteractiveWaveRunCommand(parsed) || isLikelyStreamingWaveRunCommand(parsed),
 				PromptHint:  getWaveRunCommandPromptHint(parsed),
 			}, nil)
 			if err != nil {

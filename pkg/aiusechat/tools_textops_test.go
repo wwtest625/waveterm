@@ -191,3 +191,56 @@ func TestEditTextFileToolDefinitionMentionsSmallBatchesAndLatestFile(t *testing.
 		t.Fatalf("expected old_str schema to mention latest file content, got %q", oldStrDesc)
 	}
 }
+
+func TestEditTextFileDryRunSupportsLineEndingFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetFile := filepath.Join(tmpDir, "crlf.txt")
+	err := os.WriteFile(targetFile, []byte("alpha\r\nbeta\r\ngamma\r\n"), 0644)
+	if err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	_, modified, err := EditTextFileDryRun(map[string]any{
+		"filename": targetFile,
+		"edits": []map[string]any{
+			{
+				"old_str": "beta\ngamma\n",
+				"new_str": "BETA\nGAMMA\n",
+				"desc":    "line ending fallback replacement",
+			},
+		},
+	}, "")
+	if err != nil {
+		t.Fatalf("EditTextFileDryRun should succeed with line-ending fallback, got: %v", err)
+	}
+
+	if string(modified) != "alpha\r\nBETA\r\nGAMMA\r\n" {
+		t.Fatalf("unexpected modified content: %q", string(modified))
+	}
+}
+
+func TestEditTextFileDryRunLineEndingFallbackStillRequiresUniqueMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetFile := filepath.Join(tmpDir, "ambiguous-crlf.txt")
+	err := os.WriteFile(targetFile, []byte("x\r\ny\r\nx\r\ny\r\n"), 0644)
+	if err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	_, _, err = EditTextFileDryRun(map[string]any{
+		"filename": targetFile,
+		"edits": []map[string]any{
+			{
+				"old_str": "x\ny\n",
+				"new_str": "z\n",
+				"desc":    "ambiguous line ending fallback",
+			},
+		},
+	}, "")
+	if err == nil {
+		t.Fatal("expected ambiguous line-ending fallback to fail")
+	}
+	if !strings.Contains(err.Error(), "after normalizing line endings") {
+		t.Fatalf("expected line-ending normalization error, got %v", err)
+	}
+}

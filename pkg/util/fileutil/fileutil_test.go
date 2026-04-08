@@ -43,3 +43,55 @@ func TestAtomicWriteFileRenameErrorCleansTempFile(t *testing.T) {
 		t.Fatalf("temporary file should be removed on rename error, stat err: %v", statErr)
 	}
 }
+
+func TestApplyEditExactMatch(t *testing.T) {
+	original := []byte("hello world\n")
+	edit := EditSpec{
+		OldStr: "world",
+		NewStr: "waveterm",
+		Desc:   "replace token",
+	}
+
+	modified, result := applyEdit(original, edit, 0)
+	if !result.Applied {
+		t.Fatalf("expected edit to apply, got error: %s", result.Error)
+	}
+	if string(modified) != "hello waveterm\n" {
+		t.Fatalf("unexpected content: %q", string(modified))
+	}
+}
+
+func TestApplyEditLineEndingFallbackCRLF(t *testing.T) {
+	original := []byte("alpha\r\nbeta\r\ngamma\r\n")
+	edit := EditSpec{
+		OldStr: "beta\ngamma\n",
+		NewStr: "BETA\nGAMMA\n",
+		Desc:   "line ending fallback",
+	}
+
+	modified, result := applyEdit(original, edit, 0)
+	if !result.Applied {
+		t.Fatalf("expected edit to apply with line-ending fallback, got error: %s", result.Error)
+	}
+	expected := "alpha\r\nBETA\r\nGAMMA\r\n"
+	if string(modified) != expected {
+		t.Fatalf("unexpected content after fallback edit: got %q want %q", string(modified), expected)
+	}
+}
+
+func TestApplyEditLineEndingFallbackAmbiguous(t *testing.T) {
+	original := []byte("x\r\ny\r\nx\r\ny\r\n")
+	edit := EditSpec{
+		OldStr: "x\ny\n",
+		NewStr: "z\n",
+		Desc:   "ambiguous line ending fallback",
+	}
+
+	_, result := applyEdit(original, edit, 0)
+	if result.Applied {
+		t.Fatalf("expected edit to fail due to ambiguous fallback match")
+	}
+	if result.Error == "" {
+		t.Fatalf("expected non-empty error for ambiguous fallback match")
+	}
+}

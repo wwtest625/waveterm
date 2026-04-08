@@ -174,94 +174,92 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                         onBlur={handleBlur}
                         placeholder={placeholder}
                         className={cn(
-                            "w-full resize-none overflow-auto bg-transparent px-4 py-3 pr-14 text-white focus:outline-none"
+                            "w-full resize-none overflow-auto bg-transparent px-4 py-3 pr-24 text-white focus:outline-none"
                         )}
                         style={{ fontSize: "13px" }}
                         rows={2}
                     />
-                    <Tooltip content="Attach files" placement="top" divClassName="absolute bottom-11 right-2">
-                        <button
-                            type="button"
-                            onClick={handleUploadClick}
-                            className={cn(
-                                "flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/8 hover:text-lime-200"
-                            )}
-                        >
-                            <i className="fa fa-paperclip text-sm"></i>
-                        </button>
-                    </Tooltip>
-                    {runtime.state === "failed_retryable" ? (
-                        <Tooltip content="Retry last step" placement="top" divClassName="absolute bottom-2 right-2">
+                    <div className="absolute bottom-2 right-2 flex items-center gap-1">
+                        <Tooltip content="Attach files" placement="top">
                             <button
                                 type="button"
-                                onClick={() => void model.retryLastAction("step")}
+                                onClick={handleUploadClick}
                                 className={cn(
-                                    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
-                                    "bg-amber-300/10 text-yellow-300 hover:bg-amber-300/15 hover:text-yellow-200"
+                                    "flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/8 hover:text-lime-200"
                                 )}
                             >
-                                <i className="fa fa-rotate-right text-sm"></i>
+                                <i className="fa fa-paperclip text-sm"></i>
                             </button>
                         </Tooltip>
-                    ) : runtime.state === "executing" ||
-                      runtime.state === "awaiting_approval" ||
-                      runtime.state === "interacting" ? (
-                        <Tooltip content="Stop execution" placement="top" divClassName="absolute bottom-2 right-2">
-                            <button
-                                type="button"
-                                onClick={() => void model.cancelExecution()}
-                                className={cn(
-                                    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
-                                    "bg-red-300/10 text-red-300 hover:bg-red-300/15 hover:text-red-200"
-                                )}
-                            >
-                                <i className="fa fa-stop text-sm"></i>
-                            </button>
-                        </Tooltip>
-                    ) : isThinking ? (
-                        <Tooltip content="Thinking" placement="top" divClassName="absolute bottom-2 right-2">
-                            <div
-                                className={cn(
-                                    "flex h-9 w-9 items-center justify-center rounded-full",
-                                    "border border-lime-300/20 bg-lime-300/10 text-lime-200"
-                                )}
-                            >
-                                <i className="fa fa-spinner fa-spin text-sm"></i>
-                            </div>
-                        </Tooltip>
-                    ) : status === "streaming" ? (
-                        <Tooltip content="Stop Response" placement="top" divClassName="absolute bottom-2 right-2">
-                            <button
-                                type="button"
-                                onClick={() => void model.cancelGeneration()}
-                                className={cn(
-                                    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
-                                    "bg-emerald-300/10 text-emerald-300 hover:bg-emerald-300/15 hover:text-emerald-200"
-                                )}
-                            >
-                                <i className="fa fa-square text-sm"></i>
-                            </button>
-                        </Tooltip>
-                    ) : (
-                        <Tooltip
-                            content="Send message (Enter)"
-                            placement="top"
-                            divClassName="absolute bottom-2 right-2"
-                        >
-                            <button
-                                type="submit"
-                                disabled={status !== "ready" || !input.trim()}
-                                className={cn(
-                                    "flex h-9 w-9 items-center justify-center rounded-full transition-colors",
-                                    status !== "ready" || !input.trim()
-                                        ? "bg-white/[0.04] text-gray-500"
-                                        : "cursor-pointer bg-lime-300/12 text-lime-200 hover:bg-lime-300/18 hover:text-lime-100"
-                                )}
-                            >
-                                <i className="fa fa-paper-plane text-sm"></i>
-                            </button>
-                        </Tooltip>
-                    )}
+                        {runtime.state === "failed_retryable" ? (
+                            <Tooltip content="Retry last step" placement="top">
+                                <button
+                                    type="button"
+                                    onClick={() => void model.retryLastAction("step")}
+                                    className={cn(
+                                        "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
+                                        "bg-amber-300/10 text-yellow-300 hover:bg-amber-300/15 hover:text-yellow-200"
+                                    )}
+                                >
+                                    <i className="fa fa-rotate-right text-sm"></i>
+                                </button>
+                            </Tooltip>
+                        ) : runtime.state === "executing" ||
+                          runtime.state === "awaiting_approval" ||
+                          runtime.state === "interacting" ? (
+                            <Tooltip content="Stop execution" placement="top">
+                                <button
+                                    type="button"
+                                    onClick={() => void model.cancelExecution()}
+                                    className={cn(
+                                        "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
+                                        "bg-red-300/10 text-red-300 hover:bg-red-300/15 hover:text-red-200"
+                                    )}
+                                >
+                                    <i className="fa fa-stop text-sm"></i>
+                                </button>
+                            </Tooltip>
+                        ) : isThinking ? (
+                            <Tooltip content="Thinking" placement="top">
+                                <div
+                                    className={cn(
+                                        "flex h-9 w-9 items-center justify-center rounded-full",
+                                        "border border-lime-300/20 bg-lime-300/10 text-lime-200"
+                                    )}
+                                >
+                                    <i className="fa fa-spinner fa-spin text-sm"></i>
+                                </div>
+                            </Tooltip>
+                        ) : status === "streaming" ? (
+                            <Tooltip content="Stop Response" placement="top">
+                                <button
+                                    type="button"
+                                    onClick={() => void model.cancelGeneration()}
+                                    className={cn(
+                                        "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
+                                        "bg-emerald-300/10 text-emerald-300 hover:bg-emerald-300/15 hover:text-emerald-200"
+                                    )}
+                                >
+                                    <i className="fa fa-square text-sm"></i>
+                                </button>
+                            </Tooltip>
+                        ) : (
+                            <Tooltip content="Send message (Enter)" placement="top">
+                                <button
+                                    type="submit"
+                                    disabled={status !== "ready" || !input.trim()}
+                                    className={cn(
+                                        "flex h-9 w-9 items-center justify-center rounded-full transition-colors",
+                                        status !== "ready" || !input.trim()
+                                            ? "bg-white/[0.04] text-gray-500"
+                                            : "cursor-pointer bg-lime-300/12 text-lime-200 hover:bg-lime-300/18 hover:text-lime-100"
+                                    )}
+                                >
+                                    <i className="fa fa-paper-plane text-sm"></i>
+                                </button>
+                            </Tooltip>
+                        )}
+                    </div>
                 </div>
             </form>
         </div>

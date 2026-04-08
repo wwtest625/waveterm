@@ -127,7 +127,26 @@ func buildChatHTTPRequest(ctx context.Context, messages []ChatRequestMessage, ch
 	}
 
 	if wavebase.IsDevMode() {
-		log.Printf("openaichat: model %s, messages: %d, tools: %d\n", opts.Model, len(messages), len(allTools))
+		toolNames := make([]string, 0, len(allTools))
+		for _, tool := range allTools {
+			toolNames = append(toolNames, tool.Name)
+		}
+		reqToolCount := 0
+		if reqBody.Tools != nil {
+			reqToolCount = len(reqBody.Tools)
+		}
+		log.Printf(
+			"openaichat: model=%s provider=%s apiType=%s messages=%d allTools=%d reqTools=%d capabilityTools=%t capabilities=%v toolNames=[%s]\n",
+			opts.Model,
+			opts.Provider,
+			opts.APIType,
+			len(messages),
+			len(allTools),
+			reqToolCount,
+			opts.HasCapability(uctypes.AICapabilityTools),
+			opts.Capabilities,
+			strings.Join(toolNames, ", "),
+		)
 	}
 
 	buf, err := json.Marshal(reqBody)

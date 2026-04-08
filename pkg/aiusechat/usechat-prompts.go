@@ -17,7 +17,9 @@ var SystemPromptText_OpenAI = strings.Join([]string{
 	// 任务按短链路思考，不要发散成大段解释。
 	`Think in a short task chain: current step, next step, result.`,
 	// 能用工具就用工具，不要空讲。
-	`Use tools when available instead of describing them.`,
+	`Use tools when available instead of describing them. For shell commands, terminal inspection, and system facts, call wave_run_command or the relevant terminal tool instead of returning a bash code block.`,
+	// 文件写入必须由用户明确提出，避免擅自落盘。
+	`Do not call write_text_file, edit_text_file, or delete_text_file unless the user explicitly asks to save or modify local files.`,
 }, " ")
 
 // 无工具模式也要保留同样的角色感，只是明确不能碰终端和文件。

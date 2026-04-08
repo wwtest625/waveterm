@@ -241,9 +241,32 @@ function extractCommandFromToolDesc(toolDesc?: string): string | undefined {
     if (!normalized) {
         return undefined;
     }
-    const quotedMatch = normalized.match(/(?:running|executing|run)\s+["'`]{1}(.+?)["'`]{1}/i);
-    if (quotedMatch?.[1]) {
-        return quotedMatch[1].trim();
+    const quotedPrefix = normalized.match(/^(?:running|executing|run)\s+"/i);
+    if (quotedPrefix) {
+        const quoteStart = normalized.indexOf(`"`);
+        if (quoteStart >= 0) {
+            let escaped = false;
+            for (let i = quoteStart + 1; i < normalized.length; i++) {
+                const ch = normalized[i];
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (ch === "\\") {
+                    escaped = true;
+                    continue;
+                }
+                if (ch === `"`) {
+                    const quotedLiteral = normalized.slice(quoteStart, i + 1);
+                    try {
+                        const decoded = JSON.parse(quotedLiteral) as string;
+                        return decoded.trim();
+                    } catch {
+                        return quotedLiteral.slice(1, -1).trim();
+                    }
+                }
+            }
+        }
     }
     const unquotedMatch = normalized.match(/(?:running|executing|run)\s+(.+?)(?:\s+on\s+.+)?$/i);
     if (unquotedMatch?.[1]) {
@@ -467,7 +490,10 @@ function isThinkingPhaseLabel(label?: string): boolean {
 }
 
 const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRuntimeSnapshot }) => {
+    const model = WaveAIModel.getInstance();
+    const [expandedCommandSteps, setExpandedCommandSteps] = useState<Record<string, boolean>>({});
     const toolParts = getToolParts(turn.assistantMessages);
+    const toolUseCount = toolParts.filter((part) => part.type === "data-tooluse").length;
     const steps = buildTaskChainSteps(toolParts, turn.isStreaming);
     const displayGroups = getTaskChainDisplayGroups(steps);
     if (steps.length === 0 && !runtime.visible) {
@@ -499,6 +525,11 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                         )}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-zinc-300">
+                        {toolUseCount > 0 && (
+                            <span className="rounded-full border border-lime-300/30 bg-lime-300/12 px-2 py-0.5 text-lime-100">
+                                已调用工具 {toolUseCount} 次
+                            </span>
+                        )}
                         <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5">
                             {displayState.progressLabel}
                         </span>
@@ -573,16 +604,48 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                 (() => {
                                     const language = getTaskChainDetailLanguage(step);
                                     if (language === "bash") {
+                                        const fullCommand = step.detail.trimEnd();
+                                        const commandLines = fullCommand.split(/\r?\n/);
+                                        const isMultiLineCommand = commandLines.length > 1;
+                                        const isExpanded = expandedCommandSteps[step.id] === true;
+                                        const displayCommand =
+                                            isMultiLineCommand && !isExpanded ? commandLines[0] : fullCommand;
                                         return (
-                                            <div className="mt-0.5 overflow-x-auto pl-5 text-[12px] leading-5 text-zinc-200">
-                                                <pre
+                                            <div
+                                                className={cn(
+                                                    "mt-0.5 pl-5 text-[12px] leading-5",
+                                                    isActive ? "text-lime-100" : "text-zinc-200"
+                                                )}
+                                            >
+                                                <WaveStreamdown
+                                                    text={`\`\`\`bash\n${displayCommand}\n\`\`\``}
+                                                    parseIncompleteMarkdown={false}
                                                     className={cn(
-                                                        "m-0 whitespace-pre-wrap break-words rounded-md border border-white/8 bg-black/20 px-2 py-1 font-mono text-[12px] leading-5",
-                                                        isActive ? "text-lime-100" : "text-zinc-200"
+                                                        "text-[12px]",
+                                                        "[&_.markdown-content]:mx-0",
+                                                        "[&_.markdown-content]:overflow-visible",
+                                                        "[&_.markdown-content]:max-w-full"
                                                     )}
-                                                >
-                                                    {step.detail}
-                                                </pre>
+                                                    onClickExecute={(_cmd) =>
+                                                        model.executeCommandInTerminal(fullCommand, {
+                                                            source: "manual",
+                                                        })
+                                                    }
+                                                />
+                                                {isMultiLineCommand && (
+                                                    <button
+                                                        type="button"
+                                                        className="mt-1 cursor-pointer rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-zinc-300 transition hover:bg-white/[0.08]"
+                                                        onClick={() =>
+                                                            setExpandedCommandSteps((prev) => ({
+                                                                ...prev,
+                                                                [step.id]: !isExpanded,
+                                                            }))
+                                                        }
+                                                    >
+                                                        {isExpanded ? "收起" : "展开完整命令"}
+                                                    </button>
+                                                )}
                                             </div>
                                         );
                                     }
@@ -862,14 +925,20 @@ StreamingTextBlock.displayName = "StreamingTextBlock";
 const AssistantStatusPill = memo(({ turn }: { turn: TaskTurn }) => {
     const toolParts = getToolParts(turn.assistantMessages);
     const latestCommand = getLatestMeaningfulCommand(turn.assistantMessages);
+    const toolUseCount = toolParts.filter((part) => part.type === "data-tooluse").length;
     const label = turn.isStreaming ? "Working" : "Response";
 
     return (
         <div className="mb-1.5 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
             <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
             <span>{label}</span>
+            {toolUseCount > 0 && (
+                <span className="rounded-full border border-lime-300/30 bg-lime-300/10 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-lime-200">
+                    Tool Used ×{toolUseCount}
+                </span>
+            )}
             {latestCommand && (
-                <span className="truncate normal-case tracking-normal text-zinc-500/80">{latestCommand}</span>
+                <span className="normal-case tracking-normal text-zinc-500/80 break-all">{latestCommand}</span>
             )}
             {!latestCommand && toolParts.length > 0 && (
                 <span className="normal-case tracking-normal text-zinc-500/80">{toolParts.length} tool event</span>
@@ -1295,6 +1364,7 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
         }
 
         if (!autoExecute) {
+            console.log("[waveai:autoexecute] disabled by setting");
             pendingAutoExecuteMessageIdRef.current = null;
             return;
         }
@@ -1307,15 +1377,29 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
         const pendingMessage = messages.find((message) => message.id === pendingMessageId);
         pendingAutoExecuteMessageIdRef.current = null;
         if (!pendingMessage || pendingMessage.role !== "assistant") {
+            console.log("[waveai:autoexecute] pending message missing or not assistant", {
+                pendingMessageId,
+            });
             return;
         }
 
         const command = getFirstExecutableCommandFromMessage(pendingMessage);
         if (!command || !isSafeToAutoExecute(command)) {
+            console.log("[waveai:autoexecute] command not executable", {
+                pendingMessageId,
+                hasCommand: Boolean(command),
+                command,
+                safe: command ? isSafeToAutoExecute(command) : false,
+            });
             return;
         }
 
-        model.executeCommandInTerminal(command, { source: "auto" });
+        const executed = model.executeCommandInTerminal(command, { source: "auto" });
+        console.log("[waveai:autoexecute] execute result", {
+            pendingMessageId,
+            executed,
+            command,
+        });
     }, [messages, status, autoExecute, model]);
 
     return (

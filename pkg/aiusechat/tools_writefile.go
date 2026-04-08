@@ -7,16 +7,174 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/filebackup"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 	"github.com/wavetermdev/waveterm/pkg/util/fileutil"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
 const MaxEditFileSize = 100 * 1024 // 100KB
+
+func localAbsolutePathExample() string {
+	if runtime.GOOS == "windows" {
+		return `C:\Users\you\notes.txt`
+	}
+	return "/tmp/notes.txt"
+}
+
+func resolveAndValidateLocalAbsolutePath(filename string) (string, error) {
+	trimmedInput := strings.TrimSpace(filename)
+	if runtime.GOOS == "windows" && strings.HasPrefix(trimmedInput, "/") && !strings.HasPrefix(trimmedInput, "//") {
+		return "", fmt.Errorf(
+			"path %q looks like a Linux absolute path, but file tools write to local %s files only; use a local absolute path (for example %s), or use wave_run_command for remote paths",
+			filename,
+			runtime.GOOS,
+			localAbsolutePathExample(),
+		)
+	}
+
+	expandedPath, err := wavebase.ExpandHomeDir(filename)
+	if err != nil {
+		return "", fmt.Errorf("failed to expand path: %w", err)
+	}
+
+	if filepath.IsAbs(expandedPath) {
+		return expandedPath, nil
+	}
+
+	trimmedPath := strings.TrimSpace(expandedPath)
+	if runtime.GOOS == "windows" && strings.HasPrefix(trimmedPath, "/") && !strings.HasPrefix(trimmedPath, "//") {
+		return "", fmt.Errorf(
+			"path %q looks like a Linux absolute path, but file tools write to local %s files only; use a local absolute path (for example %s), or use wave_run_command for remote paths",
+			filename,
+			runtime.GOOS,
+			localAbsolutePathExample(),
+		)
+	}
+
+	return "", fmt.Errorf("path must be absolute, got relative path: %s", filename)
+}
+
+func isPosixAbsolutePath(filename string) bool {
+	trimmed := strings.TrimSpace(filename)
+	return strings.HasPrefix(trimmed, "/") && !strings.HasPrefix(trimmed, "//")
+}
+
+func resolveRemoteWriteTarget(filename string, toolUseData *uctypes.UIMessageDataToolUse) (*WaveRunCommandToolInput, bool) {
+	if !isPosixAbsolutePath(filename) {
+		return nil, false
+	}
+	resolved, _, err := resolveWaveRunCommandTarget(&WaveRunCommandToolInput{Command: "true"}, toolUseData)
+	if err != nil || resolved == nil {
+		return nil, false
+	}
+	return resolved, true
+}
+
+func quoteForSingleQuotedShell(value string) string {
+	return strings.ReplaceAll(value, `'`, `'"'"'`)
+}
+
+func buildRemoteWriteCommand(filename string, contents string) string {
+	marker := fmt.Sprintf("WAVE_WRITE_EOF_%d", time.Now().UnixNano())
+	for strings.Contains(contents, "\n"+marker+"\n") || strings.HasSuffix(contents, "\n"+marker) {
+		marker = fmt.Sprintf("WAVE_WRITE_EOF_%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("cat > '%s' <<'%s'\n%s\n%s", quoteForSingleQuotedShell(filename), marker, contents, marker)
+}
+
+func runRemoteWriteCommand(target *WaveRunCommandToolInput, command string) error {
+	if target == nil {
+		return fmt.Errorf("remote target is required")
+	}
+	result, err := runRemoteCommand(target, command, 30*time.Second, 32768)
+	if err != nil {
+		return err
+	}
+	if result.Status == "error" {
+		return fmt.Errorf("remote write command failed: %s", strings.TrimSpace(result.Error))
+	}
+	if result.ExitCode != nil && *result.ExitCode != 0 {
+		errText := strings.TrimSpace(result.Error)
+		if errText == "" {
+			errText = strings.TrimSpace(result.Output)
+		}
+		if errText == "" {
+			errText = fmt.Sprintf("exit code %d", *result.ExitCode)
+		}
+		return fmt.Errorf("remote write command failed: %s", errText)
+	}
+	return nil
+}
+
+func runRemoteReadFileCommand(target *WaveRunCommandToolInput, filename string) (string, error) {
+	if target == nil {
+		return "", fmt.Errorf("remote target is required")
+	}
+	readCmd := fmt.Sprintf("cat -- '%s'", quoteForSingleQuotedShell(filename))
+	result, err := runRemoteCommand(target, readCmd, 30*time.Second, 512*1024)
+	if err != nil {
+		return "", err
+	}
+	if result.Status == "error" {
+		return "", fmt.Errorf("remote read command failed: %s", strings.TrimSpace(result.Error))
+	}
+	if result.ExitCode != nil && *result.ExitCode != 0 {
+		errText := strings.TrimSpace(result.Error)
+		if errText == "" {
+			errText = strings.TrimSpace(result.Output)
+		}
+		if errText == "" {
+			errText = fmt.Sprintf("exit code %d", *result.ExitCode)
+		}
+		return "", fmt.Errorf("remote read command failed: %s", errText)
+	}
+	return result.Output, nil
+}
+
+func runRemoteCommand(
+	target *WaveRunCommandToolInput,
+	command string,
+	timeout time.Duration,
+	tailBytes int64,
+) (*wshrpc.CommandAgentGetCommandResultRtnData, error) {
+	rpcClient := wshclient.GetBareRpcClient()
+	started, err := wshclient.AgentRunCommandCommand(rpcClient, wshrpc.CommandAgentRunCommandData{
+		ConnName:    target.Connection,
+		Cwd:         target.Cwd,
+		Cmd:         "sh",
+		Args:        []string{"-lc", command},
+		Interactive: false,
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start remote command: %w", err)
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for remote command result")
+		}
+		result, err := wshclient.AgentGetCommandResultCommand(rpcClient, wshrpc.CommandAgentGetCommandResultData{
+			JobId:     started.JobId,
+			TailBytes: tailBytes,
+		}, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read remote command result: %w", err)
+		}
+		if result.Status == "running" {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		return result, nil
+	}
+}
 
 func isBlockedFile(expandedPath string) (bool, string) {
 	homeDir := os.Getenv("HOME")
@@ -202,13 +360,18 @@ func verifyWriteTextFileInput(input any, toolUseData *uctypes.UIMessageDataToolU
 		return err
 	}
 
-	expandedPath, err := wavebase.ExpandHomeDir(params.Filename)
-	if err != nil {
-		return fmt.Errorf("failed to expand path: %w", err)
+	if _, isRemoteTarget := resolveRemoteWriteTarget(params.Filename, toolUseData); isRemoteTarget {
+		contentsBytes := []byte(params.Contents)
+		if utilfn.HasBinaryData(contentsBytes) {
+			return fmt.Errorf("contents appear to contain binary data")
+		}
+		toolUseData.InputFileName = params.Filename
+		return nil
 	}
 
-	if !filepath.IsAbs(expandedPath) {
-		return fmt.Errorf("path must be absolute, got relative path: %s", params.Filename)
+	expandedPath, err := resolveAndValidateLocalAbsolutePath(params.Filename)
+	if err != nil {
+		return err
 	}
 
 	contentsBytes := []byte(params.Contents)
@@ -231,13 +394,23 @@ func writeTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse)
 		return nil, err
 	}
 
-	expandedPath, err := wavebase.ExpandHomeDir(params.Filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to expand path: %w", err)
+	if remoteTarget, isRemoteTarget := resolveRemoteWriteTarget(params.Filename, toolUseData); isRemoteTarget {
+		contentsBytes := []byte(params.Contents)
+		if utilfn.HasBinaryData(contentsBytes) {
+			return nil, fmt.Errorf("contents appear to contain binary data")
+		}
+		if err := runRemoteWriteCommand(remoteTarget, buildRemoteWriteCommand(params.Filename, params.Contents)); err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"success": true,
+			"message": fmt.Sprintf("Successfully wrote %s (%d bytes) on remote host", params.Filename, len(contentsBytes)),
+		}, nil
 	}
 
-	if !filepath.IsAbs(expandedPath) {
-		return nil, fmt.Errorf("path must be absolute, got relative path: %s", params.Filename)
+	expandedPath, err := resolveAndValidateLocalAbsolutePath(params.Filename)
+	if err != nil {
+		return nil, err
 	}
 
 	contentsBytes := []byte(params.Contents)
@@ -345,13 +518,14 @@ func verifyEditTextFileInput(input any, toolUseData *uctypes.UIMessageDataToolUs
 		return err
 	}
 
-	expandedPath, err := wavebase.ExpandHomeDir(params.Filename)
-	if err != nil {
-		return fmt.Errorf("failed to expand path: %w", err)
+	if _, isRemoteTarget := resolveRemoteWriteTarget(params.Filename, toolUseData); isRemoteTarget {
+		toolUseData.InputFileName = params.Filename
+		return nil
 	}
 
-	if !filepath.IsAbs(expandedPath) {
-		return fmt.Errorf("path must be absolute, got relative path: %s", params.Filename)
+	expandedPath, err := resolveAndValidateLocalAbsolutePath(params.Filename)
+	if err != nil {
+		return err
 	}
 
 	_, err = validateTextFile(expandedPath, "edit", true)
@@ -371,13 +545,9 @@ func EditTextFileDryRun(input any, fileOverride string) ([]byte, []byte, error) 
 		return nil, nil, err
 	}
 
-	expandedPath, err := wavebase.ExpandHomeDir(params.Filename)
+	expandedPath, err := resolveAndValidateLocalAbsolutePath(params.Filename)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to expand path: %w", err)
-	}
-
-	if !filepath.IsAbs(expandedPath) {
-		return nil, nil, fmt.Errorf("path must be absolute, got relative path: %s", params.Filename)
+		return nil, nil, err
 	}
 
 	_, err = validateTextFile(expandedPath, "edit", true)
@@ -421,13 +591,27 @@ func editTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse) 
 		return nil, err
 	}
 
-	expandedPath, err := wavebase.ExpandHomeDir(params.Filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to expand path: %w", err)
+	if remoteTarget, isRemoteTarget := resolveRemoteWriteTarget(params.Filename, toolUseData); isRemoteTarget {
+		remoteContent, err := runRemoteReadFileCommand(remoteTarget, params.Filename)
+		if err != nil {
+			return nil, err
+		}
+		modifiedContent, _, err := applyEditBatch([]byte(remoteContent), params.Edits)
+		if err != nil {
+			return nil, err
+		}
+		if err := runRemoteWriteCommand(remoteTarget, buildRemoteWriteCommand(params.Filename, string(modifiedContent))); err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"success": true,
+			"message": fmt.Sprintf("Successfully edited %s with %d changes on remote host", params.Filename, len(params.Edits)),
+		}, nil
 	}
 
-	if !filepath.IsAbs(expandedPath) {
-		return nil, fmt.Errorf("path must be absolute, got relative path: %s", params.Filename)
+	expandedPath, err := resolveAndValidateLocalAbsolutePath(params.Filename)
+	if err != nil {
+		return nil, err
 	}
 
 	_, err = validateTextFile(expandedPath, "edit", true)
@@ -559,13 +743,9 @@ func verifyDeleteTextFileInput(input any, toolUseData *uctypes.UIMessageDataTool
 		return err
 	}
 
-	expandedPath, err := wavebase.ExpandHomeDir(params.Filename)
+	expandedPath, err := resolveAndValidateLocalAbsolutePath(params.Filename)
 	if err != nil {
-		return fmt.Errorf("failed to expand path: %w", err)
-	}
-
-	if !filepath.IsAbs(expandedPath) {
-		return fmt.Errorf("path must be absolute, got relative path: %s", params.Filename)
+		return err
 	}
 
 	_, err = validateTextFile(expandedPath, "delete", true)
@@ -583,13 +763,9 @@ func deleteTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse
 		return nil, err
 	}
 
-	expandedPath, err := wavebase.ExpandHomeDir(params.Filename)
+	expandedPath, err := resolveAndValidateLocalAbsolutePath(params.Filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to expand path: %w", err)
-	}
-
-	if !filepath.IsAbs(expandedPath) {
-		return nil, fmt.Errorf("path must be absolute, got relative path: %s", params.Filename)
+		return nil, err
 	}
 
 	_, err = validateTextFile(expandedPath, "delete", true)

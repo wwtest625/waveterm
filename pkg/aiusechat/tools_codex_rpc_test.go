@@ -168,6 +168,58 @@ func TestValidateRemoteLinuxWaveRunCommand_AllowsRemoteLinuxCommand(t *testing.T
 	}
 }
 
+func TestIsLikelyStreamingWaveRunCommand_DetectsPackageInstall(t *testing.T) {
+	parsed, err := parseWaveRunCommandToolInput(map[string]any{
+		"connection": "root@example",
+		"command":    "yum install kernel-modules-extra -y",
+	})
+	if err != nil {
+		t.Fatalf("parseWaveRunCommandToolInput returned error: %v", err)
+	}
+	if !isLikelyStreamingWaveRunCommand(parsed) {
+		t.Fatalf("expected package install command to be treated as streaming-preferred")
+	}
+}
+
+func TestIsLikelyStreamingWaveRunCommand_DetectsFollowMode(t *testing.T) {
+	parsed, err := parseWaveRunCommandToolInput(map[string]any{
+		"connection": "root@example",
+		"command":    "docker logs -f nginx",
+	})
+	if err != nil {
+		t.Fatalf("parseWaveRunCommandToolInput returned error: %v", err)
+	}
+	if !isLikelyStreamingWaveRunCommand(parsed) {
+		t.Fatalf("expected follow command to be treated as streaming-preferred")
+	}
+}
+
+func TestIsLikelyStreamingWaveRunCommand_DetectsDownloadTransfer(t *testing.T) {
+	parsed, err := parseWaveRunCommandToolInput(map[string]any{
+		"connection": "root@example",
+		"command":    "wget https://example.com/large.iso -O /tmp/large.iso",
+	})
+	if err != nil {
+		t.Fatalf("parseWaveRunCommandToolInput returned error: %v", err)
+	}
+	if !isLikelyStreamingWaveRunCommand(parsed) {
+		t.Fatalf("expected transfer command to be treated as streaming-preferred")
+	}
+}
+
+func TestIsLikelyStreamingWaveRunCommand_IgnoresRegularShortCommand(t *testing.T) {
+	parsed, err := parseWaveRunCommandToolInput(map[string]any{
+		"connection": "root@example",
+		"command":    "uname -a",
+	})
+	if err != nil {
+		t.Fatalf("parseWaveRunCommandToolInput returned error: %v", err)
+	}
+	if isLikelyStreamingWaveRunCommand(parsed) {
+		t.Fatalf("did not expect regular short command to be treated as streaming-preferred")
+	}
+}
+
 func TestShouldReturnWaveCommandResult_ReturnsImmediatelyWhenDone(t *testing.T) {
 	now := time.Now()
 	deadline := now.Add(30 * time.Second)

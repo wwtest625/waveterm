@@ -68,6 +68,29 @@ func getSystemPrompt(apiType string, model string, provider string, isBuilder bo
 	return []string{basePrompt}
 }
 
+func logWaveAIDebugRequest(chatOpts uctypes.WaveChatOpts, effectiveWidgetAccess bool) {
+	if !wavebase.IsDevMode() {
+		return
+	}
+	logutil.DevPrintf(
+		"waveai request: chat=%s tab=%s block=%s builder=%s provider=%s apiType=%s model=%s mode=%s widgetAccess=%t effectiveWidgetAccess=%t capabilities=%v tools=%d tabTools=%d allowNativeWebSearch=%t\n",
+		chatOpts.ChatId,
+		chatOpts.TabId,
+		chatOpts.BlockId,
+		chatOpts.BuilderId,
+		chatOpts.Config.Provider,
+		chatOpts.Config.APIType,
+		chatOpts.Config.Model,
+		chatOpts.Config.AIMode,
+		chatOpts.WidgetAccess,
+		effectiveWidgetAccess,
+		chatOpts.Config.Capabilities,
+		len(chatOpts.Tools),
+		len(chatOpts.TabTools),
+		chatOpts.AllowNativeWebSearch,
+	)
+}
+
 func isLocalEndpoint(endpoint string) bool {
 	if endpoint == "" {
 		return false
@@ -1157,6 +1180,7 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		BuilderAppId:         req.BuilderAppId,
 	}
 	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.Config.Provider, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), effectiveWidgetAccess, resolveAgentMode(req.AgentMode), req.Msg.GetContent())
+	logWaveAIDebugRequest(chatOpts, effectiveWidgetAccess)
 
 	if req.TabId != "" {
 		chatOpts.TabStateGenerator = func() (string, []uctypes.ToolDefinition, string, error) {

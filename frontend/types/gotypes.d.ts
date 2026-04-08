@@ -155,23 +155,6 @@ declare global {
         cmdexitsignal?: string;
     };
 
-    type UiMessageDataToolUse = {
-        toolcallid: string;
-        toolname: string;
-        tooldesc: string;
-        status: string;
-        jobid?: string;
-        runts?: number;
-        durationms?: number;
-        errormessage?: string;
-        outputtext?: string;
-        approval?: string;
-        tabid?: string;
-        blockid?: string;
-        writebackupfilename?: string;
-        inputfilename?: string;
-    };
-
     // wshrpc.BlocksListEntry
     type BlocksListEntry = {
         windowid: string;
@@ -256,20 +239,20 @@ declare global {
         jobid: string;
     };
 
-    // wshrpc.CommandAgentWriteStdinData
-    type CommandAgentWriteStdinData = {
-        jobid: string;
-        input?: string;
-        appendnewline?: boolean;
-        clearprompthint?: boolean;
-    };
-
     // wshrpc.CommandAgentTermScrollbackData
     type CommandAgentTermScrollbackData = {
         blockid: string;
         linestart?: number;
         lineend?: number;
         lastcommand?: boolean;
+    };
+
+    // wshrpc.CommandAgentWriteStdinData
+    type CommandAgentWriteStdinData = {
+        jobid: string;
+        input?: string;
+        appendnewline?: boolean;
+        clearprompthint?: boolean;
     };
 
     // wshrpc.CommandAuthenticateJobManagerData
@@ -383,6 +366,11 @@ declare global {
         recursive: boolean;
     };
 
+    // wshrpc.CommandDeleteWaveAISessionData
+    type CommandDeleteWaveAISessionData = {
+        chatid: string;
+    };
+
     // wshrpc.CommandDisposeData
     type CommandDisposeData = {
         routeid: string;
@@ -447,18 +435,6 @@ declare global {
 
     // wshrpc.CommandGetWaveAIChatData
     type CommandGetWaveAIChatData = {
-        chatid: string;
-    };
-
-    // wshrpc.CommandListWaveAISessionsData
-    type CommandListWaveAISessionsData = {
-        tabid?: string;
-        includearchived?: boolean;
-        includedeleted?: boolean;
-    };
-
-    // wshrpc.CommandDeleteWaveAISessionData
-    type CommandDeleteWaveAISessionData = {
         chatid: string;
     };
 
@@ -532,6 +508,13 @@ declare global {
         entrycount: number;
         totalentries: number;
         truncated?: boolean;
+    };
+
+    // wshrpc.CommandListWaveAISessionsData
+    type CommandListWaveAISessionsData = {
+        tabid?: string;
+        includearchived?: boolean;
+        includedeleted?: boolean;
     };
 
     // wshrpc.CommandMakeDraftFromLocalData
@@ -730,6 +713,18 @@ declare global {
         lastupdated: number;
     };
 
+    // wshrpc.CommandUpdateWaveAISessionData
+    type CommandUpdateWaveAISessionData = {
+        chatid: string;
+        tabid?: string;
+        title?: string;
+        summary?: string;
+        favorite?: boolean;
+        archived?: boolean;
+        deleted?: boolean;
+        lasttaskstate?: string;
+    };
+
     // wshrpc.CommandVarData
     type CommandVarData = {
         key: string;
@@ -778,18 +773,6 @@ declare global {
         actionid?: string;
         approval?: string;
         value?: string;
-    };
-
-    // wshrpc.CommandUpdateWaveAISessionData
-    type CommandUpdateWaveAISessionData = {
-        chatid: string;
-        tabid?: string;
-        title?: string;
-        summary?: string;
-        favorite?: boolean;
-        archived?: boolean;
-        deleted?: boolean;
-        lasttaskstate?: string;
     };
 
     // wshrpc.CommandWaveFileReadStreamData
@@ -1290,7 +1273,6 @@ declare global {
         "term:fontsize"?: number;
         "term:fontfamily"?: string;
         "term:mode"?: string;
-        "term:pre_vdom_mode"?: string;
         "term:theme"?: string;
         "term:localshellpath"?: string;
         "term:localshellopts"?: string[];
@@ -1298,7 +1280,6 @@ declare global {
         "term:vdomblockid"?: string;
         "term:vdomtoolbarblockid"?: string;
         "term:transparency"?: number;
-        "term:pre_vdom_mode"?: string;
         "term:allowbracketedpaste"?: boolean;
         "term:shiftenternewline"?: boolean;
         "term:macoptionismeta"?: boolean;

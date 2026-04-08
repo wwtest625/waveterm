@@ -941,14 +941,28 @@ export class WaveAIModel {
     executeCommandInTerminal(command: string, opts?: { source?: "manual" | "auto" }): boolean {
         const normalized = (command ?? "").replace(/\r/g, "").trim();
         if (normalized === "") {
+            console.log("[waveai:execute] ignored empty command", {
+                source: opts?.source ?? "manual",
+            });
             return false;
         }
 
         const target = this.getTargetTerminalModel();
         if (target == null) {
+            console.log("[waveai:execute] no active terminal available", {
+                source: opts?.source ?? "manual",
+                command: normalized,
+                focusedBlockId: getFocusedBlockId(),
+            });
             this.setError("No active terminal available. Focus a terminal and try again.");
             return false;
         }
+
+        console.log("[waveai:execute] dispatching command", {
+            source: opts?.source ?? "manual",
+            blockId: target.blockId,
+            command: normalized,
+        });
 
         const tool: ToolCallEnvelope = {
             requestId: crypto.randomUUID(),
