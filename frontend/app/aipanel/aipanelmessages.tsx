@@ -35,6 +35,7 @@ type TaskChainStep = {
     title: string;
     detail?: string;
     durationLabel?: string;
+    exitCode?: number;
     status: TaskChainStepStatus;
     toolName: string;
     duplicateCount?: number;
@@ -148,6 +149,13 @@ export function getRawOutputDisplayState(outputText: string, maxLines = RAW_OUTP
     };
 }
 
+export function formatExitCodeLabel(exitCode?: number): string | undefined {
+    if (exitCode == null) {
+        return undefined;
+    }
+    return `Exit ${exitCode}`;
+}
+
 function getToolStepTitle(toolName: string): string {
     switch (toolName) {
         case "wave_run_command":
@@ -235,6 +243,14 @@ function getMeaningfulOutputPreview(text?: string, maxLines = 5): string | undef
     return `${preview}\n...`;
 }
 
+function isPollingCommandPlaceholder(text?: string): boolean {
+    const normalized = text?.trim();
+    if (!normalized) {
+        return false;
+    }
+    return /^polling command result for\s+\S+$/i.test(normalized);
+}
+
 function extractCommandFromToolDesc(toolDesc?: string): string | undefined {
     const normalized = toolDesc?.trim();
     if (!normalized) {
@@ -298,10 +314,12 @@ function formatStepDetail(
             if (fullOutput) {
                 return fullOutput;
             }
-            return (
-                getFirstMeaningfulLine(part.data.tooldesc) ??
-                normalizeToolDetail(part.data.tooldesc)
-            );
+            const errorMessage = part.data.errormessage?.trim();
+            if (errorMessage) {
+                return errorMessage;
+            }
+            const fallbackDetail = getFirstMeaningfulLine(part.data.tooldesc) ?? normalizeToolDetail(part.data.tooldesc);
+            return isPollingCommandPlaceholder(fallbackDetail) ? undefined : fallbackDetail;
         }
         return normalizeToolDetail(part.data.tooldesc || part.data.errormessage);
     }
@@ -365,6 +383,14 @@ export function buildTaskChainSteps(
                 title: getToolStepTitle(part.data.toolname),
                 detail: formatStepDetail(part.data.toolname, part),
                 durationLabel: getDurationLabel(part.data.durationms),
+                exitCode:
+                    part.data.toolname === "wave_get_command_result" || part.data.toolname === "term_command_output"
+                        ? part.data.status === "completed"
+                            ? 0
+                            : part.data.status === "error"
+                              ? 1
+                              : undefined
+                        : undefined,
                 status: deriveToolUseStatus(part, isStreaming),
                 toolName: part.data.toolname,
             };
@@ -431,13 +457,25 @@ export function getTaskChainDisplayState(
         "state" | "phaseLabel" | "blockedReason" | "activeJobId" | "activeTool" | "lastCommand"
     > | null
 ): TaskChainDisplayState {
+    const systemFailedStep = steps.find(isSystemFailureStep);
     const activeStep =
         steps.find((step) => step.status === "running") ??
-        steps.find((step) => step.status === "failed") ??
-        steps.find((step) => step.status === "pending");
-    const statusLabel = runtime?.phaseLabel || (activeStep ? getTaskStepStateLabel(activeStep.status) : undefined);
-    const blockedReason = runtime?.blockedReason || activeStep?.detail;
-    const toneClassName = getTaskChainToneClass(runtime?.state ?? (activeStep ? activeStep.status : undefined));
+        steps.find((step) => step.status === "pending") ??
+        systemFailedStep;
+    const runtimeIsFailureState =
+        runtime?.state === "failed_retryable" || runtime?.state === "failed_fatal" || runtime?.state === "unavailable";
+    const hasSystemFailure = Boolean(systemFailedStep) || (runtimeIsFailureState && isSystemFailureText(runtime?.blockedReason));
+    const statusLabel =
+        runtime?.phaseLabel && (!runtimeIsFailureState || hasSystemFailure)
+            ? runtime.phaseLabel
+            : activeStep
+              ? getTaskStepStateLabel(activeStep.status)
+              : undefined;
+    const blockedReason =
+        runtime?.blockedReason && (!runtimeIsFailureState || hasSystemFailure) ? runtime.blockedReason : activeStep?.detail;
+    const toneClassName = hasSystemFailure
+        ? getTaskChainToneClass("failed")
+        : getTaskChainToneClass(runtime?.state ?? (activeStep ? activeStep.status : undefined));
 
     return {
         statusLabel,
@@ -458,6 +496,30 @@ function getTaskStepStateLabel(status: TaskChainStepStatus): string {
         default:
             return "等待中";
     }
+}
+
+function isSystemFailureText(text?: string): boolean {
+    const normalized = text?.trim().toLowerCase();
+    if (!normalized) {
+        return false;
+    }
+    return (
+        normalized.includes("tool not found") ||
+        normalized.includes("rpc") ||
+        normalized.includes("backend") ||
+        normalized.includes("failed to stream") ||
+        normalized.includes("request failed") ||
+        normalized.includes("api returned status") ||
+        normalized.includes("timed out waiting for command completion") ||
+        normalized.includes("no command result received") ||
+        normalized.includes("job not found") ||
+        normalized.includes("polling timed out") ||
+        normalized.includes("polling canceled")
+    );
+}
+
+function isSystemFailureStep(step: TaskChainStep): boolean {
+    return step.status === "failed" && isSystemFailureText(step.detail);
 }
 
 function getTaskChainToneClass(state?: AgentRuntimeSnapshot["state"] | TaskChainStepStatus): string {
@@ -481,24 +543,50 @@ function isThinkingPhaseLabel(label?: string): boolean {
     return typeof label === "string" && label.trim().toLowerCase() === "thinking";
 }
 
-function shouldRenderTaskChainBlockedReason(reason?: string): boolean {
+export function shouldAnimateTaskStep(
+    isActive: boolean,
+    primaryStatus: TaskChainStepStatus,
+    secondaryStatus?: TaskChainStepStatus,
+    runtimeState?: AgentRuntimeSnapshot["state"]
+): boolean {
+    if (!isActive) {
+        return false;
+    }
+    if (primaryStatus === "running" || primaryStatus === "pending" || secondaryStatus === "running") {
+        return true;
+    }
+    if (
+        runtimeState === "submitting" ||
+        runtimeState === "planning" ||
+        runtimeState === "awaiting_approval" ||
+        runtimeState === "executing" ||
+        runtimeState === "interacting" ||
+        runtimeState === "verifying" ||
+        runtimeState === "retrying"
+    ) {
+        return true;
+    }
+    return false;
+}
+
+export function shouldRenderTaskChainBlockedReason(reason?: string): boolean {
     const normalized = reason?.trim();
     if (!normalized) {
         return false;
     }
-    if (/^polling command result for\s+[a-f0-9-]+$/i.test(normalized)) {
+    if (isPollingCommandPlaceholder(normalized)) {
         return false;
     }
     return true;
 }
 
-const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRuntimeSnapshot }) => {
+const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRuntimeSnapshot | null }) => {
     const [expandedOutputSteps, setExpandedOutputSteps] = useState<Record<string, boolean>>({});
     const toolParts = getToolParts(turn.assistantMessages);
     const toolUseCount = toolParts.filter((part) => part.type === "data-tooluse").length;
     const steps = buildTaskChainSteps(toolParts, turn.isStreaming);
     const displayGroups = getTaskChainDisplayGroups(steps);
-    if (steps.length === 0 && !runtime.visible) {
+    if (steps.length === 0 && !runtime?.visible) {
         return null;
     }
     const displayState = getTaskChainDisplayState(steps, runtime);
@@ -548,7 +636,9 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                     const secondary = group.secondary;
                     const isActive =
                         displayState.activeStepId === step.id || displayState.activeStepId === secondary?.id;
+                    const animateStep = shouldAnimateTaskStep(isActive, step.status, secondary?.status, runtime?.state);
                     const durationLabel = step.durationLabel ?? secondary?.durationLabel;
+                    const exitCodeLabel = formatExitCodeLabel(step.exitCode ?? secondary?.exitCode);
                     const iconClass =
                         step.status === "completed"
                             ? "fa-circle-check text-emerald-400"
@@ -572,12 +662,12 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                             className={cn(
                                 "rounded-md px-2 py-1.5 transition-all duration-200",
                                 "hover:bg-white/[0.055]",
-                                isActive ? `${stepToneClass} animate-pulse` : "border-transparent bg-transparent"
+                                isActive ? `${stepToneClass} ${animateStep ? "animate-pulse" : ""}` : "border-transparent bg-transparent"
                             )}
                         >
                             <div className="flex items-center gap-2 text-[13px]">
                                 <span className="inline-flex w-5 justify-end text-zinc-500">{index + 1}.</span>
-                                <i className={`fa ${iconClass} w-4 text-center ${isActive ? "animate-pulse" : ""}`}></i>
+                                <i className={`fa ${iconClass} w-4 text-center ${animateStep ? "animate-pulse" : ""}`}></i>
                                 <span className={titleClass}>{step.title}</span>
                                 {(step.duplicateCount ?? 1) > 1 && (
                                     <span className="rounded-full border border-white/10 bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-zinc-300">
@@ -703,8 +793,15 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                         </div>
                                     );
                                 })()}
-                            {durationLabel && !secondary && (
-                                <div className="mt-1 pl-5 text-[11px] text-zinc-400">{durationLabel}</div>
+                            {(durationLabel || exitCodeLabel) && !secondary && (
+                                <div className="mt-1 flex flex-wrap items-center gap-2 pl-5 text-[11px] text-zinc-400">
+                                    {durationLabel && <span>{durationLabel}</span>}
+                                    {exitCodeLabel && (
+                                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-zinc-300">
+                                            {exitCodeLabel}
+                                        </span>
+                                    )}
+                                </div>
                             )}
                             {secondary && (
                                 <div className="mt-1 py-1">
@@ -753,9 +850,14 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                                 </div>
                                             );
                                         })()}
-                                    {secondary.durationLabel && (
-                                        <div className="mt-0.5 pl-5 text-[11px] text-zinc-400">
-                                            {secondary.durationLabel}
+                                    {(secondary.durationLabel || formatExitCodeLabel(secondary.exitCode)) && (
+                                        <div className="mt-0.5 flex flex-wrap items-center gap-2 pl-5 text-[11px] text-zinc-400">
+                                            {secondary.durationLabel && <span>{secondary.durationLabel}</span>}
+                                            {formatExitCodeLabel(secondary.exitCode) && (
+                                                <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-zinc-300">
+                                                    {formatExitCodeLabel(secondary.exitCode)}
+                                                </span>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -769,29 +871,6 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
 });
 
 TaskChain.displayName = "TaskChain";
-
-function getLatestMeaningfulCommand(messages: WaveUIMessage[]): string | undefined {
-    return [...messages].reverse().map(getFirstExecutableCommandFromMessage).find(Boolean) ?? undefined;
-}
-
-function getLatestApprovalState(messages: WaveUIMessage[]): "needs-approval" | "approved" | "denied" | null {
-    const toolUse = getToolParts(messages)
-        .filter((part) => part.type === "data-tooluse")
-        .at(-1);
-    if (!toolUse) {
-        return null;
-    }
-    if (toolUse.data.approval === "needs-approval") {
-        return "needs-approval";
-    }
-    if (toolUse.data.approval === "user-approved" || toolUse.data.approval === "auto-approved") {
-        return "approved";
-    }
-    if (toolUse.data.approval === "user-denied" || toolUse.data.approval === "timeout") {
-        return "denied";
-    }
-    return null;
-}
 
 export function getPendingApprovalToolUses(
     messages: WaveUIMessage[]
@@ -854,6 +933,25 @@ const TaskChainApprovalActions = memo(({ turn }: { turn: TaskTurn }) => {
 });
 
 TaskChainApprovalActions.displayName = "TaskChainApprovalActions";
+
+export function shouldShowTurnTaskChain(turn: TaskTurn): boolean {
+    return buildTaskChainSteps(getToolParts(turn.assistantMessages), turn.isStreaming).length > 0;
+}
+
+export function getTurnExitCode(messages: WaveUIMessage[]): number | undefined {
+    const latestToolUse = [...getToolParts(messages)]
+        .reverse()
+        .find(
+            (part) =>
+                part.type === "data-tooluse" &&
+                (part.data.toolname === "wave_get_command_result" || part.data.toolname === "term_command_output") &&
+                (part.data.status === "completed" || part.data.status === "error")
+        );
+    if (latestToolUse?.type !== "data-tooluse") {
+        return undefined;
+    }
+    return latestToolUse.data.status === "completed" ? 0 : 1;
+}
 
 export function buildTaskTurns(messages: WaveUIMessage[], status: string): TaskTurn[] {
     const turns: TaskTurn[] = [];
@@ -1099,63 +1197,6 @@ const AssistantRail = memo(({ status }: { status: "streaming" | "ready" | "atten
 
 AssistantRail.displayName = "AssistantRail";
 
-const InlineCommandActions = memo(({ turn }: { turn: TaskTurn }) => {
-    const model = WaveAIModel.getInstance();
-    const latestCommand = getLatestMeaningfulCommand(turn.assistantMessages);
-    const approvalState = getLatestApprovalState(turn.assistantMessages);
-    const [copied, setCopied] = useState(false);
-
-    if (!latestCommand || turn.isStreaming) {
-        return null;
-    }
-
-    const handleCopy = async () => {
-        await navigator.clipboard.writeText(latestCommand);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
-    };
-
-    const handleRun = () => {
-        model.executeCommandInTerminal(latestCommand, { source: "manual" });
-    };
-
-    return (
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-white/8 pt-3">
-            <button
-                type="button"
-                onClick={handleCopy}
-                className="cursor-pointer rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-200 transition hover:border-white/20 hover:bg-white/[0.08]"
-            >
-                {copied ? "Copied" : "Copy command"}
-            </button>
-            <button
-                type="button"
-                onClick={handleRun}
-                className="cursor-pointer rounded-full border border-lime-300/20 bg-lime-300/10 px-3 py-1.5 text-xs text-lime-100 transition hover:border-lime-200/35 hover:bg-lime-300/15"
-            >
-                Run in terminal
-            </button>
-            {approvalState === "needs-approval" && (
-                <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-xs text-amber-100">
-                    Waiting for approval
-                </span>
-            )}
-            {approvalState === "approved" && (
-                <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-100">
-                    Approved
-                </span>
-            )}
-            {approvalState === "denied" && (
-                <span className="rounded-full border border-red-300/20 bg-red-300/10 px-3 py-1.5 text-xs text-red-100">
-                    Denied
-                </span>
-            )}
-        </div>
-    );
-});
-
-InlineCommandActions.displayName = "InlineCommandActions";
-
 const ToolTrace = memo(({ turn }: { turn: TaskTurn }) => {
     const [open, setOpen] = useState(false);
     const toolParts = getToolParts(turn.assistantMessages);
@@ -1193,6 +1234,7 @@ ToolTrace.displayName = "ToolTrace";
 const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fallbackOutput?: string }) => {
     const assistantText = getAssistantText(turn.assistantMessages);
     const rawToolOutput = toOutputText(fallbackOutput);
+    const exitCodeLabel = formatExitCodeLabel(getTurnExitCode(turn.assistantMessages));
     const outputText = assistantText || fallbackOutput || "";
     const showRawOutputBlock = !turn.isStreaming && rawToolOutput.length > 0 && assistantText.length === 0;
     const showEmptyState = !assistantText && !rawToolOutput && !turn.isStreaming;
@@ -1238,7 +1280,6 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
                                 parseIncompleteMarkdown={false}
                                 className="text-zinc-100 [&_.markdown-content]:mx-0"
                                 codeBlockMaxWidthAtom={model.codeBlockMaxWidth}
-                                onClickExecute={(cmd) => model.executeCommandInTerminal(cmd, { source: "manual" })}
                             />
                         )}
                     </div>
@@ -1247,7 +1288,14 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
                 {showRawOutputBlock && (
                     <div className="mt-2 overflow-hidden rounded-xl border border-white/8 bg-black/25">
                         <div className="flex items-center justify-between gap-3 border-b border-white/8 px-2.5 py-1.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">结果</div>
+                            <div className="flex items-center gap-2">
+                                <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">结果</div>
+                                {exitCodeLabel && (
+                                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-zinc-300">
+                                        {exitCodeLabel}
+                                    </span>
+                                )}
+                            </div>
                             {rawOutputDisplay.shouldCollapse && (
                                 <button
                                     type="button"
@@ -1272,8 +1320,6 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
                 {turn.isStreaming && !assistantText && <div className="mt-3 text-sm text-zinc-400">处理中...</div>}
 
                 {showEmptyState && <div className="mt-3 text-sm text-zinc-400">No visible result returned.</div>}
-
-                <InlineCommandActions turn={turn} />
 
                 {!turn.isStreaming && (assistantText || rawToolOutput) && (
                     <div className="mt-3 flex items-center gap-2 border-t border-white/8 pt-2.5">
@@ -1307,7 +1353,7 @@ const TaskTurnCard = memo(
         return (
             <div className="space-y-4">
                 <UserPromptCard message={turn.userMessage} />
-                {isLatestTurn && <TaskChain turn={turn} runtime={runtime} />}
+                {shouldShowTurnTaskChain(turn) && <TaskChain turn={turn} runtime={isLatestTurn ? runtime : null} />}
                 <AssistantOutputCard turn={turn} fallbackOutput={fallbackOutput} />
             </div>
         );
@@ -1315,6 +1361,20 @@ const TaskTurnCard = memo(
 );
 
 TaskTurnCard.displayName = "TaskTurnCard";
+
+export function resolveTurnFallbackOutput(turn: TaskTurn, isLastTurn: boolean, runtimeLastToolStdout: string): string {
+    if (turn.isStreaming) {
+        return "";
+    }
+    const turnOutput = getLatestRawToolOutput(turn.assistantMessages);
+    if (turnOutput) {
+        return turnOutput;
+    }
+    if (!isLastTurn || turn.assistantMessages.length === 0) {
+        return "";
+    }
+    return runtimeLastToolStdout;
+}
 
 export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPanelMessagesProps) => {
     const model = WaveAIModel.getInstance();
@@ -1458,9 +1518,7 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
             <div className="space-y-6">
                 {turns.map((turn, index) => {
                     const isLastTurn = index === turns.length - 1;
-                    const turnOutput = getLatestRawToolOutput(turn.assistantMessages);
-                    const fallbackOutput =
-                        !turn.isStreaming && (turnOutput || (isLastTurn ? runtimeLastToolStdout : ""));
+                    const fallbackOutput = resolveTurnFallbackOutput(turn, isLastTurn, runtimeLastToolStdout);
                     return (
                         <TaskTurnCard
                             key={turn.id}

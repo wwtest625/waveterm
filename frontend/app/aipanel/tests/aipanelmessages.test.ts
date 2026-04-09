@@ -4,11 +4,17 @@ import {
     buildTaskChainSteps,
     buildTaskTurns,
     formatCommandDuration,
+    formatExitCodeLabel,
     getRawOutputDisplayState,
+    getTurnExitCode,
     getPendingApprovalToolUses,
     getTaskChainDetailLanguage,
     getTaskChainDisplayGroups,
     getTaskChainDisplayState,
+    resolveTurnFallbackOutput,
+    shouldRenderTaskChainBlockedReason,
+    shouldAnimateTaskStep,
+    shouldShowTurnTaskChain,
     shouldRenderStreamingPlainText,
 } from "../aipanelmessages";
 import { getToolDisplayName, shouldHideProgressStatusLines, summarizeToolGroup } from "../aitooluse";
@@ -170,13 +176,27 @@ describe("aipanel task turns", () => {
         expect(steps[1].status).toBe("running");
         expect(steps[1].detail).toBe("Model name: Intel(R) Xeon(R) Platinum 8369C CPU @ 2.90GHz\nCPU(s): 128");
         expect(steps[1].durationLabel).toBe("耗时 1.5s");
+        expect(steps[1].exitCode).toBeUndefined();
         expect(steps[2].status).toBe("failed");
+        expect(steps[2].exitCode).toBeUndefined();
     });
 
     it("formats command duration with human readable units", () => {
         expect(formatCommandDuration(950)).toBe("950ms");
         expect(formatCommandDuration(1_450)).toBe("1.5s");
         expect(formatCommandDuration(61_000)).toBe("1m 1s");
+    });
+
+    it("formats exit codes for metadata display", () => {
+        expect(formatExitCodeLabel(0)).toBe("Exit 0");
+        expect(formatExitCodeLabel(2)).toBe("Exit 2");
+        expect(formatExitCodeLabel(undefined)).toBeUndefined();
+    });
+
+    it("stops pulse animation for terminal states", () => {
+        expect(shouldAnimateTaskStep(true, "failed", undefined, "failed_retryable")).toBe(false);
+        expect(shouldAnimateTaskStep(true, "completed", undefined, "completed")).toBe(false);
+        expect(shouldAnimateTaskStep(true, "running", undefined, "executing")).toBe(true);
     });
 
     it("summarizes task chain with runtime focus and approval state", () => {
@@ -213,12 +233,90 @@ describe("aipanel task turns", () => {
             lastCommand: "lscpu",
         });
 
-        expect(summary.progressLabel).toBe("1/2");
-        expect(summary.focusLabel).toBe("lscpu");
         expect(summary.statusLabel).toBe("Waiting Approval");
         expect(summary.blockedReason).toBe("Waiting for tool approval");
         expect(summary.activeStepId).toBe("tool-2");
         expect(summary.toneClassName).toContain("yellow");
+    });
+
+    it("does not mark task chain as failed for model/business command failures", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "CN mismatch",
+                        status: "error",
+                        errormessage: "CN mismatch",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        const summary = getTaskChainDisplayState(steps, null);
+        expect(summary.statusLabel).toBeUndefined();
+        expect(summary.toneClassName).not.toContain("red");
+    });
+
+    it("keeps failed label for system-level failures", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "job not found: abc",
+                        status: "error",
+                        errormessage: "job not found: abc",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        const summary = getTaskChainDisplayState(steps, null);
+        expect(summary.statusLabel).toBe("失败");
+        expect(summary.toneClassName).toContain("red");
+    });
+
+    it("keeps task chains visible for historical turns that used tools", () => {
+        const turns = buildTaskTurns(
+            [
+                {
+                    id: "user-1",
+                    role: "user",
+                    parts: [{ type: "text", text: "生成证书" }],
+                } as any,
+                {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-1",
+                                toolname: "wave_run_command",
+                                tooldesc: 'running "python3 /root/ssl/check_cert.py"',
+                                status: "completed",
+                            },
+                        },
+                    ],
+                } as any,
+                {
+                    id: "user-2",
+                    role: "user",
+                    parts: [{ type: "text", text: "你自己测试一下好吗" }],
+                } as any,
+            ],
+            "ready"
+        );
+
+        expect(shouldShowTurnTaskChain(turns[0])).toBe(true);
+        expect(shouldShowTurnTaskChain(turns[1])).toBe(false);
     });
 
     it("finds pending approval tool uses even while the turn is still streaming", () => {
@@ -418,8 +516,103 @@ describe("aipanel task turns", () => {
         );
 
         expect(steps[0].detail).toBe(
-            'PRETTY_NAME="Ubuntu 22.04 LTS"\nNAME="Ubuntu"\nVERSION_ID="22.04"\nVERSION="22.04 (Jammy Jellyfish)"\nVERSION_CODENAME=jammy\n...'
+            'PRETTY_NAME="Ubuntu 22.04 LTS"\nNAME="Ubuntu"\nVERSION_ID="22.04"\nVERSION="22.04 (Jammy Jellyfish)"\nVERSION_CODENAME=jammy\nID=ubuntu'
         );
+    });
+
+    it("drops polling placeholders from completed command result details", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_get_command_result",
+                        tooldesc: "polling command result for 88c620_python_???",
+                        status: "completed",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(steps[0].detail).toBeUndefined();
+    });
+
+    it("hides polling placeholders from blocked reasons even with non-hex job ids", () => {
+        expect(shouldRenderTaskChainBlockedReason("polling command result for 88c620_python_???")).toBe(false);
+        expect(shouldRenderTaskChainBlockedReason("Error: CN does not match")).toBe(true);
+    });
+
+    it("uses the latest finished tool exit code for a turn", () => {
+        const exitCode = getTurnExitCode([
+            {
+                id: "assistant-1",
+                role: "assistant",
+                parts: [
+                    {
+                        type: "data-tooluse",
+                        data: {
+                            toolcallid: "tool-1",
+                            toolname: "wave_run_command",
+                            tooldesc: 'running "python3 /root/ssl/check_cert.py"',
+                            status: "completed",
+                            durationms: 100,
+                        },
+                    },
+                    {
+                        type: "data-tooluse",
+                        data: {
+                            toolcallid: "tool-2",
+                            toolname: "wave_get_command_result",
+                            tooldesc: "Error: CN does not match",
+                            status: "error",
+                            errormessage: "Error: CN does not match",
+                            durationms: 120,
+                        },
+                    },
+                ],
+            } as any,
+        ]);
+
+        expect(exitCode).toBe(1);
+    });
+
+    it("does not use runtime fallback output for user-only latest turn", () => {
+        const turns = buildTaskTurns(
+            [
+                {
+                    id: "user-1",
+                    role: "user",
+                    parts: [{ type: "text", text: "第二次提问" }],
+                } as any,
+            ],
+            "ready"
+        );
+
+        const fallbackOutput = resolveTurnFallbackOutput(turns[0], true, "old stdout");
+        expect(fallbackOutput).toBe("");
+    });
+
+    it("uses runtime fallback output only when latest turn already has assistant messages", () => {
+        const turns = buildTaskTurns(
+            [
+                {
+                    id: "user-1",
+                    role: "user",
+                    parts: [{ type: "text", text: "第二次提问" }],
+                } as any,
+                {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [{ type: "text", text: "" }],
+                } as any,
+            ],
+            "ready"
+        );
+
+        const fallbackOutput = resolveTurnFallbackOutput(turns[0], true, "old stdout");
+        expect(fallbackOutput).toBe("old stdout");
     });
 
     it("collapses identical consecutive tool steps into one visual row", () => {

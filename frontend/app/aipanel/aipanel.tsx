@@ -9,12 +9,11 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { maybeUseTabModel } from "@/app/store/tab-model";
 import { isBuilderWindow } from "@/app/store/windowtype";
 import { checkKeyPressed, keydownWrapper } from "@/util/keyutil";
-import { isMacOS, isWindows } from "@/util/platformutil";
 import { cn } from "@/util/util";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import * as jotai from "jotai";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDrop } from "react-dnd";
 import { Popover, PopoverButton, PopoverContent } from "../element/popover";
 import { deriveAgentRuntimeStatus } from "./agentstatus";
@@ -32,7 +31,6 @@ import {
     toolCallFromPart,
     toolResultFromPart,
 } from "./aitypes";
-import { BYOKAnnouncement } from "./byokannouncement";
 import { TelemetryRequiredMessage } from "./telemetryrequired";
 import { WaveAIModel } from "./waveai-model";
 
@@ -77,111 +75,17 @@ const AIDragOverlay = memo(() => {
 
 AIDragOverlay.displayName = "AIDragOverlay";
 
-const KeyCap = memo(({ children, className }: { children: React.ReactNode; className?: string }) => {
-    return (
-        <kbd
-            className={cn(
-                "px-1.5 py-0.5 text-xs bg-zinc-700 border border-zinc-600 rounded-sm shadow-sm font-mono",
-                className
-            )}
-        >
-            {children}
-        </kbd>
-    );
-});
-
-KeyCap.displayName = "KeyCap";
-
 const AIWelcomeMessage = memo(() => {
-    const modKey = isMacOS() ? "⌘" : "Alt";
-    const aiModeConfigs = jotai.useAtomValue(atoms.waveaiModeConfigAtom);
-    const hasCustomModes = Object.keys(aiModeConfigs).some((key) => !key.startsWith("waveai@"));
     return (
         <div className="text-secondary py-8">
             <div className="text-center">
                 <i className="fa fa-sparkles text-4xl text-accent mb-2 block"></i>
-                <p className="text-lg font-bold text-primary">Welcome to Wave AI</p>
+                <p className="text-lg font-bold text-primary">欢迎使用 Wiz AI</p>
             </div>
             <div className="mt-4 text-left max-w-md mx-auto">
-                <p className="text-sm mb-6">
-                    Wave AI is your terminal assistant with context. I can read your terminal output, analyze widgets,
-                    access files, and help you solve problems faster.
+                <p className="text-sm">
+                    Wiz AI 是你的终端智能助手，具备上下文能力。我可以读取终端输出、分析组件、访问文件，并更快帮助你解决问题。
                 </p>
-                <div className="bg-accent/10 border border-accent/30 rounded-lg p-4">
-                    <div className="text-sm font-semibold mb-3 text-accent">Getting Started:</div>
-                    <div className="space-y-3 text-sm">
-                        <div className="flex items-start gap-3">
-                            <div className="w-4 text-center flex-shrink-0">
-                                <i className="fa-solid fa-plug text-accent"></i>
-                            </div>
-                            <div>
-                                <span className="font-bold">Widget Context</span>
-                                <div className="">When ON, I can read your terminal and analyze widgets.</div>
-                                <div className="">When OFF, I'm sandboxed with no system access.</div>
-                            </div>
-                        </div>
-                        <div className="flex items-start gap-3">
-                            <div className="w-4 text-center flex-shrink-0">
-                                <i className="fa-solid fa-file-import text-accent"></i>
-                            </div>
-                            <div>Drag & drop files or images for analysis</div>
-                        </div>
-                        <div className="flex items-start gap-3">
-                            <div className="w-4 text-center flex-shrink-0">
-                                <i className="fa-solid fa-keyboard text-accent"></i>
-                            </div>
-                            <div className="space-y-1">
-                                <div>
-                                    <KeyCap>{modKey}</KeyCap>
-                                    <KeyCap className="ml-1">K</KeyCap>
-                                    <span className="ml-1.5">to start a new chat</span>
-                                </div>
-                                <div>
-                                    <KeyCap>{modKey}</KeyCap>
-                                    <KeyCap className="ml-1">Shift</KeyCap>
-                                    <KeyCap className="ml-1">A</KeyCap>
-                                    <span className="ml-1.5">to toggle panel</span>
-                                </div>
-                                <div>
-                                    {isWindows() ? (
-                                        <>
-                                            <KeyCap>Alt</KeyCap>
-                                            <KeyCap className="ml-1">0</KeyCap>
-                                            <span className="ml-1.5">to focus</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <KeyCap>Ctrl</KeyCap>
-                                            <KeyCap className="ml-1">Shift</KeyCap>
-                                            <KeyCap className="ml-1">0</KeyCap>
-                                            <span className="ml-1.5">to focus</span>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-start gap-3">
-                            <div className="w-4 text-center flex-shrink-0">
-                                <i className="fa-brands fa-discord text-accent"></i>
-                            </div>
-                            <div>
-                                Questions or feedback?{" "}
-                                <a
-                                    target="_blank"
-                                    href="https://discord.gg/XfvZ334gwU"
-                                    rel="noopener"
-                                    className="text-accent hover:underline cursor-pointer"
-                                >
-                                    Join our Discord
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {!hasCustomModes && <BYOKAnnouncement />}
-                <div className="mt-4 text-center text-[12px] text-muted">
-                    BETA: Free to use. Daily limits keep our costs in check.
-                </div>
             </div>
         </div>
     );
@@ -281,6 +185,36 @@ export function getHorizontalSessionTabs(
     });
 }
 
+type SessionHistoryGroup = {
+    label: string;
+    sessions: WaveChatSessionMeta[];
+};
+
+function normalizeSessionTs(ts: number | undefined): number {
+    if (!ts || ts <= 0) {
+        return 0;
+    }
+    return ts < 1_000_000_000_000 ? ts * 1000 : ts;
+}
+
+function getSessionSortTs(session: WaveChatSessionMeta): number {
+    return normalizeSessionTs(session.updatedts ?? session.createdts);
+}
+
+function formatHistoryGroupLabel(dayStartTs: number, todayStartTs: number): string {
+    if (dayStartTs === todayStartTs) {
+        return "今天";
+    }
+    if (dayStartTs === todayStartTs - 24 * 60 * 60 * 1000) {
+        return "昨天";
+    }
+    const date = new Date(dayStartTs);
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, "0");
+    const day = `${date.getDate()}`.padStart(2, "0");
+    return `${year}.${month}.${day}`;
+}
+
 const AISessionToolbar = memo(() => {
     const model = WaveAIModel.getInstance();
     const sessions = jotai.useAtomValue(model.sessionsAtom);
@@ -305,120 +239,123 @@ const AISessionToolbar = memo(() => {
         const haystack = `${session.title ?? ""} ${session.summary ?? ""}`.toLowerCase();
         return haystack.includes(needle);
     });
-    const recentSessions = getHorizontalSessionTabs(sessions, hiddenSessionIds, activeChatId, 3);
+    const groupedHistorySessions = useMemo<SessionHistoryGroup[]>(() => {
+        if (filteredSessions.length === 0) {
+            return [];
+        }
+        const groups = new Map<number, WaveChatSessionMeta[]>();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayStartTs = today.getTime();
+        for (const session of filteredSessions) {
+            const sessionTs = getSessionSortTs(session);
+            const bucketTs = sessionTs > 0 ? (() => {
+                const bucketDate = new Date(sessionTs);
+                bucketDate.setHours(0, 0, 0, 0);
+                return bucketDate.getTime();
+            })() : 0;
+            const bucket = groups.get(bucketTs);
+            if (bucket) {
+                bucket.push(session);
+            } else {
+                groups.set(bucketTs, [session]);
+            }
+        }
+        const orderedBuckets = [...groups.entries()].sort((left, right) => right[0] - left[0]);
+        return orderedBuckets.map(([bucketTs, bucketSessions]) => ({
+            label: bucketTs > 0 ? formatHistoryGroupLabel(bucketTs, todayStartTs) : "更早",
+            sessions: bucketSessions,
+        }));
+    }, [filteredSessions]);
 
     return (
         <div className="border-b border-white/8 bg-black/15 px-2 py-2">
             <div className="flex flex-wrap items-center gap-2">
                 <AIModeDropdown />
-                <Popover className="min-w-0 flex-1" placement="bottom-start" onDismiss={() => setQuery("")}>
+                <Popover className="min-w-0" placement="bottom-start" onDismiss={() => setQuery("")}>
                     <PopoverButton
-                        className="flex min-w-[120px] items-center justify-between rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-zinc-300 hover:text-white"
+                        className="solid green flex min-w-[112px] items-center justify-between rounded-md px-3 py-1.5 text-xs text-black transition-colors"
                         as="div"
                     >
                         <span>History</span>
                         <i className="fa-solid fa-chevron-down text-[10px]" />
                     </PopoverButton>
-                    <PopoverContent className="w-[360px] max-w-[calc(100vw-24px)] rounded-xl border border-white/10 bg-zinc-900/96 p-2 shadow-2xl backdrop-blur">
-                        <div className="mb-2 px-1">
+                    <PopoverContent className="flex w-[320px] max-w-[calc(100vw-24px)] flex-col rounded-xl border border-white/10 bg-zinc-900/96 p-2 shadow-2xl backdrop-blur">
+                        <div className="flex w-full items-center rounded-md border border-white/8 bg-white/5 px-2 text-zinc-400 focus-within:border-lime-300/35 focus-within:text-zinc-300">
+                            <i className="fa-solid fa-magnifying-glass text-[11px]" />
                             <input
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
-                                placeholder="Search history"
-                                className="w-full rounded-full border border-white/8 bg-white/5 px-3 py-1.5 text-xs text-white outline-none placeholder:text-zinc-500"
+                                placeholder="请输入"
+                                className="w-full bg-transparent px-2 py-1.5 text-xs text-white outline-none placeholder:text-zinc-500"
                             />
                         </div>
-                        <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
-                            {filteredSessions.map((session) => (
-                                <div
-                                    key={session.chatid}
-                                    className={cn(
-                                        "group flex items-center gap-2 rounded-lg border px-2 py-1.5 transition-colors",
-                                        session.chatid === activeChatId
-                                            ? "border-lime-300/25 bg-lime-300/10"
-                                            : "border-white/8 bg-white/3 hover:bg-white/5"
-                                    )}
-                                >
-                                    <button
-                                        type="button"
-                                        onClick={() => void model.switchSession(session.chatid)}
-                                        className={cn(
-                                            "min-w-0 flex-1 truncate text-left text-xs transition-colors",
-                                            session.chatid === activeChatId
-                                                ? "text-lime-100"
-                                                : "text-zinc-300 hover:text-white"
-                                        )}
-                                        title={session.summary || session.title || "New Chat"}
-                                    >
-                                        {session.favorite ? "★ " : ""}
-                                        {session.title || "New Chat"}
-                                    </button>
-                                    <div
-                                        className={cn(
-                                            "flex items-center gap-1 opacity-100 transition-opacity",
-                                            session.chatid === activeChatId
-                                                ? "opacity-100"
-                                                : "opacity-0 group-hover:opacity-100"
-                                        )}
-                                    >
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                void model.toggleSessionFavorite(session.chatid);
-                                            }}
-                                            className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-400 hover:bg-white/8 hover:text-yellow-300"
-                                            title={session.favorite ? "Unfavorite" : "Favorite"}
-                                            aria-label={session.favorite ? "Unfavorite session" : "Favorite session"}
-                                        >
-                                            <i
+                        <div className="mt-2 w-full max-h-[420px] overflow-y-auto pr-1">
+                            {groupedHistorySessions.map((group) => (
+                                <div key={group.label} className="border-b border-white/8 py-2 last:border-b-0 last:pb-0">
+                                    <div className="mb-2 px-1 text-[11px] text-zinc-500">{group.label}</div>
+                                    <div className="flex flex-col">
+                                        {group.sessions.map((session) => (
+                                            <div
+                                                key={session.chatid}
                                                 className={cn(
-                                                    session.favorite
-                                                        ? "fa-solid fa-star text-yellow-300"
-                                                        : "fa-regular fa-star"
+                                                    "group flex items-center gap-2 rounded-md px-2 py-1 transition-colors",
+                                                    session.chatid === activeChatId ? "bg-white/8" : "hover:bg-white/6"
                                                 )}
-                                            />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                const nextTitle = window.prompt(
-                                                    "Rename this session",
-                                                    session.title ?? "New Chat"
-                                                );
-                                                if (nextTitle && nextTitle.trim()) {
-                                                    void model.renameSession(session.chatid, nextTitle);
-                                                }
-                                            }}
-                                            className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-400 hover:bg-white/8 hover:text-white"
-                                            title="Rename"
-                                            aria-label="Rename session"
-                                        >
-                                            <i className="fa-regular fa-pen-to-square" />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (
-                                                    window.confirm(
-                                                        `Delete "${session.title || "New Chat"}" permanently?`
-                                                    )
-                                                ) {
-                                                    void model.deleteSession(session.chatid);
-                                                }
-                                            }}
-                                            className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-400 hover:bg-red-400/10 hover:text-red-300"
-                                            title="Delete"
-                                            aria-label="Delete session"
-                                        >
-                                            <i className="fa-regular fa-trash-can" />
-                                        </button>
+                                            >
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void model.switchSession(session.chatid)}
+                                                    className={cn(
+                                                        "min-w-0 flex-1 truncate text-left text-[13px] font-medium transition-colors",
+                                                        session.chatid === activeChatId ? "text-white" : "text-zinc-200 hover:text-white"
+                                                    )}
+                                                    title={session.summary || session.title || "New Chat"}
+                                                >
+                                                    {session.title || "New Chat"}
+                                                </button>
+                                                <div
+                                                    className={cn(
+                                                        "flex items-center gap-0.5 transition-opacity",
+                                                        session.chatid === activeChatId ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                                                    )}
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const nextTitle = window.prompt("Rename this session", session.title ?? "New Chat");
+                                                            if (nextTitle && nextTitle.trim()) {
+                                                                void model.renameSession(session.chatid, nextTitle);
+                                                            }
+                                                        }}
+                                                        className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-500 hover:bg-white/10 hover:text-white"
+                                                        title="Rename"
+                                                        aria-label="Rename session"
+                                                    >
+                                                        <i className="fa-regular fa-pen-to-square" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (window.confirm(`Delete "${session.title || "New Chat"}" permanently?`)) {
+                                                                void model.deleteSession(session.chatid);
+                                                            }
+                                                        }}
+                                                        className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-500 hover:bg-red-400/10 hover:text-red-300"
+                                                        title="Delete"
+                                                        aria-label="Delete session"
+                                                    >
+                                                        <i className="fa-regular fa-trash-can" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             ))}
-                            {filteredSessions.length === 0 && (
+                            {groupedHistorySessions.length === 0 && (
                                 <div className="px-2 py-3 text-xs text-zinc-500">No matching history</div>
                             )}
                         </div>
@@ -427,44 +364,10 @@ const AISessionToolbar = memo(() => {
                 <button
                     type="button"
                     onClick={() => model.clearChat()}
-                    className="rounded-full border border-lime-300/20 bg-lime-300/10 px-3 py-1 text-xs text-lime-200 hover:bg-lime-300/15"
+                    className="ml-auto rounded-full border border-lime-300/20 bg-lime-300/10 px-3 py-1 text-xs text-lime-200 hover:bg-lime-300/15"
                 >
                     New
                 </button>
-            </div>
-            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                {recentSessions.map((session) => (
-                    <div key={session.chatid} className="relative shrink-0">
-                        <button
-                            type="button"
-                            onClick={() => void model.switchSession(session.chatid)}
-                            className={cn(
-                                "max-w-[220px] truncate rounded-full border px-3 py-1 pr-7 text-xs transition-colors",
-                                session.chatid === activeChatId
-                                    ? "border-lime-300/30 bg-lime-300/12 text-lime-100"
-                                    : "border-white/8 bg-white/5 text-zinc-300 hover:text-white"
-                            )}
-                            title={session.summary || session.title || "New Chat"}
-                        >
-                            {session.favorite ? "★ " : ""}
-                            {session.title || "New Chat"}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                void model.hideSession(session.chatid);
-                            }}
-                            className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full text-[10px] text-zinc-500 opacity-80 hover:bg-white/10 hover:text-zinc-200"
-                            title="Close tab"
-                            aria-label="Close tab"
-                        >
-                            <i className="fa-solid fa-xmark" />
-                        </button>
-                    </div>
-                ))}
-                {recentSessions.length === 0 && (
-                    <div className="px-1 py-1 text-xs text-zinc-500">No recent sessions</div>
-                )}
             </div>
         </div>
     );

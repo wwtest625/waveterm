@@ -15,9 +15,9 @@ import { ImperativePanelGroupHandle, ImperativePanelHandle } from "react-resizab
 
 const dlog = debug("wave:workspace");
 
-const AIPANEL_DEFAULTWIDTH = 300;
-const AIPANEL_DEFAULTWIDTHRATIO = 0.33;
-const AIPANEL_MINWIDTH = 300;
+const AIPANEL_DEFAULTWIDTH = 150;
+const AIPANEL_DEFAULTWIDTHRATIO = 0.15;
+const AIPANEL_MINWIDTH = 150;
 const AIPANEL_MAXWIDTHRATIO = 0.66;
 
 class WorkspaceLayoutModel {

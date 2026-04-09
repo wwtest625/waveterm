@@ -224,14 +224,16 @@ export const AIModeDropdown = memo(({ compatibilityMode = false }: AIModeDropdow
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className={cn(
-                    "group flex items-center gap-1.5 px-2 py-1 text-xs text-gray-300 hover:text-white rounded transition-colors cursor-pointer border border-gray-600/50",
+                    "group flex min-w-[120px] items-center justify-between rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-zinc-300 transition-colors hover:text-white cursor-pointer",
                     isOpen ? "bg-zinc-700" : "bg-zinc-800/50 hover:bg-zinc-700"
                 )}
                 title={`AI Mode: ${displayName}`}
             >
-                <i className={cn(makeIconClass(displayIcon, false), "text-[10px]")}></i>
-                <span className={`text-[11px]`}>{displayName}</span>
-                <i className="fa fa-chevron-down text-[8px]"></i>
+                <span className="flex min-w-0 items-center gap-1.5">
+                    <i className={cn(makeIconClass(displayIcon, false), "text-[10px]")}></i>
+                    <span className="truncate text-xs">{displayName}</span>
+                </span>
+                <i className="fa fa-chevron-down text-[10px]" />
             </button>
 
             {showNoToolsWarning && (

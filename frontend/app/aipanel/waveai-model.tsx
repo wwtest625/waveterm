@@ -1140,20 +1140,23 @@ export class WaveAIModel {
         const currentRetry = runtime.retry?.retryCount ?? 0;
         const nextRetryCount = currentRetry + 1;
         const retry = this.buildRetryMeta(nextRetryCount, runtime.lastToolResult?.errorCode);
+        const lastResultWasChatStream = runtime.lastToolResult?.toolName === "chat-stream";
+        const shouldRetryRound =
+            scope === "round" || (scope === "step" && (lastResultWasChatStream || (!runtime.lastToolCall && !runtime.lastCommand)));
 
         this.dispatchAgentEvent({
             type: "RETRY_REQUESTED",
             retry,
-            reason: scope === "round" ? "Retrying the full round" : "Retrying the last step",
+            reason: shouldRetryRound ? "Retrying the full round" : "Retrying the last step",
         });
         recordTEvent("waveai:perf:retry", {
-            "waveai:scope": scope,
+            "waveai:scope": shouldRetryRound ? "round" : scope,
             "waveai:retrycount": retry.retryCount,
             "waveai:maxretries": retry.maxRetries,
             "waveai:lasterror": retry.lastErrorCode ?? "",
         } as any);
 
-        if (scope === "round" && this.lastSubmittedMessage && this.useChatSendMessage) {
+        if (shouldRetryRound && this.lastSubmittedMessage && this.useChatSendMessage) {
             this.realMessage = this.lastSubmittedMessage;
             await this.useChatSendMessage({ parts: this.buildRetryParts(this.lastSubmittedMessage) });
             return true;

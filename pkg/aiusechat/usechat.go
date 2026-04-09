@@ -726,6 +726,10 @@ type toolExecutionGroup struct {
 	Parallel bool
 }
 
+func isCommandChainTool(toolName string) bool {
+	return toolName == "wave_run_command" || toolName == "wave_get_command_result"
+}
+
 func buildToolCallDedupKey(toolName string, input any) (string, error) {
 	inputJSON, err := json.Marshal(input)
 	if err != nil {
@@ -755,7 +759,7 @@ func canProcessToolCallInParallel(toolCall uctypes.WaveToolCall) bool {
 		return false
 	}
 	switch toolCall.Name {
-	case "capture_screenshot", "term_get_scrollback", "term_command_output", "builder_list_files", "wave_get_command_result", "wave_run_command":
+	case "capture_screenshot", "term_get_scrollback", "term_command_output", "builder_list_files":
 		return true
 	default:
 		return false
@@ -835,6 +839,7 @@ func processToolCallBatch(
 
 func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopReason, chatOpts uctypes.WaveChatOpts, sseHandler *sse.SSEHandlerCh, metrics *uctypes.AIMetrics) {
 	// Create and send all data-tooluse packets at the beginning
+	commandToolSeen := false
 	for i := range stopReason.ToolCalls {
 		toolCall := &stopReason.ToolCalls[i]
 		// Create toolUseData from the tool call input
@@ -846,11 +851,19 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 			}
 		}
 		toolUseData := aiutil.CreateToolUseData(toolCall.ID, toolCall.Name, argsJSON, chatOpts)
+		if isCommandChainTool(toolCall.Name) {
+			if commandToolSeen {
+				toolUseData.Status = uctypes.ToolUseStatusError
+				toolUseData.ErrorMessage = "Only one command tool call is allowed per response; wait for the previous command result first."
+			} else {
+				commandToolSeen = true
+			}
+		}
 		stopReason.ToolCalls[i].ToolUseData = &toolUseData
 		log.Printf("AI data-tooluse %s\n", toolCall.ID)
 		_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, toolUseData)
 		updateToolUseDataInChat(backend, chatOpts, toolCall.ID, toolUseData)
-		if toolUseData.Approval == uctypes.ApprovalNeedsApproval {
+		if toolUseData.Approval == uctypes.ApprovalNeedsApproval && toolUseData.Status != uctypes.ToolUseStatusError {
 			RegisterToolApproval(toolCall.ID, sseHandler)
 		}
 	}

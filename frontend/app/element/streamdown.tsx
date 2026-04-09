@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { CopyButton } from "@/app/element/copybutton";
-import { IconButton } from "@/app/element/iconbutton";
 import { cn, useAtomValueSafe } from "@/util/util";
 import { createBundledHighlighter, createSingletonShorthands } from "@shikijs/core";
 import type { Atom } from "jotai";
@@ -163,11 +162,11 @@ export function Code({ className = "", children }: { className?: string; childre
 
 type CodeBlockProps = {
     children: React.ReactNode;
-    onClickExecute?: (cmd: string) => void;
     codeBlockMaxWidthAtom?: Atom<number>;
+    hideCodeBlockLanguageLabel?: boolean;
 };
 
-const CodeBlock = ({ children, onClickExecute, codeBlockMaxWidthAtom }: CodeBlockProps) => {
+const CodeBlock = ({ children, codeBlockMaxWidthAtom, hideCodeBlockLanguageLabel }: CodeBlockProps) => {
     const codeBlockMaxWidth = useAtomValueSafe(codeBlockMaxWidthAtom);
     const getLanguage = (children: any): string => {
         if (children?.props?.className) {
@@ -182,14 +181,6 @@ const CodeBlock = ({ children, onClickExecute, codeBlockMaxWidthAtom }: CodeBloc
         await navigator.clipboard.writeText(textToCopy);
     };
 
-    const handleExecute = (e: React.MouseEvent) => {
-        const cmd = extractText(children).replace(/\n$/, "");
-        if (onClickExecute) {
-            onClickExecute(cmd);
-            return;
-        }
-    };
-
     const language = getLanguage(children);
 
     return (
@@ -201,22 +192,24 @@ const CodeBlock = ({ children, onClickExecute, codeBlockMaxWidthAtom }: CodeBloc
                     : undefined
             }
         >
-            <div className="flex items-center justify-between pl-3 pr-2 pt-2 pb-1.5">
-                <span className="text-[11px] text-white/50">{language}</span>
-                <div className="flex items-center gap-2">
-                    <CopyButton onClick={handleCopy} title="Copy" />
-                    {onClickExecute && (
-                        <IconButton
-                            decl={{
-                                elemtype: "iconbutton",
-                                icon: "regular@square-terminal",
-                                click: handleExecute,
-                            }}
-                        />
-                    )}
+            {hideCodeBlockLanguageLabel ? (
+                <div className="relative">
+                    <div className="absolute right-2 top-1.5 z-10 flex items-center gap-2">
+                        <CopyButton onClick={handleCopy} title="Copy" />
+                    </div>
+                    <pre className="px-4 py-2 overflow-x-auto m-0 text-secondary max-w-full">{children}</pre>
                 </div>
-            </div>
-            <pre className="px-4 pb-2 pt-0 overflow-x-auto m-0 text-secondary max-w-full">{children}</pre>
+            ) : (
+                <>
+                    <div className="flex items-center justify-between pl-3 pr-2 pt-2 pb-1.5">
+                        <span className="text-[11px] text-white/50">{language}</span>
+                        <div className="ml-auto flex items-center gap-2">
+                            <CopyButton onClick={handleCopy} title="Copy" />
+                        </div>
+                    </div>
+                    <pre className="px-4 pb-2 pt-0 overflow-x-auto m-0 text-secondary max-w-full">{children}</pre>
+                </>
+            )}
         </div>
     );
 };
@@ -244,16 +237,16 @@ interface WaveStreamdownProps {
     text: string;
     parseIncompleteMarkdown?: boolean;
     className?: string;
-    onClickExecute?: (cmd: string) => void;
     codeBlockMaxWidthAtom?: Atom<number>;
+    hideCodeBlockLanguageLabel?: boolean;
 }
 
 export const WaveStreamdown = ({
     text,
     parseIncompleteMarkdown,
     className,
-    onClickExecute,
     codeBlockMaxWidthAtom,
+    hideCodeBlockLanguageLabel,
 }: WaveStreamdownProps) => {
     const components = useMemo(
         () => ({
@@ -261,8 +254,8 @@ export const WaveStreamdown = ({
             pre: (props: React.HTMLAttributes<HTMLPreElement>) => (
                 <CodeBlock
                     children={props.children}
-                    onClickExecute={onClickExecute}
                     codeBlockMaxWidthAtom={codeBlockMaxWidthAtom}
+                    hideCodeBlockLanguageLabel={hideCodeBlockLanguageLabel}
                 />
             ),
             p: (props: React.HTMLAttributes<HTMLParagraphElement>) => <p {...props} className="text-secondary" />,
@@ -341,7 +334,7 @@ export const WaveStreamdown = ({
             ),
             em: (props: React.HTMLAttributes<HTMLElement>) => <em {...props} className="italic text-secondary" />,
         }),
-        [onClickExecute, codeBlockMaxWidthAtom]
+        [codeBlockMaxWidthAtom, hideCodeBlockLanguageLabel]
     );
 
     return (

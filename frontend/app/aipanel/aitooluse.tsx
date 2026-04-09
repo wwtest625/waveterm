@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { BlockModel } from "@/app/block/block-model";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { recordTEvent } from "@/app/store/global";
-import { cn, fireAndForget } from "@/util/util";
+import { base64ToString, cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { memo, useEffect, useRef, useState } from "react";
 import { WaveUIMessagePart } from "./aitypes";
@@ -268,6 +270,54 @@ function getEffectiveApprovalStatus(baseApproval: string, isStreaming: boolean):
     return !isStreaming && baseApproval === "needs-approval" ? "timeout" : baseApproval;
 }
 
+export function buildInlineDiffPreview(original: string, modified: string, contextLines = 1, maxLines = 12): string {
+    if (original === modified) {
+        return "";
+    }
+
+    const originalLines = original.split(/\r?\n/);
+    const modifiedLines = modified.split(/\r?\n/);
+    let start = 0;
+    while (
+        start < originalLines.length &&
+        start < modifiedLines.length &&
+        originalLines[start] === modifiedLines[start]
+    ) {
+        start++;
+    }
+
+    let originalEnd = originalLines.length - 1;
+    let modifiedEnd = modifiedLines.length - 1;
+    while (originalEnd >= start && modifiedEnd >= start && originalLines[originalEnd] === modifiedLines[modifiedEnd]) {
+        originalEnd--;
+        modifiedEnd--;
+    }
+
+    const previewLines: string[] = [];
+    const contextStart = Math.max(0, start - contextLines);
+    const trailingStart = modifiedEnd + 1;
+    const trailingEnd = Math.min(modifiedLines.length, trailingStart + contextLines);
+
+    for (let index = contextStart; index < start; index++) {
+        previewLines.push(`  ${originalLines[index]}`);
+    }
+    for (let index = start; index <= originalEnd; index++) {
+        previewLines.push(`- ${originalLines[index]}`);
+    }
+    for (let index = start; index <= modifiedEnd; index++) {
+        previewLines.push(`+ ${modifiedLines[index]}`);
+    }
+    for (let index = trailingStart; index < trailingEnd; index++) {
+        previewLines.push(`  ${modifiedLines[index]}`);
+    }
+
+    if (previewLines.length <= maxLines) {
+        return previewLines.join("\n");
+    }
+
+    return `${previewLines.slice(0, maxLines).join("\n")}\n...`;
+}
+
 interface AIToolApprovalButtonsProps {
     count: number;
     onApprove: () => void;
@@ -400,6 +450,10 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
     const showRestoreModal = restoreModalToolCallId === toolData.toolcallid;
     const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const highlightedBlockIdRef = useRef<string | null>(null);
+    const [inlineDiffOpen, setInlineDiffOpen] = useState(false);
+    const [inlineDiffPreview, setInlineDiffPreview] = useState<string | null>(null);
+    const [inlineDiffLoading, setInlineDiffLoading] = useState(false);
+    const [inlineDiffError, setInlineDiffError] = useState<string | null>(null);
 
     const statusIcon =
         toolData.status === "completed"
@@ -423,7 +477,6 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
     const approvalTimeoutDispatchedRef = useRef(false);
 
     const isFileWriteTool = toolData.toolname === "write_text_file" || toolData.toolname === "edit_text_file";
-
     useEffect(() => {
         if (effectiveApproval === "timeout" && !approvalTimeoutDispatchedRef.current) {
             approvalTimeoutDispatchedRef.current = true;
@@ -495,6 +548,43 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
         fireAndForget(() => WaveAIModel.getInstance().openDiff(toolData.inputfilename, toolData.toolcallid));
     };
 
+    const handleToggleInlineDiff = () => {
+        if (inlineDiffOpen) {
+            setInlineDiffOpen(false);
+            return;
+        }
+        if (inlineDiffPreview != null || inlineDiffLoading) {
+            setInlineDiffOpen(true);
+            return;
+        }
+        const chatId = model.getChatId();
+        if (!chatId) {
+            setInlineDiffError("当前会话不存在，无法读取改动详情");
+            setInlineDiffOpen(true);
+            return;
+        }
+        setInlineDiffLoading(true);
+        setInlineDiffError(null);
+        setInlineDiffOpen(true);
+        fireAndForget(async () => {
+            try {
+                const result = await RpcApi.WaveAIGetToolDiffCommand(TabRpcClient, {
+                    chatid: chatId,
+                    toolcallid: toolData.toolcallid,
+                });
+                const preview = buildInlineDiffPreview(
+                    base64ToString(result.originalcontents64),
+                    base64ToString(result.modifiedcontents64)
+                );
+                setInlineDiffPreview(preview || "没有可展示的文本差异");
+            } catch (error) {
+                setInlineDiffError(error instanceof Error ? error.message : String(error));
+            } finally {
+                setInlineDiffLoading(false);
+            }
+        });
+    };
+
     return (
         <div
             className={cn("flex flex-col gap-1 p-2 rounded bg-zinc-800/60 border border-zinc-700", statusColor)}
@@ -529,6 +619,16 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
                     )}
                 {isFileWriteTool && toolData.inputfilename && (
                     <button
+                        onClick={handleToggleInlineDiff}
+                        className="flex-shrink-0 px-1.5 py-0.5 border border-zinc-600 hover:border-zinc-500 hover:bg-zinc-700 rounded cursor-pointer transition-colors flex items-center gap-1 text-zinc-400"
+                        title="Preview edits inline"
+                    >
+                        <span className="text-xs">{inlineDiffOpen ? "Hide Changes" : "Show Changes"}</span>
+                        <i className={`fa ${inlineDiffOpen ? "fa-chevron-up" : "fa-chevron-down"} text-xs`}></i>
+                    </button>
+                )}
+                {isFileWriteTool && toolData.inputfilename && (
+                    <button
                         onClick={handleOpenDiff}
                         className="flex-shrink-0 px-1.5 py-0.5 border border-zinc-600 hover:border-zinc-500 hover:bg-zinc-700 rounded cursor-pointer transition-colors flex items-center gap-1 text-zinc-400"
                         title="Open in diff viewer"
@@ -539,6 +639,22 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
                 )}
             </div>
             {toolData.tooldesc && <ToolDesc text={toolData.tooldesc} className="text-sm text-gray-400 pl-6" />}
+            {inlineDiffOpen && (
+                <div className="pl-6">
+                    <div className="mt-1 rounded border border-white/10 bg-black/35">
+                        <div className="border-b border-white/8 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                            改动预览
+                        </div>
+                        {inlineDiffLoading && <div className="px-2 py-2 text-xs text-zinc-400">正在读取改动...</div>}
+                        {inlineDiffError && <div className="px-2 py-2 text-xs text-red-300">{inlineDiffError}</div>}
+                        {!inlineDiffLoading && !inlineDiffError && inlineDiffPreview && (
+                            <pre className="overflow-x-auto whitespace-pre-wrap break-all px-2 py-2 text-xs leading-5 text-zinc-100">
+                                {inlineDiffPreview}
+                            </pre>
+                        )}
+                    </div>
+                </div>
+            )}
             {(toolData.errormessage || effectiveApproval === "timeout") && (
                 <div className="pl-6">
                     <div className="text-sm text-red-300">{toolData.errormessage || "Not approved"}</div>
