@@ -206,6 +206,10 @@ func isLikelyInteractiveWaveRunCommand(parsed *WaveRunCommandToolInput) bool {
 		"htop",
 		"vim",
 		"nano",
+		"git clone",
+		"git pull",
+		"git push",
+		"gh auth login",
 	} {
 		if strings.HasPrefix(commandText, marker+" ") || commandText == marker {
 			return true

@@ -476,14 +476,27 @@ const CommandInteractionInput = memo(() => {
     const model = WaveAIModel.getInstance();
     const interaction = jotai.useAtomValue(model.commandInteractionAtom);
     const [input, setInput] = useState("");
+    const inputRef = useRef<HTMLInputElement | null>(null);
 
     useEffect(() => {
         setInput("");
     }, [interaction?.jobId, interaction?.promptHint]);
 
+    useEffect(() => {
+        if (!interaction || interaction.tuiSuppressed) {
+            return;
+        }
+        const timer = window.setTimeout(() => {
+            inputRef.current?.focus();
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [interaction]);
+
     if (!interaction) {
         return null;
     }
+    const allowEmptyInput = Boolean(interaction.inputOptions?.some((option) => option === ""));
+    const canSend = input.trim().length > 0 || allowEmptyInput;
 
     return (
         <div className="mx-2 mb-2 rounded-xl border border-amber-300/20 bg-amber-300/8 px-3 py-3 text-sm text-zinc-200">
@@ -519,18 +532,19 @@ const CommandInteractionInput = memo(() => {
                         <div className="mt-2 flex flex-wrap gap-2">
                             {interaction.inputOptions.map((option) => (
                                 <button
-                                    key={option}
+                                    key={option === "" ? "__enter__" : option}
                                     type="button"
-                                    onClick={() => setInput(option)}
+                                    onClick={() => void model.submitCommandInteraction(option)}
                                     className="rounded-full border border-white/8 bg-white/6 px-2 py-1 text-[11px] text-zinc-200"
                                 >
-                                    {option}
+                                    {option === "" ? "Enter" : option}
                                 </button>
                             ))}
                         </div>
                     )}
                     <div className="mt-2 flex gap-2">
                         <input
+                            ref={inputRef}
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             placeholder={interaction.promptHint || "Type command input"}
@@ -539,10 +553,10 @@ const CommandInteractionInput = memo(() => {
                         <button
                             type="button"
                             onClick={() => void model.submitCommandInteraction(input)}
-                            disabled={!input.trim()}
+                            disabled={!canSend}
                             className={cn(
                                 "rounded-lg px-3 py-2 text-sm",
-                                input.trim()
+                                canSend
                                     ? "bg-amber-300/15 text-amber-100 hover:bg-amber-300/20"
                                     : "bg-white/5 text-zinc-500"
                             )}
@@ -667,6 +681,49 @@ const AIPanelComponentInner = memo(() => {
         const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
         const latestToolUse = getLatestToolUsePart(lastAssistantMessage);
         const latestToolProgress = getLatestToolProgressPart(lastAssistantMessage);
+        const currentInteraction = globalStore.get(model.commandInteractionAtom);
+        if (
+            latestToolUse?.data?.toolname === "wave_get_command_result" &&
+            latestToolUse.data.status === "running" &&
+            latestToolUse.data.jobid &&
+            (latestToolUse.data.awaitinginput || latestToolUse.data.tuidetected)
+        ) {
+            // The backend detector is the single source of truth for interaction state.
+            // The frontend only maps structured RPC fields into UI state.
+            const nextInteraction = {
+                jobId: latestToolUse.data.jobid,
+                awaitingInput: Boolean(latestToolUse.data.awaitinginput),
+                promptHint: latestToolUse.data.prompthint || "Command is waiting for terminal input",
+                inputOptions: latestToolUse.data.inputoptions,
+                tuiDetected: latestToolUse.data.tuidetected,
+                tuiSuppressed: latestToolUse.data.tuisuppressed,
+                outputPreview: latestToolUse.data.outputtext,
+            };
+            const changed =
+                currentInteraction?.jobId !== nextInteraction.jobId ||
+                currentInteraction?.awaitingInput !== nextInteraction.awaitingInput ||
+                currentInteraction?.promptHint !== nextInteraction.promptHint ||
+                currentInteraction?.tuiDetected !== nextInteraction.tuiDetected ||
+                currentInteraction?.tuiSuppressed !== nextInteraction.tuiSuppressed ||
+                JSON.stringify(currentInteraction?.inputOptions ?? []) !==
+                    JSON.stringify(nextInteraction.inputOptions ?? []) ||
+                currentInteraction?.outputPreview !== nextInteraction.outputPreview;
+            if (changed) {
+                globalStore.set(model.commandInteractionAtom, nextInteraction);
+                model.dispatchAgentEvent({
+                    type: "INTERACTION_REQUIRED",
+                    reason: nextInteraction.promptHint,
+                });
+            }
+        } else if (
+            currentInteraction?.jobId &&
+            latestToolUse?.data?.toolname === "wave_get_command_result" &&
+            latestToolUse.data.jobid === currentInteraction.jobId &&
+            (latestToolUse.data.status !== "running" ||
+                (!latestToolUse.data.awaitinginput && !latestToolUse.data.tuidetected))
+        ) {
+            globalStore.set(model.commandInteractionAtom, null);
+        }
 
         if (latestToolUse) {
             const lastToolCall = toolCallFromPart(latestToolUse, taskId);

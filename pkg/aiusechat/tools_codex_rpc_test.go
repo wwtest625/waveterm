@@ -220,6 +220,19 @@ func TestIsLikelyStreamingWaveRunCommand_IgnoresRegularShortCommand(t *testing.T
 	}
 }
 
+func TestIsLikelyInteractiveWaveRunCommand_DetectsGitClonePromptScenario(t *testing.T) {
+	parsed, err := parseWaveRunCommandToolInput(map[string]any{
+		"connection": "root@example",
+		"command":    "git clone https://github.com/example/private-repo.git /tmp/repo",
+	})
+	if err != nil {
+		t.Fatalf("parseWaveRunCommandToolInput returned error: %v", err)
+	}
+	if !isLikelyInteractiveWaveRunCommand(parsed) {
+		t.Fatalf("expected git clone over https to be treated as interactive-capable")
+	}
+}
+
 func TestShouldReturnWaveCommandResult_ReturnsImmediatelyWhenDone(t *testing.T) {
 	now := time.Now()
 	deadline := now.Add(30 * time.Second)

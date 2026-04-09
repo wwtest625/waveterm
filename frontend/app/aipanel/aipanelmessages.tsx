@@ -46,8 +46,6 @@ type TaskChainDisplayGroup = {
 };
 
 type TaskChainDisplayState = {
-    progressLabel: string;
-    focusLabel?: string;
     statusLabel?: string;
     blockedReason?: string;
     activeStepId?: string;
@@ -55,6 +53,7 @@ type TaskChainDisplayState = {
 };
 
 const RAW_OUTPUT_COLLAPSE_LINES = 5;
+const TASK_CHAIN_OUTPUT_COLLAPSE_LINES = 3;
 
 const ToolDetailTypes = new Set(["data-tooluse", "data-toolprogress"]);
 
@@ -295,8 +294,11 @@ function formatStepDetail(
                 }
                 return "已返回最新快照，后台继续刷新";
             }
+            const fullOutput = part.data.outputtext?.trim();
+            if (fullOutput) {
+                return fullOutput;
+            }
             return (
-                getMeaningfulOutputPreview(part.data.outputtext) ??
                 getFirstMeaningfulLine(part.data.tooldesc) ??
                 normalizeToolDetail(part.data.tooldesc)
             );
@@ -422,12 +424,6 @@ export function getTaskChainDisplayGroups(steps: TaskChainStep[]): TaskChainDisp
     return groups;
 }
 
-function getTaskChainProgress(steps: TaskChainStep[]): { completed: number; total: number } {
-    const total = steps.length;
-    const completed = steps.filter((step) => step.status === "completed").length;
-    return { completed, total };
-}
-
 export function getTaskChainDisplayState(
     steps: TaskChainStep[],
     runtime: Pick<
@@ -435,19 +431,15 @@ export function getTaskChainDisplayState(
         "state" | "phaseLabel" | "blockedReason" | "activeJobId" | "activeTool" | "lastCommand"
     > | null
 ): TaskChainDisplayState {
-    const progress = getTaskChainProgress(steps);
     const activeStep =
         steps.find((step) => step.status === "running") ??
         steps.find((step) => step.status === "failed") ??
         steps.find((step) => step.status === "pending");
     const statusLabel = runtime?.phaseLabel || (activeStep ? getTaskStepStateLabel(activeStep.status) : undefined);
-    const focusLabel = runtime?.lastCommand || activeStep?.title || runtime?.activeTool || statusLabel;
     const blockedReason = runtime?.blockedReason || activeStep?.detail;
     const toneClassName = getTaskChainToneClass(runtime?.state ?? (activeStep ? activeStep.status : undefined));
 
     return {
-        progressLabel: `${progress.completed}/${progress.total}`,
-        focusLabel,
         statusLabel,
         blockedReason,
         activeStepId: activeStep?.id,
@@ -489,9 +481,19 @@ function isThinkingPhaseLabel(label?: string): boolean {
     return typeof label === "string" && label.trim().toLowerCase() === "thinking";
 }
 
+function shouldRenderTaskChainBlockedReason(reason?: string): boolean {
+    const normalized = reason?.trim();
+    if (!normalized) {
+        return false;
+    }
+    if (/^polling command result for\s+[a-f0-9-]+$/i.test(normalized)) {
+        return false;
+    }
+    return true;
+}
+
 const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRuntimeSnapshot }) => {
-    const model = WaveAIModel.getInstance();
-    const [expandedCommandSteps, setExpandedCommandSteps] = useState<Record<string, boolean>>({});
+    const [expandedOutputSteps, setExpandedOutputSteps] = useState<Record<string, boolean>>({});
     const toolParts = getToolParts(turn.assistantMessages);
     const toolUseCount = toolParts.filter((part) => part.type === "data-tooluse").length;
     const steps = buildTaskChainSteps(toolParts, turn.isStreaming);
@@ -516,30 +518,19 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold tracking-[0.08em]">
-                        <i className="fa-solid fa-list-check text-lime-300" />
                         <span>任务链</span>
                         {displayState.statusLabel && (
                             <span className="rounded-full border border-white/10 bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-normal tracking-[0.14em] text-zinc-200 uppercase">
                                 {displayState.statusLabel}
                             </span>
                         )}
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-zinc-300">
                         {toolUseCount > 0 && (
-                            <span className="rounded-full border border-lime-300/30 bg-lime-300/12 px-2 py-0.5 text-lime-100">
+                            <span className="rounded-full border border-lime-300/30 bg-lime-300/12 px-2 py-0.5 text-[12px] font-normal tracking-normal text-lime-100">
                                 已调用工具 {toolUseCount} 次
                             </span>
                         )}
-                        <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5">
-                            {displayState.progressLabel}
-                        </span>
-                        {displayState.focusLabel && (
-                            <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-zinc-200/80">
-                                当前聚焦 {displayState.focusLabel}
-                            </span>
-                        )}
                         {isThinkingPhaseLabel(displayState.statusLabel) && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-zinc-200/80">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[12px] font-normal tracking-normal text-zinc-200/80">
                                 <i className="fa-solid fa-spinner fa-spin text-[10px]" />
                                 Thinking
                             </span>
@@ -547,7 +538,7 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                     </div>
                 </div>
             </div>
-            {displayState.blockedReason && (
+            {shouldRenderTaskChainBlockedReason(displayState.blockedReason) && (
                 <div className="mt-1 text-[11px] text-zinc-200/70">{displayState.blockedReason}</div>
             )}
             <TaskChainApprovalActions turn={turn} />
@@ -579,15 +570,14 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                         <div
                             key={step.id}
                             className={cn(
-                                "rounded-md border px-2 py-1.5 transition-all duration-200",
-                                "hover:border-white/15 hover:bg-white/[0.055] hover:shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
-                                stepToneClass,
-                                isActive && "animate-pulse"
+                                "rounded-md px-2 py-1.5 transition-all duration-200",
+                                "hover:bg-white/[0.055]",
+                                isActive ? `${stepToneClass} animate-pulse` : "border-transparent bg-transparent"
                             )}
                         >
                             <div className="flex items-center gap-2 text-[13px]">
-                                <span className="text-zinc-500">{index + 1}.</span>
-                                <i className={`fa ${iconClass} ${isActive ? "animate-pulse" : ""}`}></i>
+                                <span className="inline-flex w-5 justify-end text-zinc-500">{index + 1}.</span>
+                                <i className={`fa ${iconClass} w-4 text-center ${isActive ? "animate-pulse" : ""}`}></i>
                                 <span className={titleClass}>{step.title}</span>
                                 {(step.duplicateCount ?? 1) > 1 && (
                                     <span className="rounded-full border border-white/10 bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-zinc-300">
@@ -605,77 +595,165 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                     const language = getTaskChainDetailLanguage(step);
                                     if (language === "bash") {
                                         const fullCommand = step.detail.trimEnd();
-                                        const commandLines = fullCommand.split(/\r?\n/);
-                                        const isMultiLineCommand = commandLines.length > 1;
-                                        const isExpanded = expandedCommandSteps[step.id] === true;
-                                        const displayCommand =
-                                            isMultiLineCommand && !isExpanded ? commandLines[0] : fullCommand;
+                                        const commandDisplay = getRawOutputDisplayState(
+                                            fullCommand,
+                                            TASK_CHAIN_OUTPUT_COLLAPSE_LINES
+                                        );
+                                        const isExpanded = expandedOutputSteps[step.id] === true;
+                                        const displayedCommand = isExpanded
+                                            ? commandDisplay.expandedText
+                                            : commandDisplay.collapsedText;
                                         return (
                                             <div
                                                 className={cn(
-                                                    "mt-0.5 pl-5 text-[12px] leading-5",
+                                                    "mt-1 pl-5 text-[12px] leading-5",
                                                     isActive ? "text-lime-100" : "text-zinc-200"
                                                 )}
                                             >
-                                                <WaveStreamdown
-                                                    text={`\`\`\`bash\n${displayCommand}\n\`\`\``}
-                                                    parseIncompleteMarkdown={false}
-                                                    className={cn(
-                                                        "text-[12px]",
-                                                        "[&_.markdown-content]:mx-0",
-                                                        "[&_.markdown-content]:overflow-visible",
-                                                        "[&_.markdown-content]:max-w-full"
+                                                <div className="relative">
+                                                    <WaveStreamdown
+                                                        text={`\`\`\`bash\n${displayedCommand}\n\`\`\``}
+                                                        parseIncompleteMarkdown={false}
+                                                        className={cn(
+                                                            "text-[12px]",
+                                                            "[&_.markdown-content]:mx-0",
+                                                            "[&_.markdown-content]:overflow-visible",
+                                                            "[&_.markdown-content]:max-w-full",
+                                                            "[&_pre]:whitespace-pre-wrap [&_pre]:break-all [&_pre]:overflow-x-hidden",
+                                                            "[&_pre]:rounded-md [&_pre]:bg-black [&_pre]:px-2.5 [&_pre]:py-2",
+                                                            "[&_code]:whitespace-pre-wrap [&_code]:break-all"
+                                                        )}
+                                                    />
+                                                    {commandDisplay.shouldCollapse && (
+                                                        <button
+                                                            type="button"
+                                                            className="absolute right-10 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/30 px-2 py-0.5 text-[11px] text-zinc-200 transition hover:bg-black/45"
+                                                            onClick={() =>
+                                                                setExpandedOutputSteps((prev) => ({
+                                                                    ...prev,
+                                                                    [step.id]: !isExpanded,
+                                                                }))
+                                                            }
+                                                        >
+                                                            <span>更多</span>
+                                                            <i
+                                                                className={cn(
+                                                                    "fa-solid text-[10px]",
+                                                                    isExpanded ? "fa-chevron-up" : "fa-chevron-down"
+                                                                )}
+                                                            />
+                                                        </button>
                                                     )}
-                                                    onClickExecute={(_cmd) =>
-                                                        model.executeCommandInTerminal(fullCommand, {
-                                                            source: "manual",
-                                                        })
-                                                    }
-                                                />
-                                                {isMultiLineCommand && (
-                                                    <button
-                                                        type="button"
-                                                        className="mt-1 cursor-pointer rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-zinc-300 transition hover:bg-white/[0.08]"
-                                                        onClick={() =>
-                                                            setExpandedCommandSteps((prev) => ({
-                                                                ...prev,
-                                                                [step.id]: !isExpanded,
-                                                            }))
-                                                        }
-                                                    >
-                                                        {isExpanded ? "收起" : "展开完整命令"}
-                                                    </button>
-                                                )}
+                                                </div>
                                             </div>
                                         );
+                                    }
+                                    if (isOutputLikeStep(step)) {
+                                        const outputDisplay = getRawOutputDisplayState(
+                                            step.detail,
+                                            TASK_CHAIN_OUTPUT_COLLAPSE_LINES
+                                        );
+                                        const isExpanded = expandedOutputSteps[step.id] === true;
+                                        const displayedText = isExpanded
+                                            ? outputDisplay.expandedText
+                                            : outputDisplay.collapsedText;
+                                            return (
+                                                <div className="mt-1 pl-5">
+                                                    <div className="relative">
+                                                        <pre
+                                                            className={cn(
+                                                                "whitespace-pre-wrap break-all rounded-md bg-black px-2.5 py-2 pt-7 pr-20 text-[12px] leading-5",
+                                                                isActive ? "text-zinc-100/95" : "text-zinc-200/90"
+                                                            )}
+                                                        >
+                                                            {displayedText}
+                                                        </pre>
+                                                        {outputDisplay.shouldCollapse && (
+                                                            <button
+                                                                type="button"
+                                                                className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/30 px-2 py-0.5 text-[11px] text-zinc-200 transition hover:bg-black/45"
+                                                                onClick={() =>
+                                                                    setExpandedOutputSteps((prev) => ({
+                                                                        ...prev,
+                                                                        [step.id]: !isExpanded,
+                                                                    }))
+                                                                }
+                                                            >
+                                                                <span>更多</span>
+                                                                <i
+                                                                    className={cn(
+                                                                        "fa-solid text-[10px]",
+                                                                        isExpanded ? "fa-chevron-up" : "fa-chevron-down"
+                                                                    )}
+                                                                />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
                                     }
                                     return (
                                         <div
                                             className={cn(
-                                                "mt-0.5 overflow-hidden pl-5 text-[12px] leading-5",
-                                                isActive ? "text-zinc-100/90" : "text-zinc-400"
+                                                "mt-1 whitespace-pre-wrap break-words pl-5 text-[12px] leading-5",
+                                                isActive ? "text-zinc-100/90" : "text-zinc-300/90"
                                             )}
-                                            style={{ maxHeight: "2.8em" }}
                                         >
                                             {step.detail}
                                         </div>
                                     );
                                 })()}
-                            {durationLabel && (
+                            {durationLabel && !secondary && (
                                 <div className="mt-1 pl-5 text-[11px] text-zinc-400">{durationLabel}</div>
                             )}
                             {secondary && (
-                                <div className="mt-2 rounded-md border border-white/8 bg-black/20 px-2 py-1.5">
+                                <div className="mt-1 py-1">
                                     <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.08em] text-zinc-300">
-                                        <i className="fa-solid fa-reply text-emerald-300/80" />
+                                        <span className="inline-flex w-5"></span>
+                                        <i className="fa-solid fa-reply w-4 text-center text-emerald-300/80" />
                                         <span>{secondary.title}</span>
                                     </div>
-                                    {secondary.detail && (
-                                        <div className="mt-0.5 pl-5 text-[12px] leading-5 text-zinc-100/90">
-                                            {secondary.detail}
-                                        </div>
-                                    )}
-                                    {secondary.durationLabel && step.durationLabel == null && (
+                                    {secondary.detail &&
+                                        (() => {
+                                            const outputDisplay = getRawOutputDisplayState(
+                                                secondary.detail,
+                                                TASK_CHAIN_OUTPUT_COLLAPSE_LINES
+                                            );
+                                            const isExpanded = expandedOutputSteps[secondary.id] === true;
+                                            const displayedText = isExpanded
+                                                ? outputDisplay.expandedText
+                                                : outputDisplay.collapsedText;
+                                            return (
+                                                <div className="mt-1 pl-5">
+                                                    <div className="relative">
+                                                        <pre className="whitespace-pre-wrap break-all rounded-md bg-black px-2.5 py-2 pt-7 pr-20 text-[12px] leading-5 text-zinc-100/90">
+                                                            {displayedText}
+                                                        </pre>
+                                                        {outputDisplay.shouldCollapse && (
+                                                            <button
+                                                                type="button"
+                                                                className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/30 px-2 py-0.5 text-[11px] text-zinc-200 transition hover:bg-black/45"
+                                                                onClick={() =>
+                                                                    setExpandedOutputSteps((prev) => ({
+                                                                        ...prev,
+                                                                        [secondary.id]: !isExpanded,
+                                                                    }))
+                                                                }
+                                                            >
+                                                                <span>更多</span>
+                                                                <i
+                                                                    className={cn(
+                                                                        "fa-solid text-[10px]",
+                                                                        isExpanded ? "fa-chevron-up" : "fa-chevron-down"
+                                                                    )}
+                                                                />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                    {secondary.durationLabel && (
                                         <div className="mt-0.5 pl-5 text-[11px] text-zinc-400">
                                             {secondary.durationLabel}
                                         </div>
@@ -922,39 +1000,12 @@ const StreamingTextBlock = memo(({ text }: { text: string }) => {
 
 StreamingTextBlock.displayName = "StreamingTextBlock";
 
-const AssistantStatusPill = memo(({ turn }: { turn: TaskTurn }) => {
-    const toolParts = getToolParts(turn.assistantMessages);
-    const latestCommand = getLatestMeaningfulCommand(turn.assistantMessages);
-    const toolUseCount = toolParts.filter((part) => part.type === "data-tooluse").length;
-    const label = turn.isStreaming ? "Working" : "Response";
-
-    return (
-        <div className="mb-1.5 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-            <span>{label}</span>
-            {toolUseCount > 0 && (
-                <span className="rounded-full border border-lime-300/30 bg-lime-300/10 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-lime-200">
-                    Tool Used ×{toolUseCount}
-                </span>
-            )}
-            {latestCommand && (
-                <span className="normal-case tracking-normal text-zinc-500/80 break-all">{latestCommand}</span>
-            )}
-            {!latestCommand && toolParts.length > 0 && (
-                <span className="normal-case tracking-normal text-zinc-500/80">{toolParts.length} tool event</span>
-            )}
-        </div>
-    );
-});
-
-AssistantStatusPill.displayName = "AssistantStatusPill";
-
 const CompletionHeader = memo(() => {
     return (
         <div className="mb-2 flex items-center gap-2">
             <div className="flex items-center gap-2 text-[12px] font-medium text-zinc-100">
                 <i className="fa-solid fa-circle-check text-emerald-400" />
-                <span>Task completed</span>
+                <span>任务完成</span>
             </div>
         </div>
     );
@@ -1175,7 +1226,6 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
         <div className="flex items-stretch gap-3">
             <AssistantRail status={railStatus} />
             <div className="min-w-0 flex-1 rounded-[18px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.025))] px-3.5 py-3.5 shadow-[0_12px_28px_rgba(0,0,0,0.12)]">
-                <AssistantStatusPill turn={turn} />
                 {showCompletionHeader && <CompletionHeader />}
 
                 {assistantText && (

@@ -318,11 +318,114 @@ func parseWaveCommandJobID(resultText string) string {
 	return strings.TrimSpace(parsed.JobId)
 }
 
+func applyWaveCommandInteractionState(toolUseData *uctypes.UIMessageDataToolUse, interaction *detectedInteraction) {
+	if toolUseData == nil {
+		return
+	}
+	if interaction == nil {
+		toolUseData.AwaitingInput = false
+		toolUseData.PromptHint = ""
+		toolUseData.InputOptions = nil
+		toolUseData.TuiDetected = false
+		toolUseData.TuiSuppressed = false
+		return
+	}
+	toolUseData.AwaitingInput = interaction.AwaitingInput
+	toolUseData.PromptHint = strings.TrimSpace(interaction.PromptHint)
+	if len(interaction.InputOptions) > 0 {
+		toolUseData.InputOptions = append([]string(nil), interaction.InputOptions...)
+	} else {
+		toolUseData.InputOptions = nil
+	}
+	toolUseData.TuiDetected = interaction.TuiDetected
+	toolUseData.TuiSuppressed = interaction.TuiSuppressed
+}
+
 var waveCommandResultPollers = struct {
 	mu   sync.Mutex
 	jobs map[string]struct{}
 }{
 	jobs: make(map[string]struct{}),
+}
+
+var waveCommandJobContext = struct {
+	mu       sync.Mutex
+	commands map[string]waveCommandJobEntry
+}{
+	commands: make(map[string]waveCommandJobEntry),
+}
+
+type waveCommandJobEntry struct {
+	commandText string
+	updatedAt   time.Time
+}
+
+const (
+	waveCommandJobRetention = 60 * time.Minute
+	waveCommandJobMaxCount  = 2048
+)
+
+func cleanupWaveCommandJobsLocked(now time.Time) {
+	for jobID, entry := range waveCommandJobContext.commands {
+		if now.Sub(entry.updatedAt) > waveCommandJobRetention {
+			delete(waveCommandJobContext.commands, jobID)
+		}
+	}
+	if len(waveCommandJobContext.commands) <= waveCommandJobMaxCount {
+		return
+	}
+	for len(waveCommandJobContext.commands) > waveCommandJobMaxCount {
+		oldestJobID := ""
+		var oldestAt time.Time
+		for jobID, entry := range waveCommandJobContext.commands {
+			if oldestJobID == "" || entry.updatedAt.Before(oldestAt) {
+				oldestJobID = jobID
+				oldestAt = entry.updatedAt
+			}
+		}
+		if oldestJobID == "" {
+			return
+		}
+		delete(waveCommandJobContext.commands, oldestJobID)
+	}
+}
+
+func rememberWaveCommandJob(jobID string, commandText string) {
+	trimmedJobID := strings.TrimSpace(jobID)
+	if trimmedJobID == "" {
+		return
+	}
+	waveCommandJobContext.mu.Lock()
+	defer waveCommandJobContext.mu.Unlock()
+	now := time.Now()
+	cleanupWaveCommandJobsLocked(now)
+	trimmedCommand := strings.TrimSpace(commandText)
+	if trimmedCommand == "" {
+		delete(waveCommandJobContext.commands, trimmedJobID)
+		return
+	}
+	waveCommandJobContext.commands[trimmedJobID] = waveCommandJobEntry{
+		commandText: trimmedCommand,
+		updatedAt:   now,
+	}
+}
+
+func lookupWaveCommandJob(jobID string) string {
+	trimmedJobID := strings.TrimSpace(jobID)
+	if trimmedJobID == "" {
+		return ""
+	}
+	waveCommandJobContext.mu.Lock()
+	defer waveCommandJobContext.mu.Unlock()
+	entry, found := waveCommandJobContext.commands[trimmedJobID]
+	if !found {
+		return ""
+	}
+	if time.Since(entry.updatedAt) > waveCommandJobRetention {
+		delete(waveCommandJobContext.commands, trimmedJobID)
+		return ""
+	}
+	return entry.commandText
 }
 
 func tryStartWaveCommandResultPoller(
@@ -352,6 +455,8 @@ func tryStartWaveCommandResultPoller(
 		DurationMs: snapshot.DurationMs,
 		OutputText: extractToolOutputText("wave_get_command_result", snapshot.Output),
 	}
+	commandText := lookupWaveCommandJob(snapshot.JobId)
+	applyWaveCommandInteractionState(&initialToolUse, detectCommandInteraction(commandText, snapshot))
 	if snapshot.Status == "running" {
 		initialToolUse.Status = "running"
 	}
@@ -365,11 +470,13 @@ func tryStartWaveCommandResultPoller(
 			waveCommandResultPollers.mu.Lock()
 			delete(waveCommandResultPollers.jobs, pollerKey)
 			waveCommandResultPollers.mu.Unlock()
+			rememberWaveCommandJob(snapshot.JobId, "")
 		}()
 
 		current := initialToolUse
 		currentOutput := current.OutputText
 		currentDuration := current.DurationMs
+		currentInteractionDedupKey := ""
 		terminalSeenAt := time.Time{}
 		deadline := time.Now().Add(60 * time.Second)
 		rpcClient := wshclient.GetBareRpcClient()
@@ -400,6 +507,12 @@ func tryStartWaveCommandResultPoller(
 			}
 			current.DurationMs = result.DurationMs
 			current.OutputText = extractToolOutputText("wave_get_command_result", result.Output)
+			detectedInteraction := detectCommandInteraction(commandText, result)
+			detectedInteractionKey := ""
+			if detectedInteraction != nil {
+				detectedInteractionKey = detectedInteraction.DedupKey
+			}
+			applyWaveCommandInteractionState(&current, detectedInteraction)
 			if result.Status == "error" {
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = result.Error
@@ -409,9 +522,10 @@ func tryStartWaveCommandResultPoller(
 			if result.Status == "running" {
 				current.Status = "running"
 				current.ErrorMessage = ""
-				if current.OutputText != currentOutput || current.DurationMs != currentDuration {
+				if current.OutputText != currentOutput || current.DurationMs != currentDuration || detectedInteractionKey != currentInteractionDedupKey {
 					currentOutput = current.OutputText
 					currentDuration = current.DurationMs
+					currentInteractionDedupKey = detectedInteractionKey
 					updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				}
 				select {
@@ -423,12 +537,14 @@ func tryStartWaveCommandResultPoller(
 			if shouldReturnWaveCommandResult(result, time.Now(), deadline, &terminalSeenAt) {
 				current.Status = uctypes.ToolUseStatusCompleted
 				current.ErrorMessage = ""
+				applyWaveCommandInteractionState(&current, nil)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
 			}
-			if current.OutputText != currentOutput || current.DurationMs != currentDuration {
+			if current.OutputText != currentOutput || current.DurationMs != currentDuration || detectedInteractionKey != currentInteractionDedupKey {
 				currentOutput = current.OutputText
 				currentDuration = current.DurationMs
+				currentInteractionDedupKey = detectedInteractionKey
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 			}
 			select {
@@ -534,6 +650,7 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 			toolCall.ToolUseData.JobId = snapshot.JobId
 			toolCall.ToolUseData.DurationMs = snapshot.DurationMs
 			toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
+			applyWaveCommandInteractionState(toolCall.ToolUseData, detectCommandInteraction(lookupWaveCommandJob(snapshot.JobId), snapshot))
 			if snapshot.Status == "running" {
 				toolCall.ToolUseData.Status = "running"
 				toolCall.ToolUseData.ErrorMessage = ""
@@ -548,10 +665,15 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 		} else {
 			toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
 			toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
+			applyWaveCommandInteractionState(toolCall.ToolUseData, nil)
 		}
 	} else {
 		if toolCall.Name == "wave_run_command" {
-			toolCall.ToolUseData.JobId = parseWaveCommandJobID(result.Text)
+			jobID := parseWaveCommandJobID(result.Text)
+			toolCall.ToolUseData.JobId = jobID
+			if parsedCommandInput, parseErr := parseWaveRunCommandToolInput(toolCall.Input); parseErr == nil && parsedCommandInput != nil {
+				rememberWaveCommandJob(jobID, getWaveRunCommandDisplayText(parsedCommandInput))
+			}
 		}
 		toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
 		toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)

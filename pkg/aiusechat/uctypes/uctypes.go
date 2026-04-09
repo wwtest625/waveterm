@@ -238,20 +238,25 @@ const (
 
 // when updating this struct, also modify frontend/app/aipanel/aitypes.ts WaveUIDataTypes.tooluse
 type UIMessageDataToolUse struct {
-	ToolCallId          string `json:"toolcallid"`
-	ToolName            string `json:"toolname"`
-	ToolDesc            string `json:"tooldesc"`
-	Status              string `json:"status"`
-	JobId               string `json:"jobid,omitempty"`
-	RunTs               int64  `json:"runts,omitempty"`
-	DurationMs          int64  `json:"durationms,omitempty"`
-	ErrorMessage        string `json:"errormessage,omitempty"`
-	OutputText          string `json:"outputtext,omitempty"`
-	Approval            string `json:"approval,omitempty"`
-	TabId               string `json:"tabid,omitempty"`
-	BlockId             string `json:"blockid,omitempty"`
-	WriteBackupFileName string `json:"writebackupfilename,omitempty"`
-	InputFileName       string `json:"inputfilename,omitempty"`
+	ToolCallId          string   `json:"toolcallid"`
+	ToolName            string   `json:"toolname"`
+	ToolDesc            string   `json:"tooldesc"`
+	Status              string   `json:"status"`
+	JobId               string   `json:"jobid,omitempty"`
+	RunTs               int64    `json:"runts,omitempty"`
+	DurationMs          int64    `json:"durationms,omitempty"`
+	ErrorMessage        string   `json:"errormessage,omitempty"`
+	OutputText          string   `json:"outputtext,omitempty"`
+	AwaitingInput       bool     `json:"awaitinginput,omitempty"`
+	PromptHint          string   `json:"prompthint,omitempty"`
+	InputOptions        []string `json:"inputoptions,omitempty"`
+	TuiDetected         bool     `json:"tuidetected,omitempty"`
+	TuiSuppressed       bool     `json:"tuisuppressed,omitempty"`
+	Approval            string   `json:"approval,omitempty"`
+	TabId               string   `json:"tabid,omitempty"`
+	BlockId             string   `json:"blockid,omitempty"`
+	WriteBackupFileName string   `json:"writebackupfilename,omitempty"`
+	InputFileName       string   `json:"inputfilename,omitempty"`
 }
 
 func (d *UIMessageDataToolUse) IsApproved() bool {

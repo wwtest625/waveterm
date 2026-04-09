@@ -22,6 +22,11 @@ type WaveUIDataTypes = {
         durationms?: number;
         errormessage?: string;
         outputtext?: string;
+        awaitinginput?: boolean;
+        prompthint?: string;
+        inputoptions?: string[];
+        tuidetected?: boolean;
+        tuisuppressed?: boolean;
         approval?: "needs-approval" | "user-approved" | "user-denied" | "auto-approved" | "timeout";
         tabid?: string;
         blockid?: string;
