@@ -108,16 +108,17 @@ const (
 )
 
 type UIChatSessionMeta struct {
-	ChatId        string `json:"chatid"`
-	TabId         string `json:"tabid,omitempty"`
-	Title         string `json:"title,omitempty"`
-	Summary       string `json:"summary,omitempty"`
-	CreatedTs     int64  `json:"createdts,omitempty"`
-	UpdatedTs     int64  `json:"updatedts,omitempty"`
-	Favorite      bool   `json:"favorite,omitempty"`
-	LastTaskState string `json:"lasttaskstate,omitempty"`
-	Archived      bool   `json:"archived,omitempty"`
-	Deleted       bool   `json:"deleted,omitempty"`
+	ChatId        string             `json:"chatid"`
+	TabId         string             `json:"tabid,omitempty"`
+	Title         string             `json:"title,omitempty"`
+	Summary       string             `json:"summary,omitempty"`
+	Cheatsheet    *SessionCheatsheet `json:"cheatsheet,omitempty"`
+	CreatedTs     int64              `json:"createdts,omitempty"`
+	UpdatedTs     int64              `json:"updatedts,omitempty"`
+	Favorite      bool               `json:"favorite,omitempty"`
+	LastTaskState string             `json:"lasttaskstate,omitempty"`
+	Archived      bool               `json:"archived,omitempty"`
+	Deleted       bool               `json:"deleted,omitempty"`
 }
 
 func (m *UIChatSessionMeta) Clone() *UIChatSessionMeta {
@@ -125,18 +126,30 @@ func (m *UIChatSessionMeta) Clone() *UIChatSessionMeta {
 		return nil
 	}
 	copied := *m
+	if m.Cheatsheet != nil {
+		cheatsheetCopy := *m.Cheatsheet
+		copied.Cheatsheet = &cheatsheetCopy
+	}
 	return &copied
 }
 
+type SessionCheatsheet struct {
+	CurrentWork string `json:"currentwork,omitempty"`
+	Completed   string `json:"completed,omitempty"`
+	BlockedBy   string `json:"blockedby,omitempty"`
+	NextStep    string `json:"nextstep,omitempty"`
+}
+
 type UIChatSessionMetaUpdate struct {
-	TabId     string  `json:"tabid,omitempty"`
-	Title     *string `json:"title,omitempty"`
-	Summary   *string `json:"summary,omitempty"`
-	Favorite  *bool   `json:"favorite,omitempty"`
-	LastState string  `json:"laststate,omitempty"`
-	Archived  *bool   `json:"archived,omitempty"`
-	Deleted   *bool   `json:"deleted,omitempty"`
-	UpdatedTs int64   `json:"updatedts,omitempty"`
+	TabId      string             `json:"tabid,omitempty"`
+	Title      *string            `json:"title,omitempty"`
+	Summary    *string            `json:"summary,omitempty"`
+	Cheatsheet *SessionCheatsheet `json:"cheatsheet,omitempty"`
+	Favorite   *bool              `json:"favorite,omitempty"`
+	LastState  string             `json:"laststate,omitempty"`
+	Archived   *bool              `json:"archived,omitempty"`
+	Deleted    *bool              `json:"deleted,omitempty"`
+	UpdatedTs  int64              `json:"updatedts,omitempty"`
 }
 
 type UIChatSessionListOpts struct {

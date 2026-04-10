@@ -1329,11 +1329,12 @@ func (ws *WshServer) UpdateWaveAISessionCommand(ctx context.Context, data wshrpc
 		return nil, fmt.Errorf("chatid is required")
 	}
 	update := uctypes.UIChatSessionMetaUpdate{
-		TabId:     data.TabId,
-		Favorite:  data.Favorite,
-		Archived:  data.Archived,
-		Deleted:   data.Deleted,
-		LastState: data.LastTaskState,
+		TabId:      data.TabId,
+		Cheatsheet: data.Cheatsheet,
+		Favorite:   data.Favorite,
+		Archived:   data.Archived,
+		Deleted:    data.Deleted,
+		LastState:  data.LastTaskState,
 	}
 	if data.Title != "" {
 		update.Title = &data.Title

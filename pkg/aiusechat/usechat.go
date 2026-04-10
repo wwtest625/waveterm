@@ -972,6 +972,7 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 			}
 		}
 	}
+	refreshSessionCheatsheet(backend, chatOpts)
 }
 
 func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseChatBackend, chatOpts uctypes.WaveChatOpts) (*uctypes.AIMetrics, error) {
@@ -1000,9 +1001,11 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 		AIProvider:    aiProvider,
 		IsLocal:       isLocal,
 	}
+	baseSystemPrompt := append([]string(nil), chatOpts.SystemPrompt...)
 	firstStep := true
 	var cont *uctypes.WaveContinueResponse
 	for {
+		chatOpts.SystemPrompt = composeSystemPromptWithCheatsheet(baseSystemPrompt, chatstore.DefaultChatStore.GetSession(chatOpts.ChatId))
 		if chatOpts.TabStateGenerator != nil {
 			tabState, tabTools, tabId, tabErr := chatOpts.TabStateGenerator()
 			if tabErr == nil {
@@ -1057,6 +1060,7 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 				}
 			}
 		}
+		refreshSessionCheatsheet(backend, chatOpts)
 		firstStep = false
 		if stopReason != nil && stopReason.Kind == uctypes.StopKindPremiumRateLimit && chatOpts.Config.APIType == uctypes.APIType_OpenAIResponses && chatOpts.Config.Model == uctypes.PremiumOpenAIModel {
 			log.Printf("Premium rate limit hit with %s, switching to %s\n", uctypes.PremiumOpenAIModel, uctypes.DefaultOpenAIModel)
@@ -1165,6 +1169,10 @@ func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, me
 		})
 		return fmt.Errorf("failed to store message: %w", err)
 	}
+	chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
+		LastState: "executing",
+	})
+	refreshSessionCheatsheet(backend, chatOpts)
 
 	metrics, err := RunAIChat(ctx, sseHandler, backend, chatOpts)
 	sessionState := "completed"
@@ -1174,6 +1182,7 @@ func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, me
 	chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
 		LastState: sessionState,
 	})
+	refreshSessionCheatsheet(backend, chatOpts)
 	if metrics != nil {
 		metrics.RequestDuration = int(time.Since(startTime).Milliseconds())
 		for _, part := range message.Parts {

@@ -25,6 +25,7 @@ import { AIPanelInput } from "./aipanelinput";
 import { AIPanelMessages } from "./aipanelmessages";
 import { shouldHideProgressStatusLines } from "./aitooluse";
 import {
+    WaveChatSessionMeta,
     WaveUIMessage,
     getLatestToolProgressPart,
     getLatestToolUsePart,
@@ -110,6 +111,97 @@ const AIBuilderWelcomeMessage = memo(() => {
 });
 
 AIBuilderWelcomeMessage.displayName = "AIBuilderWelcomeMessage";
+
+type ContextUsageStats = {
+    usedTokens: number;
+    totalTokens: number;
+    usedPercent: number;
+};
+
+const MODEL_CONTEXT_TOKEN_LIMITS: Array<{ pattern: RegExp; limit: number }> = [
+    { pattern: /gpt-5|gpt-4\.1|o1|o3|o4/i, limit: 256000 },
+    { pattern: /claude-4|claude-sonnet|claude-opus|claude-haiku/i, limit: 200000 },
+    { pattern: /gemini-2\.5|gemini-2\.0/i, limit: 1000000 },
+    { pattern: /gemini-1\.5/i, limit: 1000000 },
+    { pattern: /qwen|deepseek|llama|mixtral|mistral|yi|phi/i, limit: 128000 },
+];
+
+function resolveModelContextLimit(modelName: string | undefined): number {
+    const normalized = (modelName ?? "").trim();
+    if (!normalized) {
+        return 128000;
+    }
+    for (const item of MODEL_CONTEXT_TOKEN_LIMITS) {
+        if (item.pattern.test(normalized)) {
+            return item.limit;
+        }
+    }
+    return 128000;
+}
+
+function estimateTokensFromText(text: string | undefined): number {
+    const normalized = (text ?? "").trim();
+    if (!normalized) {
+        return 0;
+    }
+    // Heuristic only: mixed CJK/Latin conversations are usually between 1 token per 2-4 chars.
+    return Math.ceil(normalized.length / 3);
+}
+
+function estimateMessageTokens(message: WaveUIMessage): number {
+    if (!message?.parts || message.parts.length === 0) {
+        return 0;
+    }
+    let tokens = 0;
+    for (const part of message.parts) {
+        if (part.type === "text" || part.type === "reasoning") {
+            tokens += estimateTokensFromText(part.text);
+            continue;
+        }
+        if (part.type === "data-tooluse") {
+            const toolData = part.data as any;
+            tokens += estimateTokensFromText(toolData?.tooldesc);
+            tokens += estimateTokensFromText(toolData?.outputtext);
+            tokens += estimateTokensFromText(toolData?.errormessage);
+            continue;
+        }
+        if (part.type === "data-toolprogress") {
+            const progressData = part.data as any;
+            const lines = Array.isArray(progressData?.statuslines) ? progressData.statuslines : [];
+            for (const line of lines) {
+                tokens += estimateTokensFromText(line);
+            }
+            continue;
+        }
+        if (part.type === "data-ask") {
+            const askData = part.data as any;
+            tokens += estimateTokensFromText(askData?.prompt);
+            continue;
+        }
+    }
+    return tokens;
+}
+
+function computeContextUsageStats(messages: WaveUIMessage[], modelName: string | undefined): ContextUsageStats {
+    const usedTokens = messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+    const totalTokens = resolveModelContextLimit(modelName);
+    const usedPercent = totalTokens > 0 ? Math.min(100, Math.round((usedTokens / totalTokens) * 100)) : 0;
+    return {
+        usedTokens,
+        totalTokens,
+        usedPercent,
+    };
+}
+
+function formatTokensCompact(tokens: number): string {
+    if (tokens >= 1000000) {
+        return `${Math.round(tokens / 10000) / 100}M`;
+    }
+    if (tokens >= 1000) {
+        return `${Math.round(tokens / 10) / 100}K`;
+    }
+    return `${tokens}`;
+}
 
 const AIErrorMessage = memo(() => {
     const model = WaveAIModel.getInstance();
@@ -215,12 +307,40 @@ function formatHistoryGroupLabel(dayStartTs: number, todayStartTs: number): stri
     return `${year}.${month}.${day}`;
 }
 
-const AISessionToolbar = memo(() => {
+const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
     const model = WaveAIModel.getInstance();
     const sessions = jotai.useAtomValue(model.sessionsAtom);
     const hiddenSessionIds = jotai.useAtomValue(model.hiddenSessionIdsAtom);
     const activeChatId = jotai.useAtomValue(model.chatId);
     const [query, setQuery] = useState("");
+    const [cheatsheetDraft, setCheatsheetDraft] = useState({
+        currentwork: "",
+        completed: "",
+        blockedby: "",
+        nextstep: "",
+    });
+    const currentMode = jotai.useAtomValue(model.currentAIMode);
+    const aiModeConfigs = jotai.useAtomValue(model.aiModeConfigs);
+    const currentModelName = aiModeConfigs?.[currentMode]?.["ai:model"];
+    const activeSession = useMemo(
+        () => sessions.find((session) => session.chatid === activeChatId) ?? null,
+        [activeChatId, sessions]
+    );
+    const contextUsage = useMemo(
+        () => computeContextUsageStats(messages, currentModelName),
+        [messages, currentModelName]
+    );
+
+    useEffect(() => {
+        const cheatsheet = activeSession?.cheatsheet;
+        setCheatsheetDraft({
+            currentwork: cheatsheet?.currentwork ?? "",
+            completed: cheatsheet?.completed ?? "",
+            blockedby: cheatsheet?.blockedby ?? "",
+            nextstep: cheatsheet?.nextstep ?? "",
+        });
+    }, [activeSession?.chatid, activeSession?.cheatsheet?.blockedby, activeSession?.cheatsheet?.completed, activeSession?.cheatsheet?.currentwork, activeSession?.cheatsheet?.nextstep]);
+
     if (model.inBuilder) {
         return (
             <div className="border-b border-white/8 bg-black/15 px-2 py-2">
@@ -272,13 +392,97 @@ const AISessionToolbar = memo(() => {
         <div className="border-b border-white/8 bg-black/15 px-2 py-2">
             <div className="flex flex-wrap items-center gap-2">
                 <AIModeDropdown />
-                <Popover className="min-w-0" placement="bottom-start" onDismiss={() => setQuery("")}>
+                <Popover placement="bottom-start">
                     <PopoverButton
-                        className="solid green flex min-w-[112px] items-center justify-between rounded-md px-3 py-1.5 text-xs text-black transition-colors"
+                        className="flex h-10 min-w-[118px] items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-200 transition-colors hover:bg-white/[0.07]"
                         as="div"
                     >
-                        <span>History</span>
-                        <i className="fa-solid fa-chevron-down text-[10px]" />
+                        <span className="font-medium">会话小抄</span>
+                        <i className="fa-solid fa-chevron-down ml-2 text-[10px] text-zinc-500" />
+                    </PopoverButton>
+                    <PopoverContent className="flex min-h-0 w-[360px] max-w-[calc(100vw-24px)] flex-col gap-0 rounded-xl border border-white/10 bg-zinc-900/96 p-3 shadow-2xl backdrop-blur">
+                        <div className="mb-3">
+                            <div className="text-sm font-medium text-white">会话小抄</div>
+                            <div className="mt-1 text-[11px] text-zinc-400">这四项会重新注入模型请求，用户可以手动修正。</div>
+                        </div>
+                        <div className="space-y-3">
+                            <label className="block">
+                                <div className="mb-1 text-[11px] text-zinc-400">现在在做什么</div>
+                                <input
+                                    value={cheatsheetDraft.currentwork}
+                                    onChange={(e) => setCheatsheetDraft((prev) => ({ ...prev, currentwork: e.target.value }))}
+                                    className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                                    placeholder="当前任务"
+                                />
+                            </label>
+                            <label className="block">
+                                <div className="mb-1 text-[11px] text-zinc-400">已经完成什么</div>
+                                <input
+                                    value={cheatsheetDraft.completed}
+                                    onChange={(e) => setCheatsheetDraft((prev) => ({ ...prev, completed: e.target.value }))}
+                                    className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                                    placeholder="已完成项"
+                                />
+                            </label>
+                            <label className="block">
+                                <div className="mb-1 text-[11px] text-zinc-400">当前卡点</div>
+                                <input
+                                    value={cheatsheetDraft.blockedby}
+                                    onChange={(e) => setCheatsheetDraft((prev) => ({ ...prev, blockedby: e.target.value }))}
+                                    className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                                    placeholder="阻塞点"
+                                />
+                            </label>
+                            <label className="block">
+                                <div className="mb-1 text-[11px] text-zinc-400">下一步</div>
+                                <input
+                                    value={cheatsheetDraft.nextstep}
+                                    onChange={(e) => setCheatsheetDraft((prev) => ({ ...prev, nextstep: e.target.value }))}
+                                    className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                                    placeholder="下一步动作"
+                                />
+                            </label>
+                        </div>
+                        <div className="mt-3 flex w-full shrink-0 justify-end gap-2 border-t border-white/8 pt-3">
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setCheatsheetDraft({
+                                        currentwork: activeSession?.cheatsheet?.currentwork ?? "",
+                                        completed: activeSession?.cheatsheet?.completed ?? "",
+                                        blockedby: activeSession?.cheatsheet?.blockedby ?? "",
+                                        nextstep: activeSession?.cheatsheet?.nextstep ?? "",
+                                    })
+                                }
+                                className="inline-flex h-9 min-w-16 items-center justify-center rounded-lg border border-white/8 bg-white/5 px-3 py-1.5 text-xs text-zinc-300 whitespace-nowrap hover:bg-white/8"
+                            >
+                                重置
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!activeSession?.chatid}
+                                onClick={() =>
+                                    void model.updateSessionCheatsheet(activeSession?.chatid ?? "", cheatsheetDraft)
+                                }
+                                className={cn(
+                                    "inline-flex h-9 min-w-16 items-center justify-center rounded-lg px-3 py-1.5 text-xs whitespace-nowrap",
+                                    activeSession?.chatid
+                                        ? "bg-cyan-300/15 text-cyan-100 hover:bg-cyan-300/20"
+                                        : "bg-white/5 text-zinc-500"
+                                )}
+                            >
+                                保存
+                            </button>
+                        </div>
+                    </PopoverContent>
+                </Popover>
+                <Popover className="min-w-0" placement="bottom-start" onDismiss={() => setQuery("")}>
+                    <PopoverButton
+                        className="flex h-10 min-w-[118px] items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-200 transition-colors hover:bg-white/[0.07]"
+                        as="div"
+                    >
+                        <span className="font-medium">History</span>
+                        <i className="fa-solid fa-chevron-down ml-2 text-[10px] text-zinc-500" />
                     </PopoverButton>
                     <PopoverContent className="flex w-[320px] max-w-[calc(100vw-24px)] flex-col rounded-xl border border-white/10 bg-zinc-900/96 p-2 shadow-2xl backdrop-blur">
                         <div className="flex w-full items-center rounded-md border border-white/8 bg-white/5 px-2 text-zinc-400 focus-within:border-lime-300/35 focus-within:text-zinc-300">
@@ -361,13 +565,23 @@ const AISessionToolbar = memo(() => {
                         </div>
                     </PopoverContent>
                 </Popover>
-                <button
-                    type="button"
-                    onClick={() => model.clearChat()}
-                    className="ml-auto rounded-full border border-lime-300/20 bg-lime-300/10 px-3 py-1 text-xs text-lime-200 hover:bg-lime-300/15"
-                >
-                    New
-                </button>
+                <div className="ml-auto flex items-center gap-2">
+                    <div className="flex h-8 min-w-[146px] flex-col justify-center rounded-lg border border-white/10 bg-white/[0.04] px-3">
+                        <div className="mt-1 text-xs leading-none text-zinc-300">
+                            <span className="text-lime-200">{contextUsage.usedPercent}% </span>
+                            <span className="mx-1 text-zinc-500">·</span>
+                            统计 {formatTokensCompact(contextUsage.usedTokens)} ，共{" "}
+                            {formatTokensCompact(contextUsage.totalTokens)}
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => model.clearChat()}
+                        className="rounded-full border border-lime-300/20 bg-lime-300/10 px-3 py-1 text-xs text-lime-200 hover:bg-lime-300/15"
+                    >
+                        New
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -578,6 +792,14 @@ const AIPanelComponentInner = memo(() => {
         }
         model.mergeAgentRuntimeSnapshot(derivedAgentStatusSnapshot);
     }, [agentRuntimeSnapshot.activeJobId, commandInteraction, derivedAgentStatusSnapshot, model]);
+
+    useEffect(() => {
+        const currentChatId = globalStore.get(model.chatId);
+        if (status !== "ready" || !currentChatId) {
+            return;
+        }
+        void model.loadSessions();
+    }, [status, model]);
 
     useEffect(() => {
         const taskId = globalStore.get(model.chatId) || "waveai";
@@ -1056,7 +1278,7 @@ const AIPanelComponentInner = memo(() => {
                     <TelemetryRequiredMessage />
                 ) : (
                     <>
-                        <AISessionToolbar />
+                        <AISessionToolbar messages={messages} />
                         {messages.length === 0 && initialLoadDone ? (
                             <div
                                 className="flex-1 overflow-y-auto p-2 relative"

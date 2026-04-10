@@ -768,14 +768,15 @@ type CommandListWaveAISessionsData struct {
 }
 
 type CommandUpdateWaveAISessionData struct {
-	ChatId        string `json:"chatid"`
-	TabId         string `json:"tabid,omitempty"`
-	Title         string `json:"title,omitempty"`
-	Summary       string `json:"summary,omitempty"`
-	Favorite      *bool  `json:"favorite,omitempty"`
-	Archived      *bool  `json:"archived,omitempty"`
-	Deleted       *bool  `json:"deleted,omitempty"`
-	LastTaskState string `json:"lasttaskstate,omitempty"`
+	ChatId        string                     `json:"chatid"`
+	TabId         string                     `json:"tabid,omitempty"`
+	Title         string                     `json:"title,omitempty"`
+	Summary       string                     `json:"summary,omitempty"`
+	Cheatsheet    *uctypes.SessionCheatsheet `json:"cheatsheet,omitempty"`
+	Favorite      *bool                      `json:"favorite,omitempty"`
+	Archived      *bool                      `json:"archived,omitempty"`
+	Deleted       *bool                      `json:"deleted,omitempty"`
+	LastTaskState string                     `json:"lasttaskstate,omitempty"`
 }
 
 type CommandDeleteWaveAISessionData struct {

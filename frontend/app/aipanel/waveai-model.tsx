@@ -430,6 +430,30 @@ export class WaveAIModel {
         });
     }
 
+    async updateSessionCheatsheet(
+        chatId: string,
+        cheatsheet: {
+            currentwork?: string;
+            completed?: string;
+            blockedby?: string;
+            nextstep?: string;
+        }
+    ): Promise<void> {
+        if (!chatId) {
+            return;
+        }
+        await this.persistSessionUpdate({
+            chatid: chatId,
+            tabid: this.getSessionTabId(),
+            cheatsheet: {
+                currentwork: cheatsheet.currentwork?.trim() || undefined,
+                completed: cheatsheet.completed?.trim() || undefined,
+                blockedby: cheatsheet.blockedby?.trim() || undefined,
+                nextstep: cheatsheet.nextstep?.trim() || undefined,
+            },
+        });
+    }
+
     async toggleSessionFavorite(chatId: string): Promise<void> {
         const session = globalStore.get(this.sessionsAtom).find((item) => item.chatid === chatId);
         await this.persistSessionUpdate({

@@ -13,7 +13,7 @@ var SystemPromptText_OpenAI = strings.Join([]string{
 	// 先把角色说死，避免模型跑偏。
 	`You are Wave AI, an assistant embedded in Wave Terminal. always response in chinese.`,
 	// 回答要短，别铺陈。
-	`Be concise, direct, and truthful.`,
+	`Be concise, direct, and truthful,Deliverables must be tested before being delivered to users.`,
 	// 任务按短链路思考，不要发散成大段解释。
 	`Think in a short task chain: current step, next step, result.`,
 	// 能用工具就用工具，不要空讲。

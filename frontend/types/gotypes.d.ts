@@ -719,10 +719,18 @@ declare global {
         tabid?: string;
         title?: string;
         summary?: string;
+        cheatsheet?: SessionCheatsheet;
         favorite?: boolean;
         archived?: boolean;
         deleted?: boolean;
         lasttaskstate?: string;
+    };
+
+    type SessionCheatsheet = {
+        currentwork?: string;
+        completed?: string;
+        blockedby?: string;
+        nextstep?: string;
     };
 
     // wshrpc.CommandVarData
@@ -2050,6 +2058,7 @@ declare global {
         tabid?: string;
         title?: string;
         summary?: string;
+        cheatsheet?: SessionCheatsheet;
         createdts?: number;
         updatedts?: number;
         favorite?: boolean;

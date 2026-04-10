@@ -33,7 +33,7 @@ func RunChatStep(
 		return nil, nil, nil, errors.New("sse handler is nil")
 	}
 
-	chat := chatstore.DefaultChatStore.Get(chatOpts.ChatId)
+	chat := chatstore.DefaultChatStore.GetContextWindow(chatOpts.ChatId, chatstore.DefaultContextWindowUserTurns)
 	if chat == nil {
 		return nil, nil, nil, fmt.Errorf("chat not found: %s", chatOpts.ChatId)
 	}

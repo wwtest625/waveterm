@@ -28,6 +28,8 @@ type ChatStore struct {
 	loadOnce          sync.Once
 }
 
+const DefaultContextWindowUserTurns = 5
+
 func NewChatStore(persistencePath string) *ChatStore {
 	return &ChatStore{
 		chats:           make(map[string]*uctypes.AIChat),
@@ -273,6 +275,10 @@ func (cs *ChatStore) upsertSessionMetaLocked(chatId string, aiOpts *uctypes.AIOp
 	if update.Summary != nil {
 		meta.Summary = strings.TrimSpace(*update.Summary)
 	}
+	if update.Cheatsheet != nil {
+		cheatsheetCopy := *update.Cheatsheet
+		meta.Cheatsheet = &cheatsheetCopy
+	}
 	if update.Favorite != nil {
 		meta.Favorite = *update.Favorite
 	}
@@ -406,6 +412,44 @@ func (cs *ChatStore) Get(chatId string) *uctypes.AIChat {
 	}
 	copy(copyChat.NativeMessages, chat.NativeMessages)
 
+	return copyChat
+}
+
+func (cs *ChatStore) GetContextWindow(chatId string, recentUserTurns int) *uctypes.AIChat {
+	cs.ensureLoaded()
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
+	chat := cs.chats[chatId]
+	if chat == nil {
+		return nil
+	}
+
+	startIdx := 0
+	if recentUserTurns > 0 {
+		userCount := 0
+		for idx := len(chat.NativeMessages) - 1; idx >= 0; idx-- {
+			if chat.NativeMessages[idx].GetRole() != "user" {
+				continue
+			}
+			userCount++
+			if userCount == recentUserTurns {
+				startIdx = idx
+				break
+			}
+		}
+	}
+
+	subset := chat.NativeMessages[startIdx:]
+	copyChat := &uctypes.AIChat{
+		ChatId:         chat.ChatId,
+		APIType:        chat.APIType,
+		Model:          chat.Model,
+		APIVersion:     chat.APIVersion,
+		SessionMeta:    copySessionMeta(chat.SessionMeta),
+		NativeMessages: make([]uctypes.GenAIMessage, len(subset)),
+	}
+	copy(copyChat.NativeMessages, subset)
 	return copyChat
 }
 
