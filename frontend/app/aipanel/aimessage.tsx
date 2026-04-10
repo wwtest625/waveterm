@@ -10,6 +10,8 @@ import { AIToolUseGroup } from "./aitooluse";
 import { WaveUIMessage, WaveUIMessagePart } from "./aitypes";
 import { WaveAIModel } from "./waveai-model";
 
+const AI_CODE_FONT_FAMILY = '"JetBrains Mono", monospace';
+
 const AIThinking = memo(
     ({
         message = "AI is thinking...",
@@ -129,6 +131,8 @@ const AIMessagePart = memo(({ part, role, isStreaming }: AIMessagePartProps) => 
                 <WaveStreamdown
                     text={content}
                     parseIncompleteMarkdown={isStreaming}
+                    codeFontFamily={AI_CODE_FONT_FAMILY}
+                    codeClassName="text-[14px]"
                     className="text-gray-100"
                     codeBlockMaxWidthAtom={model.codeBlockMaxWidth}
                     onClickExecute={handleExecuteCommand}

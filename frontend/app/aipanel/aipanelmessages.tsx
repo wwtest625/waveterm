@@ -15,6 +15,8 @@ import { AgentMode, WaveAIModel } from "./waveai-model";
 
 export { formatCommandDuration } from "./command-duration";
 
+const AI_CODE_FONT_FAMILY = '"JetBrains Mono", monospace';
+
 interface AIPanelMessagesProps {
     messages: WaveUIMessage[];
     status: string;
@@ -704,8 +706,10 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                                     <WaveStreamdown
                                                         text={`\`\`\`bash\n${displayedCommand}\n\`\`\``}
                                                         parseIncompleteMarkdown={false}
+                                                        codeFontFamily={AI_CODE_FONT_FAMILY}
+                                                        codeClassName="text-[14px]"
                                                         className={cn(
-                                                            "text-[12px]",
+                                                            "text-[14px]",
                                                             "[&_.markdown-content]:mx-0",
                                                             "[&_.markdown-content]:overflow-visible",
                                                             "[&_.markdown-content]:max-w-full",
@@ -752,9 +756,10 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                                     <div className="relative">
                                                         <pre
                                                             className={cn(
-                                                                "whitespace-pre-wrap break-all rounded-md bg-black px-2.5 py-2 pt-7 pr-20 text-[12px] leading-5",
+                                                                "whitespace-pre-wrap break-all rounded-md bg-black px-2.5 py-2 pt-7 pr-20 text-[14px] leading-6",
                                                                 isActive ? "text-zinc-100/95" : "text-zinc-200/90"
                                                             )}
+                                                            style={{ fontFamily: AI_CODE_FONT_FAMILY }}
                                                         >
                                                             {displayedText}
                                                         </pre>
@@ -823,7 +828,10 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                             return (
                                                 <div className="mt-1 pl-5">
                                                     <div className="relative">
-                                                        <pre className="whitespace-pre-wrap break-all rounded-md bg-black px-2.5 py-2 pt-7 pr-20 text-[12px] leading-5 text-zinc-100/90">
+                                                        <pre
+                                                            className="whitespace-pre-wrap break-all rounded-md bg-black px-2.5 py-2 pt-7 pr-20 text-[14px] leading-6 text-zinc-100/90"
+                                                            style={{ fontFamily: AI_CODE_FONT_FAMILY }}
+                                                        >
                                                             {displayedText}
                                                         </pre>
                                                         {outputDisplay.shouldCollapse && (
@@ -1278,6 +1286,8 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
                             <WaveStreamdown
                                 text={assistantText}
                                 parseIncompleteMarkdown={false}
+                                codeFontFamily={AI_CODE_FONT_FAMILY}
+                                codeClassName="text-[14px]"
                                 className="text-zinc-100 [&_.markdown-content]:mx-0"
                                 codeBlockMaxWidthAtom={model.codeBlockMaxWidth}
                             />
@@ -1306,7 +1316,10 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
                                 </button>
                             )}
                         </div>
-                        <pre className="overflow-x-auto whitespace-pre-wrap px-2.5 py-2.5 text-sm text-zinc-100">
+                        <pre
+                            className="overflow-x-auto whitespace-pre-wrap px-2.5 py-2.5 text-base text-zinc-100"
+                            style={{ fontFamily: AI_CODE_FONT_FAMILY }}
+                        >
                             {displayedRawOutput}
                         </pre>
                         {rawOutputDisplay.shouldCollapse && !rawOutputExpanded && (

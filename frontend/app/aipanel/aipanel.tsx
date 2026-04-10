@@ -359,15 +359,29 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
         const haystack = `${session.title ?? ""} ${session.summary ?? ""}`.toLowerCase();
         return haystack.includes(needle);
     });
+    const displaySessions = useMemo(() => {
+        let seenDraftSession = false;
+        return filteredSessions.filter((session) => {
+            const isReusableDraftSession = (session.title ?? "") === "New Chat" && !(session.summary ?? "").trim();
+            if (!isReusableDraftSession) {
+                return true;
+            }
+            if (seenDraftSession) {
+                return false;
+            }
+            seenDraftSession = true;
+            return true;
+        });
+    }, [filteredSessions]);
     const groupedHistorySessions = useMemo<SessionHistoryGroup[]>(() => {
-        if (filteredSessions.length === 0) {
+        if (displaySessions.length === 0) {
             return [];
         }
         const groups = new Map<number, WaveChatSessionMeta[]>();
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayStartTs = today.getTime();
-        for (const session of filteredSessions) {
+        for (const session of displaySessions) {
             const sessionTs = getSessionSortTs(session);
             const bucketTs = sessionTs > 0 ? (() => {
                 const bucketDate = new Date(sessionTs);
@@ -386,7 +400,7 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
             label: bucketTs > 0 ? formatHistoryGroupLabel(bucketTs, todayStartTs) : "更早",
             sessions: bucketSessions,
         }));
-    }, [filteredSessions]);
+    }, [displaySessions]);
 
     return (
         <div className="border-b border-white/8 bg-black/15 px-2 py-2">

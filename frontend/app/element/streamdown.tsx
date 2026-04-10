@@ -61,23 +61,60 @@ function extractText(node: React.ReactNode): string {
     return "";
 }
 
-function CodePlain({ className = "", isCodeBlock, text }: { className?: string; isCodeBlock: boolean; text: string }) {
+function CodePlain({
+    className = "",
+    isCodeBlock,
+    text,
+    codeFontFamily,
+    codeClassName,
+}: {
+    className?: string;
+    isCodeBlock: boolean;
+    text: string;
+    codeFontFamily?: string;
+    codeClassName?: string;
+}) {
+    const codeStyle = codeFontFamily ? { fontFamily: codeFontFamily } : undefined;
     if (isCodeBlock) {
-        return <code className={cn("font-mono text-[12px]", className)}>{text}</code>;
+        return (
+            <code className={cn("font-mono text-[12px]", codeClassName, className)} style={codeStyle}>
+                {text}
+            </code>
+        );
     }
 
     return (
-        <code className={cn("text-secondary font-mono text-[12px] rounded-sm bg-zinc-800/80 px-1.5 py-0.5", className)}>
+        <code
+            className={cn(
+                "text-secondary font-mono text-[12px] rounded-sm bg-zinc-800/80 px-1.5 py-0.5",
+                codeClassName,
+                className
+            )}
+            style={codeStyle}
+        >
             {text}
         </code>
     );
 }
 
-function CodeHighlight({ className = "", lang, text }: { className?: string; lang: ShikiLanguage; text: string }) {
+function CodeHighlight({
+    className = "",
+    lang,
+    text,
+    codeFontFamily,
+    codeClassName,
+}: {
+    className?: string;
+    lang: ShikiLanguage;
+    text: string;
+    codeFontFamily?: string;
+    codeClassName?: string;
+}) {
     const [html, setHtml] = useState<string>("");
     const [hasError, setHasError] = useState(false);
     const codeRef = useRef<HTMLElement>(null);
     const seqRef = useRef(0);
+    const codeStyle = codeFontFamily ? { fontFamily: codeFontFamily } : undefined;
 
     const highlightCode = useCallback(
         async (textToHighlight: string, language: string, disposedRef: { current: boolean }, seq: number) => {
@@ -122,7 +159,7 @@ function CodeHighlight({ className = "", lang, text }: { className?: string; lan
 
     if (hasError) {
         return (
-            <code ref={codeRef} className={cn("font-mono text-[12px]", className)}>
+            <code ref={codeRef} className={cn("font-mono text-[12px]", codeClassName, className)} style={codeStyle}>
                 {text}
             </code>
         );
@@ -130,7 +167,11 @@ function CodeHighlight({ className = "", lang, text }: { className?: string; lan
 
     if (!html && text) {
         return (
-            <code ref={codeRef} className={cn("font-mono text-[12px] text-transparent", className)}>
+            <code
+                ref={codeRef}
+                className={cn("font-mono text-[12px] text-transparent", codeClassName, className)}
+                style={codeStyle}
+            >
                 {text}
             </code>
         );
@@ -139,13 +180,24 @@ function CodeHighlight({ className = "", lang, text }: { className?: string; lan
     return (
         <code
             ref={codeRef}
-            className={cn("font-mono text-[12px]", className)}
+            className={cn("font-mono text-[12px]", codeClassName, className)}
+            style={codeStyle}
             dangerouslySetInnerHTML={{ __html: html }}
         />
     );
 }
 
-export function Code({ className = "", children }: { className?: string; children: React.ReactNode }) {
+export function Code({
+    className = "",
+    children,
+    codeFontFamily,
+    codeClassName,
+}: {
+    className?: string;
+    children: React.ReactNode;
+    codeFontFamily?: string;
+    codeClassName?: string;
+}) {
     const m = className?.match(/language-([\w+-]+)/i);
     const isCodeBlock = !!m;
     const lang = m?.[1] || "text";
@@ -154,19 +206,43 @@ export function Code({ className = "", children }: { className?: string; childre
     const shikiLang = normalizeShikiLanguage(lang);
 
     if (isCodeBlock && shikiLang) {
-        return <CodeHighlight className={className} lang={shikiLang} text={text} />;
+        return (
+            <CodeHighlight
+                className={className}
+                lang={shikiLang}
+                text={text}
+                codeFontFamily={codeFontFamily}
+                codeClassName={codeClassName}
+            />
+        );
     }
 
-    return <CodePlain className={className} isCodeBlock={isCodeBlock} text={text} />;
+    return (
+        <CodePlain
+            className={className}
+            isCodeBlock={isCodeBlock}
+            text={text}
+            codeFontFamily={codeFontFamily}
+            codeClassName={codeClassName}
+        />
+    );
 }
 
 type CodeBlockProps = {
     children: React.ReactNode;
     codeBlockMaxWidthAtom?: Atom<number>;
     hideCodeBlockLanguageLabel?: boolean;
+    codeFontFamily?: string;
+    codeClassName?: string;
 };
 
-const CodeBlock = ({ children, codeBlockMaxWidthAtom, hideCodeBlockLanguageLabel }: CodeBlockProps) => {
+const CodeBlock = ({
+    children,
+    codeBlockMaxWidthAtom,
+    hideCodeBlockLanguageLabel,
+    codeFontFamily,
+    codeClassName,
+}: CodeBlockProps) => {
     const codeBlockMaxWidth = useAtomValueSafe(codeBlockMaxWidthAtom);
     const getLanguage = (children: any): string => {
         if (children?.props?.className) {
@@ -197,7 +273,12 @@ const CodeBlock = ({ children, codeBlockMaxWidthAtom, hideCodeBlockLanguageLabel
                     <div className="absolute right-2 top-1.5 z-10 flex items-center gap-2">
                         <CopyButton onClick={handleCopy} title="Copy" />
                     </div>
-                    <pre className="px-4 py-2 overflow-x-auto m-0 text-secondary max-w-full">{children}</pre>
+                    <pre
+                        className={cn("px-4 py-2 overflow-x-auto m-0 text-secondary max-w-full", codeClassName)}
+                        style={codeFontFamily ? { fontFamily: codeFontFamily } : undefined}
+                    >
+                        {children}
+                    </pre>
                 </div>
             ) : (
                 <>
@@ -207,7 +288,12 @@ const CodeBlock = ({ children, codeBlockMaxWidthAtom, hideCodeBlockLanguageLabel
                             <CopyButton onClick={handleCopy} title="Copy" />
                         </div>
                     </div>
-                    <pre className="px-4 pb-2 pt-0 overflow-x-auto m-0 text-secondary max-w-full">{children}</pre>
+                    <pre
+                        className={cn("px-4 pb-2 pt-0 overflow-x-auto m-0 text-secondary max-w-full", codeClassName)}
+                        style={codeFontFamily ? { fontFamily: codeFontFamily } : undefined}
+                    >
+                        {children}
+                    </pre>
                 </>
             )}
         </div>
@@ -239,6 +325,9 @@ interface WaveStreamdownProps {
     className?: string;
     codeBlockMaxWidthAtom?: Atom<number>;
     hideCodeBlockLanguageLabel?: boolean;
+    codeFontFamily?: string;
+    codeClassName?: string;
+    onClickExecute?: (cmd: string) => void;
 }
 
 export const WaveStreamdown = ({
@@ -247,15 +336,22 @@ export const WaveStreamdown = ({
     className,
     codeBlockMaxWidthAtom,
     hideCodeBlockLanguageLabel,
+    codeFontFamily,
+    codeClassName,
+    onClickExecute,
 }: WaveStreamdownProps) => {
     const components = useMemo(
         () => ({
-            code: Code,
+            code: (props: React.ComponentProps<typeof Code>) => (
+                <Code {...props} codeFontFamily={codeFontFamily} codeClassName={codeClassName} />
+            ),
             pre: (props: React.HTMLAttributes<HTMLPreElement>) => (
                 <CodeBlock
                     children={props.children}
                     codeBlockMaxWidthAtom={codeBlockMaxWidthAtom}
                     hideCodeBlockLanguageLabel={hideCodeBlockLanguageLabel}
+                    codeFontFamily={codeFontFamily}
+                    codeClassName={codeClassName}
                 />
             ),
             p: (props: React.HTMLAttributes<HTMLParagraphElement>) => <p {...props} className="text-secondary" />,
@@ -334,7 +430,7 @@ export const WaveStreamdown = ({
             ),
             em: (props: React.HTMLAttributes<HTMLElement>) => <em {...props} className="italic text-secondary" />,
         }),
-        [codeBlockMaxWidthAtom, hideCodeBlockLanguageLabel]
+        [codeBlockMaxWidthAtom, hideCodeBlockLanguageLabel, codeClassName, codeFontFamily]
     );
 
     return (
@@ -350,11 +446,12 @@ export const WaveStreamdown = ({
                 table: false,
                 mermaid: true,
             }}
-            mermaidConfig={{
-                theme: "dark",
-                darkMode: true,
+            mermaid={{
+                config: {
+                    theme: "dark",
+                    darkMode: true,
+                },
             }}
-            defaultOrigin="http://localhost"
             components={components}
         >
             {text}

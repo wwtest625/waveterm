@@ -261,6 +261,42 @@ export class WaveAIModel {
         return `${normalized.slice(0, Math.max(0, limit - 3))}...`;
     }
 
+    private isReusableNewChatSession(session: WaveChatSessionMeta | null | undefined): boolean {
+        if (!session) {
+            return false;
+        }
+        return (session.title ?? "") === "New Chat" && !(session.summary ?? "").trim();
+    }
+
+    private findReusableNewChatSession(): WaveChatSessionMeta | null {
+        const tabId = this.getSessionTabId();
+        const currentChatId = globalStore.get(this.chatId);
+        const sessions = globalStore.get(this.sessionsAtom);
+        const candidates = sessions.filter(
+            (session) =>
+                session.tabid === tabId &&
+                this.isReusableNewChatSession(session) &&
+                session.chatid !== currentChatId
+        );
+        if (candidates.length === 0) {
+            return null;
+        }
+        candidates.sort((left, right) => {
+            const leftUpdated = left.updatedts ?? 0;
+            const rightUpdated = right.updatedts ?? 0;
+            if (leftUpdated !== rightUpdated) {
+                return rightUpdated - leftUpdated;
+            }
+            const leftCreated = left.createdts ?? 0;
+            const rightCreated = right.createdts ?? 0;
+            if (leftCreated !== rightCreated) {
+                return rightCreated - leftCreated;
+            }
+            return (right.chatid ?? "").localeCompare(left.chatid ?? "");
+        });
+        return candidates[0];
+    }
+
     private upsertLocalSession(session: WaveChatSessionMeta | null | undefined): void {
         if (!session?.chatid) {
             return;
@@ -550,7 +586,12 @@ export class WaveAIModel {
         globalStore.set(this.isChatEmptyAtom, true);
         globalStore.set(this.agentRuntimeAtom, getDefaultAgentRuntimeSnapshot());
         globalStore.set(this.commandInteractionAtom, null);
-        const newChatId = crypto.randomUUID();
+        const currentChatId = globalStore.get(this.chatId);
+        const currentSession = globalStore.get(this.sessionsAtom).find((session) => session.chatid === currentChatId);
+        const reusableSession = this.isReusableNewChatSession(currentSession)
+            ? currentSession
+            : this.findReusableNewChatSession();
+        const newChatId = reusableSession?.chatid ?? crypto.randomUUID();
         globalStore.set(this.chatId, newChatId);
         const newSession: WaveChatSessionMeta = {
             chatid: newChatId,
@@ -1261,7 +1302,8 @@ export class WaveAIModel {
         let chatIdValue = rtInfo?.["waveai:chatid"];
         const sessions = await this.loadSessions();
         if (!chatIdValue && sessions.length > 0) {
-            chatIdValue = sessions[0].chatid;
+            const reusableSession = sessions.find((session) => this.isReusableNewChatSession(session));
+            chatIdValue = reusableSession?.chatid ?? sessions[0].chatid;
         }
         if (chatIdValue == null) {
             chatIdValue = crypto.randomUUID();
