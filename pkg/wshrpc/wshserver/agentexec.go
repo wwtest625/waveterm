@@ -495,6 +495,7 @@ func startInteractiveAgentJob(ctx context.Context, jobId string, startTs int64, 
 			if errText != "" {
 				job.CmdExitError = errText
 			}
+			jobcontroller.SetAIJobRetentionMeta(job, time.Now())
 		})
 		deleteInteractiveJob(jobId)
 	}()

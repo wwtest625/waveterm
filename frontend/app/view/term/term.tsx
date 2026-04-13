@@ -191,6 +191,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const isBasicTerm = termMode != "vdom" && blockData?.meta?.controller != "cmd"; // needs to match isBasicTerm
     const quickInputValue = jotai.useAtomValue(model.quickInputValueAtom);
     const [quickInputNotifyEnabled, setQuickInputNotifyEnabled] = jotai.useAtom(model.quickInputNotifyEnabledAtom);
+    const quickInputNotifyAvailable = jotai.useAtomValue(model.shellIntegrationAvailableAtom);
 
     // search
     const searchProps = useSearch({
@@ -436,10 +437,17 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
                                 type="button"
                                 className={clsx("term-quick-input-notify-toggle", {
                                     active: quickInputNotifyEnabled,
+                                    disabled: !quickInputNotifyAvailable,
                                 })}
                                 onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => setQuickInputNotifyEnabled(!quickInputNotifyEnabled)}
-                                title={`为下一条输入框命令发送完成通知（阈值 ${model.getCompletionNotificationThresholdLabel()}）`}
+                                onClick={() => {
+                                    if (!quickInputNotifyAvailable) {
+                                        return;
+                                    }
+                                    setQuickInputNotifyEnabled(!quickInputNotifyEnabled);
+                                }}
+                                disabled={!quickInputNotifyAvailable}
+                                title={model.getQuickInputCompletionNotificationTitle()}
                             >
                                 <i className="fa-solid fa-bell text-[10px]" />
                                 <span>通知</span>

@@ -726,13 +726,6 @@ declare global {
         lasttaskstate?: string;
     };
 
-    type SessionCheatsheet = {
-        currentwork?: string;
-        completed?: string;
-        blockedby?: string;
-        nextstep?: string;
-    };
-
     // wshrpc.CommandVarData
     type CommandVarData = {
         key: string;
@@ -1519,6 +1512,14 @@ declare global {
     type SecretMeta = {
         desc: string;
         optional: boolean;
+    };
+
+    // uctypes.SessionCheatsheet
+    type SessionCheatsheet = {
+        currentwork?: string;
+        completed?: string;
+        blockedby?: string;
+        nextstep?: string;
     };
 
     // wconfig.SettingsType

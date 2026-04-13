@@ -240,6 +240,23 @@ export class WaveBrowserWindow extends BaseWindow {
             }
             this.activeTabView?.positionTabOnScreen(this.getContentBounds());
         });
+        const repositionActiveTabView = () => {
+            if (this.isDestroyed()) {
+                return;
+            }
+            this.finalizePositioning();
+            // On Windows, restore/maximize can race with child view layout. Re-run shortly after.
+            setTimeout(() => {
+                if (this.isDestroyed()) {
+                    return;
+                }
+                this.finalizePositioning();
+            }, 60);
+        };
+        this.on("show", repositionActiveTabView);
+        this.on("restore", repositionActiveTabView);
+        this.on("maximize", repositionActiveTabView);
+        this.on("unmaximize", repositionActiveTabView);
         this.on(
             // @ts-expect-error -- "move" event with debounce handler not in Electron type definitions
             "move",

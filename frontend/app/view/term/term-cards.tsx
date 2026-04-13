@@ -75,6 +75,7 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
     const [search, setSearch] = useAtom(model.cardsSearchAtom);
     const quickInputValue = useAtomValue(model.quickInputValueAtom);
     const [quickInputNotifyEnabled, setQuickInputNotifyEnabled] = useAtom(model.quickInputNotifyEnabledAtom);
+    const quickInputNotifyAvailable = useAtomValue(model.shellIntegrationAvailableAtom);
     const cwd = useAtomValue(getBlockMetaKeyAtom(blockId, "cmd:cwd"));
     const connName = useAtomValue(getBlockMetaKeyAtom(blockId, "connection"));
     const shellIntegrationStatus = useAtomValueSafe(termWrap?.shellIntegrationStatusAtom);
@@ -375,10 +376,17 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
                             type="button"
                             className={cn("term-quick-input-notify-toggle", {
                                 active: quickInputNotifyEnabled,
+                                disabled: !quickInputNotifyAvailable,
                             })}
                             onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => setQuickInputNotifyEnabled(!quickInputNotifyEnabled)}
-                            title={`为下一条输入框命令发送完成通知（阈值 ${model.getCompletionNotificationThresholdLabel()}）`}
+                            onClick={() => {
+                                if (!quickInputNotifyAvailable) {
+                                    return;
+                                }
+                                setQuickInputNotifyEnabled(!quickInputNotifyEnabled);
+                            }}
+                            disabled={!quickInputNotifyAvailable}
+                            title={model.getQuickInputCompletionNotificationTitle()}
                         >
                             <i className="fa-solid fa-bell text-[10px]" />
                             <span>通知</span>

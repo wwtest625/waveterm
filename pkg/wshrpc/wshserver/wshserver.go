@@ -1635,6 +1635,7 @@ func (ws *WshServer) AgentRunCommandCommand(ctx context.Context, data wshrpc.Com
 		WaveVersion:      wavebase.WaveVersion,
 		Meta:             make(waveobj.MetaMapType),
 	}
+	jobcontroller.SetAIJobRetentionMeta(job, time.Now())
 	if err := agentInsertJob(ctx, job); err != nil {
 		return nil, fmt.Errorf("failed to create job in database: %w", err)
 	}
@@ -1666,6 +1667,7 @@ func (ws *WshServer) AgentRunCommandCommand(ctx context.Context, data wshrpc.Com
 				job.JobManagerStartupError = err.Error()
 				job.CmdExitTs = time.Now().UnixMilli()
 				job.StreamDone = true
+				jobcontroller.SetAIJobRetentionMeta(job, time.Now())
 			})
 			return nil, err
 		}
@@ -1691,6 +1693,7 @@ func (ws *WshServer) AgentRunCommandCommand(ctx context.Context, data wshrpc.Com
 				job.JobManagerStartupError = execErr.Error()
 				job.CmdExitTs = now
 				job.StreamDone = true
+				jobcontroller.SetAIJobRetentionMeta(job, time.Now())
 			})
 			if updateErr != nil {
 				log.Printf("[job:%s] error updating startup failure: %v", jobId, updateErr)
@@ -1717,6 +1720,7 @@ func (ws *WshServer) AgentRunCommandCommand(ctx context.Context, data wshrpc.Com
 					job.CmdExitError = result.Err
 				}
 			}
+			jobcontroller.SetAIJobRetentionMeta(job, time.Now())
 		})
 		if updateErr != nil {
 			log.Printf("[job:%s] error updating agent command result: %v", jobId, updateErr)
@@ -1761,7 +1765,14 @@ func (ws *WshServer) AgentGetCommandResultCommand(ctx context.Context, data wshr
 		return nil, fmt.Errorf("failed to get job: %w", err)
 	}
 	if job == nil {
-		return nil, fmt.Errorf("job not found: %s", data.JobId)
+		if tombstone, found := jobcontroller.GetJobTombstone(data.JobId); found {
+			return tombstone, nil
+		}
+		return &wshrpc.CommandAgentGetCommandResultRtnData{
+			JobId:  data.JobId,
+			Status: "gone",
+			Error:  "job result is no longer available",
+		}, nil
 	}
 	result := &wshrpc.CommandAgentGetCommandResultRtnData{
 		JobId:      job.OID,

@@ -82,8 +82,8 @@ type QuickInputRuntimeState = {
     integrationStatus: ShellIntegrationStatus | null;
 };
 
-const DefaultCompletionNotificationThresholdMs = 30_000;
-const CompletionNotificationPresetThresholds = [10_000, 30_000, 60_000];
+const DefaultCompletionNotificationThresholdMs = 10_000;
+const CompletionNotificationPresetThresholds = [10_000, 60_000];
 const CompletionNotificationLogPrefix = "[term-notify]";
 
 function formatCompletionNotificationThreshold(ms: number): string {
@@ -290,6 +290,17 @@ export class TermViewModel implements ViewModel {
 
     setQuickInputNotifyEnabled(enabled: boolean) {
         globalStore.set(this.quickInputNotifyEnabledAtom, enabled);
+    }
+
+    isQuickInputCompletionNotificationAvailable(): boolean {
+        return globalStore.get(this.shellIntegrationAvailableAtom);
+    }
+
+    getQuickInputCompletionNotificationTitle(): string {
+        if (this.isQuickInputCompletionNotificationAvailable()) {
+            return `为下一条输入框命令发送完成通知（阈值 ${this.getCompletionNotificationThresholdLabel()}）`;
+        }
+        return "当前终端未启用 shell integration（Docker 容器 / tmux / pwsh 等场景常见），完成通知不可用";
     }
 
     setCmdCompletionNotificationEnabled(enabled: boolean) {
@@ -897,12 +908,9 @@ export class TermViewModel implements ViewModel {
             const isCmd = get(this.isCmdController);
             const rtn: IconButtonDecl[] = [];
 
-            const isAIPanelOpen = get(WorkspaceLayoutModel.getInstance().panelVisibleAtom);
-            if (isAIPanelOpen) {
-                const shellIntegrationButton = this.getShellIntegrationIconButton(get);
-                if (shellIntegrationButton) {
-                    rtn.push(shellIntegrationButton);
-                }
+            const shellIntegrationButton = this.getShellIntegrationIconButton(get);
+            if (shellIntegrationButton) {
+                rtn.push(shellIntegrationButton);
             }
 
             if (blockData?.meta?.["controller"] != "cmd" && shellProcStatus != "done") {
@@ -1133,6 +1141,9 @@ export class TermViewModel implements ViewModel {
                 }
                 const hasIntegration = status != null;
                 globalStore.set(this.shellIntegrationAvailableAtom, hasIntegration);
+                if (!hasIntegration) {
+                    globalStore.set(this.quickInputNotifyEnabledAtom, false);
+                }
                 globalStore.set(this.autoTermModeAtom, hasIntegration ? "cards" : "term");
             })
         );
@@ -1148,6 +1159,9 @@ export class TermViewModel implements ViewModel {
                 }
                 const hasIntegration = status != null;
                 globalStore.set(this.shellIntegrationAvailableAtom, hasIntegration);
+                if (!hasIntegration) {
+                    globalStore.set(this.quickInputNotifyEnabledAtom, false);
+                }
                 globalStore.set(this.autoTermModeAtom, hasIntegration ? "cards" : "term");
                 if (status === "running-command") {
                     const termMode = globalStore.get(this.termMode);
@@ -1197,6 +1211,7 @@ export class TermViewModel implements ViewModel {
         const integrationStatus = globalStore.get(termWrap.shellIntegrationStatusAtom);
         if (integrationStatus == null) {
             globalStore.set(this.shellIntegrationAvailableAtom, false);
+            globalStore.set(this.quickInputNotifyEnabledAtom, false);
             globalStore.set(this.autoTermModeAtom, "term");
             return;
         }

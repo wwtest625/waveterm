@@ -35,6 +35,7 @@ import {
     handleOsc7Command,
     type ShellIntegrationStatus,
 } from "./osc-handlers";
+import { resolveShellIntegrationRuntimeState } from "./term-shellintegration";
 import { FilePathLinkProvider } from "./term-link-provider";
 import { bufferLinesToText, createTempFileFromBlob, extractAllClipboardData, normalizeCursorStyle } from "./termutil";
 
@@ -435,14 +436,9 @@ export class TermWrap {
                     oref: WOS.makeORef("block", this.blockId),
                 });
 
-                const integrationKnown = rtInfo != null && Object.prototype.hasOwnProperty.call(rtInfo, "shell:integration");
-                globalStore.set(this.shellIntegrationKnownAtom, integrationKnown);
-                if (rtInfo && rtInfo["shell:integration"]) {
-                    const shellState = rtInfo["shell:state"] as ShellIntegrationStatus;
-                    globalStore.set(this.shellIntegrationStatusAtom, shellState || null);
-                } else {
-                    globalStore.set(this.shellIntegrationStatusAtom, null);
-                }
+                const integrationRuntimeState = resolveShellIntegrationRuntimeState(rtInfo as Record<string, unknown> | null);
+                globalStore.set(this.shellIntegrationKnownAtom, integrationRuntimeState.integrationKnown);
+                globalStore.set(this.shellIntegrationStatusAtom, integrationRuntimeState.integrationStatus);
 
                 const lastCmd = rtInfo ? rtInfo["shell:lastcmd"] : null;
                 globalStore.set(this.lastCommandAtom, lastCmd || null);
@@ -454,6 +450,9 @@ export class TermWrap {
                 globalStore.set(this.contextLabelAtom, contextLabel ?? "");
             } catch (e) {
                 console.log("Error loading runtime info:", e);
+                const integrationRuntimeState = resolveShellIntegrationRuntimeState(null);
+                globalStore.set(this.shellIntegrationKnownAtom, integrationRuntimeState.integrationKnown);
+                globalStore.set(this.shellIntegrationStatusAtom, integrationRuntimeState.integrationStatus);
             }
 
             await this.loadInitialTerminalData();

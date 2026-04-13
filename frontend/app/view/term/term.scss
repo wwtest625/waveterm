@@ -119,8 +119,8 @@
         flex-shrink: 0;
         align-items: center;
         gap: 5px;
-        align-self: stretch;
-        min-height: 36px;
+        align-self: flex-end;
+        height: 36px;
         padding: 0 10px;
         border-radius: 999px;
         border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
@@ -143,6 +143,15 @@
             color: var(--main-text-color);
             border-color: color-mix(in srgb, var(--accent-color) 70%, var(--border-color));
             background-color: color-mix(in srgb, var(--accent-color) 18%, var(--main-bg-color));
+        }
+
+        &.disabled,
+        &:disabled {
+            color: var(--text-tertiary-color);
+            border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
+            background-color: color-mix(in srgb, var(--main-bg-color) 96%, transparent);
+            cursor: not-allowed;
+            opacity: 0.6;
         }
     }
 

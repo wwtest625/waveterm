@@ -70,6 +70,11 @@ const MetaKey_TotalGap = "totalgap"
 const JobOutputFileName = "term"
 const AutoReconnectDelay = 1 * time.Second
 const AutoReconnectCooldown = 30 * time.Second
+const MetaKeyJobSource = "job:source"
+const MetaKeyJobRetainUntilTs = "job:retainuntilts"
+const JobSourceAI = "ai"
+const AITombstoneRetention = 24 * time.Hour
+const AITombstoneTailBytes = int64(32 * 1024)
 
 type connState struct {
 	actual      bool
@@ -87,6 +92,135 @@ type jobState struct {
 	stateLock       sync.Mutex
 	isConnecting    bool
 	connectedStatus string
+}
+
+type jobTombstoneEntry struct {
+	result    wshrpc.CommandAgentGetCommandResultRtnData
+	deletedAt time.Time
+}
+
+var jobTombstones = struct {
+	sync.Mutex
+	items map[string]jobTombstoneEntry
+}{
+	items: make(map[string]jobTombstoneEntry),
+}
+
+func SetAIJobRetentionMeta(job *waveobj.Job, now time.Time) {
+	if job == nil {
+		return
+	}
+	if job.Meta == nil {
+		job.Meta = make(waveobj.MetaMapType)
+	}
+	job.Meta[MetaKeyJobSource] = JobSourceAI
+	job.Meta[MetaKeyJobRetainUntilTs] = now.Add(AITombstoneRetention).UnixMilli()
+}
+
+func parseMetaInt64(meta waveobj.MetaMapType, key string) int64 {
+	if meta == nil {
+		return 0
+	}
+	raw, found := meta[key]
+	if !found || raw == nil {
+		return 0
+	}
+	switch v := raw.(type) {
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+func shouldRetainUnattachedJob(job *waveobj.Job, now time.Time) bool {
+	if job == nil || job.AttachedBlockId != "" || job.JobManagerStatus != JobManagerStatus_Done {
+		return false
+	}
+	retainUntilTs := parseMetaInt64(job.Meta, MetaKeyJobRetainUntilTs)
+	if retainUntilTs <= 0 {
+		return false
+	}
+	return now.UnixMilli() < retainUntilTs
+}
+
+func pruneJobTombstonesLocked(now time.Time) {
+	for jobID, tombstone := range jobTombstones.items {
+		if now.Sub(tombstone.deletedAt) > AITombstoneRetention {
+			delete(jobTombstones.items, jobID)
+		}
+	}
+}
+
+func rememberJobTombstone(ctx context.Context, job *waveobj.Job, now time.Time) {
+	if job == nil {
+		return
+	}
+	if !shouldRetainUnattachedJob(job, now) {
+		return
+	}
+	output := ""
+	if waveFile, statErr := filestore.WFS.Stat(ctx, job.OID, JobOutputFileName); statErr == nil && waveFile != nil && waveFile.Size > 0 {
+		offset := waveFile.Size - AITombstoneTailBytes
+		if offset < 0 {
+			offset = 0
+		}
+		if _, readData, readErr := filestore.WFS.ReadAt(ctx, job.OID, JobOutputFileName, offset, AITombstoneTailBytes); readErr == nil {
+			output = string(readData)
+		}
+	}
+	result := wshrpc.CommandAgentGetCommandResultRtnData{
+		JobId:      job.OID,
+		Status:     "gone",
+		Output:     output,
+		DurationMs: commandDurationMs(job.CmdStartTs, job.CmdExitTs),
+		ExitCode:   job.CmdExitCode,
+		ExitSignal: job.CmdExitSignal,
+		Error:      "job result expired and was cleaned up",
+	}
+	if job.CmdExitError != "" {
+		result.Error = fmt.Sprintf("job result expired and was cleaned up (last error: %s)", job.CmdExitError)
+	}
+	jobTombstones.Lock()
+	defer jobTombstones.Unlock()
+	pruneJobTombstonesLocked(now)
+	jobTombstones.items[job.OID] = jobTombstoneEntry{
+		result:    result,
+		deletedAt: now,
+	}
+}
+
+func GetJobTombstone(jobId string) (*wshrpc.CommandAgentGetCommandResultRtnData, bool) {
+	if strings.TrimSpace(jobId) == "" {
+		return nil, false
+	}
+	now := time.Now()
+	jobTombstones.Lock()
+	defer jobTombstones.Unlock()
+	pruneJobTombstonesLocked(now)
+	entry, found := jobTombstones.items[jobId]
+	if !found {
+		return nil, false
+	}
+	result := entry.result
+	return &result, true
+}
+
+func commandDurationMs(startTs int64, endTs int64) int64 {
+	if startTs <= 0 {
+		return 0
+	}
+	if endTs <= 0 {
+		endTs = time.Now().UnixMilli()
+	}
+	if endTs < startTs {
+		return 0
+	}
+	return endTs - startTs
 }
 
 var (
@@ -317,6 +451,7 @@ func jobPruningWorker() {
 func pruneUnusedJobs(previousCandidates []string) []string {
 	ctx, cancelFn := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelFn()
+	now := time.Now()
 
 	allJobs, err := wstore.DBGetAllObjsByType[*waveobj.Job](ctx, waveobj.OType_Job)
 	if err != nil {
@@ -326,6 +461,9 @@ func pruneUnusedJobs(previousCandidates []string) []string {
 
 	var currentCandidates []string
 	for _, job := range allJobs {
+		if shouldRetainUnattachedJob(job, now) {
+			continue
+		}
 		if job.JobManagerStatus == JobManagerStatus_Done && job.AttachedBlockId == "" {
 			currentCandidates = append(currentCandidates, job.OID)
 		}
@@ -1399,9 +1537,14 @@ func IsBlockIdTermDurable(blockId string) bool {
 }
 
 func DeleteJob(ctx context.Context, jobId string) error {
+	job, err := wstore.DBGet[*waveobj.Job](ctx, jobId)
+	if err != nil {
+		log.Printf("[job:%s] warning: failed to load job before delete: %v", jobId, err)
+	}
+	rememberJobTombstone(ctx, job, time.Now())
 	SetJobConnStatus(jobId, JobConnStatus_Disconnected)
 	jobTerminationMessageWritten.Delete(jobId)
-	err := filestore.WFS.DeleteZone(ctx, jobId)
+	err = filestore.WFS.DeleteZone(ctx, jobId)
 	if err != nil {
 		log.Printf("[job:%s] warning: error deleting WaveFS zone: %v", jobId, err)
 	}

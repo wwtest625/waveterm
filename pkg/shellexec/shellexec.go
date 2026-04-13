@@ -46,6 +46,10 @@ type CommandOptsType struct {
 	ForceJwt    bool                      `json:"forcejwt,omitempty"`
 }
 
+func prependEnvAssignment(cmd string, envKey string, envValue string) string {
+	return fmt.Sprintf(`%s=%s %s`, envKey, shellutil.HardQuote(envValue), cmd)
+}
+
 type ShellProc struct {
 	ConnName  string
 	Cmd       ConnInterface
@@ -389,7 +393,8 @@ func StartRemoteShellProc(ctx context.Context, logCtx context.Context, termSize 
 			}
 			// source the wave.fish file
 			waveFishPath := fmt.Sprintf("%s/.waveterm/%s/wave.fish", remoteInfo.HomeDir, shellutil.FishIntegrationDir)
-			carg := fmt.Sprintf(`"source %s"`, waveFishPath)
+			fishSourceCmd := fmt.Sprintf("source %s", shellutil.HardQuote(waveFishPath))
+			carg := shellutil.HardQuote(fishSourceCmd)
 			shellOpts = append(shellOpts, "-C", carg)
 		} else if shellType == shellutil.ShellType_pwsh {
 			pwshPath := fmt.Sprintf("%s/.waveterm/%s/wavepwsh.ps1", remoteInfo.HomeDir, shellutil.PwshIntegrationDir)
@@ -442,21 +447,21 @@ func StartRemoteShellProc(ctx context.Context, logCtx context.Context, termSize 
 	session.Stdout = remoteStdoutWrite
 	session.Stderr = remoteStdoutWrite
 	if shellType == shellutil.ShellType_zsh {
-		zshDir := fmt.Sprintf("~/.waveterm/%s", shellutil.ZshIntegrationDir)
+		zshDir := fmt.Sprintf("%s/.waveterm/%s", remoteInfo.HomeDir, shellutil.ZshIntegrationDir)
 		conn.Infof(logCtx, "setting ZDOTDIR to %s\n", zshDir)
-		cmdCombined = fmt.Sprintf(`ZDOTDIR=%s %s`, zshDir, cmdCombined)
+		cmdCombined = prependEnvAssignment(cmdCombined, "ZDOTDIR", zshDir)
 	}
 	packedToken, err := cmdOpts.SwapToken.PackForClient()
 	if err != nil {
 		conn.Infof(logCtx, "error packing swap token: %v", err)
 	} else {
 		conn.Debugf(logCtx, "packed swaptoken %s\n", packedToken)
-		cmdCombined = fmt.Sprintf(`%s=%s %s`, wavebase.WaveSwapTokenVarName, packedToken, cmdCombined)
+		cmdCombined = prependEnvAssignment(cmdCombined, wavebase.WaveSwapTokenVarName, packedToken)
 	}
 	jwtToken := cmdOpts.SwapToken.Env[wavebase.WaveJwtTokenVarName]
 	if jwtToken != "" && cmdOpts.ForceJwt {
 		conn.Debugf(logCtx, "adding JWT token to environment\n")
-		cmdCombined = fmt.Sprintf(`%s=%s %s`, wavebase.WaveJwtTokenVarName, jwtToken, cmdCombined)
+		cmdCombined = prependEnvAssignment(cmdCombined, wavebase.WaveJwtTokenVarName, jwtToken)
 	}
 	shellutil.AddTokenSwapEntry(cmdOpts.SwapToken)
 	session.RequestPty("xterm-256color", termSize.Rows, termSize.Cols, nil)
@@ -514,7 +519,7 @@ func StartRemoteShellJob(ctx context.Context, logCtx context.Context, termSize w
 				shellOpts = append(shellOpts, "-l")
 			}
 			waveFishPath := fmt.Sprintf("%s/.waveterm/%s/wave.fish", remoteInfo.HomeDir, shellutil.FishIntegrationDir)
-			carg := fmt.Sprintf(`source %s`, waveFishPath)
+			carg := fmt.Sprintf("source %s", shellutil.HardQuote(waveFishPath))
 			shellOpts = append(shellOpts, "-C", carg)
 		} else if shellType == shellutil.ShellType_pwsh {
 			pwshPath := fmt.Sprintf("%s/.waveterm/%s/wavepwsh.ps1", remoteInfo.HomeDir, shellutil.PwshIntegrationDir)
