@@ -106,6 +106,8 @@ export class WaveAIModel {
     >;
     restoreBackupStatus: jotai.PrimitiveAtom<"idle" | "processing" | "success" | "error"> = jotai.atom("idle");
     restoreBackupError: jotai.PrimitiveAtom<string> = jotai.atom(null) as jotai.PrimitiveAtom<string>;
+    private lastExecutingRuntimeUpdateAt = 0;
+    private readonly executingRuntimeThrottleMs = 250;
 
     private constructor(orefContext: ORef, inBuilder: boolean) {
         this.orefContext = orefContext;
@@ -628,14 +630,53 @@ export class WaveAIModel {
         if (agentRuntimeSnapshotEquals(current, snapshot)) {
             return;
         }
+        if (snapshot.state === "executing") {
+            this.lastExecutingRuntimeUpdateAt = Date.now();
+        }
         globalStore.set(this.agentRuntimeAtom, snapshot);
+    }
+
+    private shouldThrottleExecutingRuntimeUpdate(current: AgentRuntimeSnapshot, next: AgentRuntimeSnapshot): boolean {
+        if (current.state !== "executing" || next.state !== "executing") {
+            return false;
+        }
+        if (Date.now() - this.lastExecutingRuntimeUpdateAt >= this.executingRuntimeThrottleMs) {
+            return false;
+        }
+        if (current.activeJobId !== next.activeJobId || current.activeTool !== next.activeTool || current.blockedReason !== next.blockedReason) {
+            return false;
+        }
+        const currentResult = current.lastToolResult;
+        const nextResult = next.lastToolResult;
+        if (!currentResult || !nextResult) {
+            return false;
+        }
+        return (
+            currentResult.requestId === nextResult.requestId &&
+            currentResult.taskId === nextResult.taskId &&
+            currentResult.toolName === nextResult.toolName &&
+            currentResult.jobId === nextResult.jobId &&
+            currentResult.ok === nextResult.ok &&
+            currentResult.exitCode === nextResult.exitCode &&
+            currentResult.stdout === nextResult.stdout &&
+            currentResult.stderr === nextResult.stderr &&
+            currentResult.errorCode === nextResult.errorCode &&
+            currentResult.artifacts?.diffPath === nextResult.artifacts?.diffPath &&
+            currentResult.artifacts?.logPath === nextResult.artifacts?.logPath
+        );
     }
 
     mergeAgentRuntimeSnapshot(patch: AgentRuntimeSnapshotPatch) {
         const current = globalStore.get(this.agentRuntimeAtom);
         const next = mergeAgentRuntimeSnapshot(current, patch);
+        if (this.shouldThrottleExecutingRuntimeUpdate(current, next)) {
+            return;
+        }
         if (agentRuntimeSnapshotEquals(current, next)) {
             return;
+        }
+        if (next.state === "executing") {
+            this.lastExecutingRuntimeUpdateAt = Date.now();
         }
         globalStore.set(this.agentRuntimeAtom, next);
     }
@@ -645,6 +686,9 @@ export class WaveAIModel {
         const next = reduceAgentRuntimeSnapshot(current, event);
         if (agentRuntimeSnapshotEquals(current, next)) {
             return;
+        }
+        if (next.state === "executing") {
+            this.lastExecutingRuntimeUpdateAt = Date.now();
         }
         globalStore.set(this.agentRuntimeAtom, next);
     }
@@ -914,16 +958,44 @@ export class WaveAIModel {
         startedAt: number
     ): Promise<{ result?: ToolResultEnvelope; requiresInteraction?: boolean }> {
         let commandResult: CommandAgentGetCommandResultRtnData | null = null;
-        const deadline = Date.now() + 30000;
-        while (Date.now() < deadline) {
+        let outputOffset = 0;
+        let combinedOutput = "";
+        let pollDelayMs = 250;
+        const absoluteDeadline = Date.now() + 5 * 60 * 1000;
+        let lastActivityAt = Date.now();
+        let lastStatus = "running";
+        while (Date.now() < absoluteDeadline && Date.now() - lastActivityAt <= 30000) {
             commandResult = await RpcApi.AgentGetCommandResultCommand(
                 TabRpcClient,
                 {
                     jobid: jobId,
-                    tailbytes: 32768,
+                    tailbytes: 8192,
+                    offset: outputOffset,
                 },
                 { timeout: 10000 }
             );
+            const currentStatus = commandResult.status || "running";
+            const outputChunk = commandResult.output || "";
+            const outputChanged = outputChunk.length > 0;
+            if (outputChunk.length > 0) {
+                if (commandResult.outputoffset === outputOffset && !commandResult.truncated) {
+                    combinedOutput += outputChunk;
+                } else {
+                    combinedOutput = outputChunk;
+                }
+                if (combinedOutput.length > 24 * 1024) {
+                    combinedOutput = combinedOutput.slice(-(24 * 1024));
+                }
+            }
+            if (typeof commandResult.nextoffset === "number") {
+                outputOffset = commandResult.nextoffset;
+            } else if (outputChunk.length > 0) {
+                outputOffset += outputChunk.length;
+            }
+            commandResult = {
+                ...commandResult,
+                output: combinedOutput,
+            };
             if (commandResult.interactive && (commandResult.awaitinginput || commandResult.tuidetected)) {
                 this.handleInteractionResult(jobId, commandResult);
                 return { requiresInteraction: true };
@@ -931,7 +1003,14 @@ export class WaveAIModel {
             if (commandResult.status !== "running") {
                 break;
             }
-            await new Promise((resolve) => setTimeout(resolve, 500));
+            if (outputChanged || currentStatus !== lastStatus) {
+                lastActivityAt = Date.now();
+                pollDelayMs = 250;
+            } else {
+                pollDelayMs = Math.min(2000, pollDelayMs * 2);
+            }
+            lastStatus = currentStatus;
+            await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
         }
         if (!commandResult) {
             commandResult = {
@@ -944,7 +1023,7 @@ export class WaveAIModel {
             commandResult = {
                 ...commandResult,
                 status: "error",
-                error: "Timed out waiting for command completion",
+                error: "Timed out waiting for command completion (no recent output/activity)",
             };
         }
         if (commandResult.status === "gone") {

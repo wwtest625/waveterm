@@ -1758,7 +1758,7 @@ func (ws *WshServer) AgentGetCommandResultCommand(ctx context.Context, data wshr
 		return nil, fmt.Errorf("jobid is required")
 	}
 	if interactiveJob := getInteractiveJob(data.JobId); interactiveJob != nil {
-		return interactiveJob.snapshot(data.TailBytes), nil
+		return interactiveJob.snapshot(data.TailBytes, data.Offset), nil
 	}
 	job, err := agentGetJob(ctx, data.JobId)
 	if err != nil {
@@ -1804,13 +1804,12 @@ func (ws *WshServer) AgentGetCommandResultCommand(ctx context.Context, data wshr
 	if result.Error == "" && job.CmdExitError != "" {
 		result.Error = job.CmdExitError
 	}
-	tailBytes := data.TailBytes
-	if tailBytes <= 0 {
-		tailBytes = 32768
-	}
-	output, readErr := agentReadOutputTail(ctx, data.JobId, tailBytes)
+	outputResult, readErr := agentReadOutputRange(ctx, data.JobId, data.TailBytes, data.Offset)
 	if readErr == nil {
-		result.Output = output
+		result.Output = outputResult.Output
+		result.OutputOffset = outputResult.OutputOffset
+		result.NextOffset = outputResult.NextOffset
+		result.Truncated = outputResult.Truncated
 	} else if result.Status != "running" && result.Error == "" {
 		result.Error = fmt.Sprintf("failed to read job output: %v", readErr)
 	}

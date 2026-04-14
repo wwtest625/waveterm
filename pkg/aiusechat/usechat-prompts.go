@@ -56,8 +56,8 @@ func getToolCapabilityPrompt(tools []uctypes.ToolDefinition) string {
 	if available["wave_run_command"] {
 		lines = append(lines, "- wave_run_command: execute shell commands on the current Wave connection or current terminal target.")
 	}
-	if available["term_get_scrollback"] || available["term_command_output"] {
-		lines = append(lines, "- terminal output tools: inspect terminal scrollback and recent command output.")
+	if available["term_command_output"] {
+		lines = append(lines, "- terminal output tools: inspect terminal scrollback and recent command output (start with a small recent slice, do not fetch full history by default).")
 	}
 	if available["write_text_file"] || available["edit_text_file"] || available["delete_text_file"] {
 		lines = append(lines, "- file tools: write, edit, or delete local files when the user explicitly asks for file changes.")

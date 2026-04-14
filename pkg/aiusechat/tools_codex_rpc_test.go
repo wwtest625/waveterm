@@ -9,7 +9,54 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
+
+func TestWaitForWaveCommandCompletion_ReturnsTerminalSnapshot(t *testing.T) {
+	orig := waveAgentGetCommandResult
+	defer func() {
+		waveAgentGetCommandResult = orig
+	}()
+
+	calls := 0
+	waveAgentGetCommandResult = func(_ *wshutil.WshRpc, _ wshrpc.CommandAgentGetCommandResultData, _ *wshrpc.RpcOpts) (*wshrpc.CommandAgentGetCommandResultRtnData, error) {
+		calls++
+		if calls < 3 {
+			return &wshrpc.CommandAgentGetCommandResultRtnData{JobId: "job-1", Status: "running"}, nil
+		}
+		return &wshrpc.CommandAgentGetCommandResultRtnData{JobId: "job-1", Status: "done", Output: "ok"}, nil
+	}
+
+	result, err := waitForWaveCommandCompletion(nil, "job-1", 2*time.Second)
+	if err != nil {
+		t.Fatalf("waitForWaveCommandCompletion returned error: %v", err)
+	}
+	if result == nil || result.Status != "done" {
+		t.Fatalf("expected done result, got %#v", result)
+	}
+	if calls < 3 {
+		t.Fatalf("expected at least 3 polls, got %d", calls)
+	}
+}
+
+func TestWaitForWaveCommandCompletion_TimeoutReturnsNil(t *testing.T) {
+	orig := waveAgentGetCommandResult
+	defer func() {
+		waveAgentGetCommandResult = orig
+	}()
+
+	waveAgentGetCommandResult = func(_ *wshutil.WshRpc, _ wshrpc.CommandAgentGetCommandResultData, _ *wshrpc.RpcOpts) (*wshrpc.CommandAgentGetCommandResultRtnData, error) {
+		return &wshrpc.CommandAgentGetCommandResultRtnData{JobId: "job-1", Status: "running"}, nil
+	}
+
+	result, err := waitForWaveCommandCompletion(nil, "job-1", 80*time.Millisecond)
+	if err != nil {
+		t.Fatalf("waitForWaveCommandCompletion returned error: %v", err)
+	}
+	if result != nil {
+		t.Fatalf("expected nil result on timeout, got %#v", result)
+	}
+}
 
 func TestParseWaveRunCommandToolInput_SplitsCommandWhenArgsOmitted(t *testing.T) {
 	parsed, err := parseWaveRunCommandToolInput(map[string]any{

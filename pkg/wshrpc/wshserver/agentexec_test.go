@@ -114,7 +114,7 @@ func (s *agentTestStore) install(t *testing.T) {
 	origInsertJob := agentInsertJob
 	origUpdateJob := agentUpdateJob
 	origGetJob := agentGetJob
-	origReadOutputTail := agentReadOutputTail
+	origReadOutputRange := agentReadOutputRange
 	origWriteOutput := agentWriteOutput
 
 	t.Cleanup(func() {
@@ -123,7 +123,7 @@ func (s *agentTestStore) install(t *testing.T) {
 		agentInsertJob = origInsertJob
 		agentUpdateJob = origUpdateJob
 		agentGetJob = origGetJob
-		agentReadOutputTail = origReadOutputTail
+		agentReadOutputRange = origReadOutputRange
 		agentWriteOutput = origWriteOutput
 	})
 
@@ -157,10 +157,45 @@ func (s *agentTestStore) install(t *testing.T) {
 		copyJob := *job
 		return &copyJob, nil
 	}
-	agentReadOutputTail = func(ctx context.Context, jobId string, tailBytes int64) (string, error) {
+	agentReadOutputRange = func(ctx context.Context, jobId string, tailBytes int64, offset *int64) (agentOutputReadResult, error) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		return s.outputs[jobId], nil
+		output := s.outputs[jobId]
+		if tailBytes <= 0 {
+			tailBytes = 32768
+		}
+		fullLen := int64(len(output))
+		if offset != nil {
+			readOffset := *offset
+			if readOffset < 0 {
+				readOffset = 0
+			}
+			if readOffset > fullLen {
+				readOffset = fullLen
+			}
+			end := fullLen
+			truncated := false
+			if end-readOffset > tailBytes {
+				end = readOffset + tailBytes
+				truncated = true
+			}
+			return agentOutputReadResult{
+				Output:       output[int(readOffset):int(end)],
+				OutputOffset: readOffset,
+				NextOffset:   end,
+				Truncated:    truncated,
+			}, nil
+		}
+		readOffset := fullLen - tailBytes
+		if readOffset < 0 {
+			readOffset = 0
+		}
+		return agentOutputReadResult{
+			Output:       output[int(readOffset):],
+			OutputOffset: readOffset,
+			NextOffset:   fullLen,
+			Truncated:    readOffset > 0,
+		}, nil
 	}
 	agentWriteOutput = func(ctx context.Context, jobId string, output string) error {
 		s.mu.Lock()
@@ -228,6 +263,74 @@ func TestAgentGetCommandResultCommand_ReportsDurationMs(t *testing.T) {
 	}
 	if result.DurationMs != 1_250 {
 		t.Fatalf("expected duration 1250ms, got %#v", result.DurationMs)
+	}
+}
+
+func TestAgentGetCommandResultCommand_UsesOffsetIncrementalOutput(t *testing.T) {
+	store := newAgentTestStore()
+	store.install(t)
+
+	jobId := "job-offset"
+	if err := agentInsertJob(context.Background(), &waveobj.Job{
+		OID:              jobId,
+		JobManagerStatus: jobcontroller.JobManagerStatus_Done,
+	}); err != nil {
+		t.Fatalf("agentInsertJob returned error: %v", err)
+	}
+	store.mu.Lock()
+	store.outputs[jobId] = "abcdef"
+	store.mu.Unlock()
+
+	offset := int64(2)
+	result, err := (&WshServer{}).AgentGetCommandResultCommand(context.Background(), wshrpc.CommandAgentGetCommandResultData{
+		JobId:     jobId,
+		TailBytes: 3,
+		Offset:    &offset,
+	})
+	if err != nil {
+		t.Fatalf("AgentGetCommandResultCommand returned error: %v", err)
+	}
+	if result.Output != "cde" {
+		t.Fatalf("expected incremental output cde, got %q", result.Output)
+	}
+	if result.OutputOffset != 2 || result.NextOffset != 5 {
+		t.Fatalf("expected output offsets 2->5, got %d->%d", result.OutputOffset, result.NextOffset)
+	}
+	if !result.Truncated {
+		t.Fatalf("expected truncated=true for capped incremental read")
+	}
+}
+
+func TestAgentGetCommandResultCommand_TailFallbackRemainsCompatible(t *testing.T) {
+	store := newAgentTestStore()
+	store.install(t)
+
+	jobId := "job-tail-fallback"
+	if err := agentInsertJob(context.Background(), &waveobj.Job{
+		OID:              jobId,
+		JobManagerStatus: jobcontroller.JobManagerStatus_Done,
+	}); err != nil {
+		t.Fatalf("agentInsertJob returned error: %v", err)
+	}
+	store.mu.Lock()
+	store.outputs[jobId] = "abcdef"
+	store.mu.Unlock()
+
+	result, err := (&WshServer{}).AgentGetCommandResultCommand(context.Background(), wshrpc.CommandAgentGetCommandResultData{
+		JobId:     jobId,
+		TailBytes: 3,
+	})
+	if err != nil {
+		t.Fatalf("AgentGetCommandResultCommand returned error: %v", err)
+	}
+	if result.Output != "def" {
+		t.Fatalf("expected tail output def, got %q", result.Output)
+	}
+	if result.OutputOffset != 3 || result.NextOffset != 6 {
+		t.Fatalf("expected output offsets 3->6, got %d->%d", result.OutputOffset, result.NextOffset)
+	}
+	if !result.Truncated {
+		t.Fatalf("expected truncated=true for tail fallback when output is trimmed")
 	}
 }
 

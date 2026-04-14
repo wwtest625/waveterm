@@ -240,9 +240,6 @@ function getToolStepTitle(toolName: string): string {
             return "执行命令";
         case "term_command_output":
             return "读取终端输出";
-        case "term_get_scrollback":
-        case "term_command_output":
-            return "读取终端输出";
         case "read_text_file":
             return "读取文件";
         case "read_dir":
@@ -376,7 +373,7 @@ function formatStepDetail(
         if (toolName === "wave_run_command") {
             return extractCommandFromToolDesc(part.data.tooldesc);
         }
-        if (toolName === "term_command_output" || toolName === "term_get_scrollback") {
+        if (toolName === "term_command_output") {
             if (toolName === "term_command_output" && part.data.status === "running") {
                 const outputPreview = getMeaningfulOutputPreview(part.data.outputtext, 3);
                 if (outputPreview) {
@@ -401,9 +398,6 @@ function formatStepDetail(
 
     if (toolName === "term_command_output") {
         return undefined;
-    }
-    if (toolName === "term_get_scrollback") {
-        return getFirstMeaningfulLine(part.data.statuslines?.[part.data.statuslines.length - 1]);
     }
     return normalizeToolDetail(part.data.statuslines?.[part.data.statuslines.length - 1]);
 }

@@ -22,7 +22,6 @@ const ToolDisplayNames: Record<string, string> = {
     read_dir: "读取目录",
     write_text_file: "写入文件",
     edit_text_file: "精准编辑",
-    term_get_scrollback: "读取终端输出",
     term_command_output: "读取命令输出",
 };
 

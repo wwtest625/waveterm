@@ -97,26 +97,70 @@ var agentUpdateJob = func(ctx context.Context, jobId string, fn func(job *waveob
 var agentGetJob = func(ctx context.Context, jobId string) (*waveobj.Job, error) {
 	return wstore.DBGet[*waveobj.Job](ctx, jobId)
 }
-var agentReadOutputTail = func(ctx context.Context, jobId string, tailBytes int64) (string, error) {
+
+type agentOutputReadResult struct {
+	Output       string
+	OutputOffset int64
+	NextOffset   int64
+	Truncated    bool
+}
+
+var agentReadOutputRange = func(ctx context.Context, jobId string, tailBytes int64, offset *int64) (agentOutputReadResult, error) {
 	waveFile, statErr := filestore.WFS.Stat(ctx, jobId, jobcontroller.JobOutputFileName)
 	if statErr != nil {
-		return "", statErr
+		return agentOutputReadResult{}, statErr
 	}
 	if waveFile == nil || waveFile.Size == 0 {
-		return "", nil
+		return agentOutputReadResult{}, nil
 	}
 	if tailBytes <= 0 {
 		tailBytes = 32768
 	}
-	offset := waveFile.Size - tailBytes
-	if offset < 0 {
-		offset = 0
+	if offset != nil {
+		readOffset := *offset
+		if readOffset < 0 {
+			readOffset = 0
+		}
+		if readOffset > waveFile.Size {
+			readOffset = waveFile.Size
+		}
+		readSize := waveFile.Size - readOffset
+		truncated := false
+		if readSize > tailBytes {
+			readSize = tailBytes
+			truncated = true
+		}
+		if readSize <= 0 {
+			return agentOutputReadResult{
+				OutputOffset: readOffset,
+				NextOffset:   readOffset,
+			}, nil
+		}
+		_, readData, readErr := filestore.WFS.ReadAt(ctx, jobId, jobcontroller.JobOutputFileName, readOffset, readSize)
+		if readErr != nil {
+			return agentOutputReadResult{}, readErr
+		}
+		return agentOutputReadResult{
+			Output:       string(readData),
+			OutputOffset: readOffset,
+			NextOffset:   readOffset + int64(len(readData)),
+			Truncated:    truncated,
+		}, nil
 	}
-	_, readData, readErr := filestore.WFS.ReadAt(ctx, jobId, jobcontroller.JobOutputFileName, offset, tailBytes)
+	readOffset := waveFile.Size - tailBytes
+	if readOffset < 0 {
+		readOffset = 0
+	}
+	_, readData, readErr := filestore.WFS.ReadAt(ctx, jobId, jobcontroller.JobOutputFileName, readOffset, tailBytes)
 	if readErr != nil {
-		return "", readErr
+		return agentOutputReadResult{}, readErr
 	}
-	return string(readData), nil
+	return agentOutputReadResult{
+		Output:       string(readData),
+		OutputOffset: readOffset,
+		NextOffset:   readOffset + int64(len(readData)),
+		Truncated:    readOffset > 0,
+	}, nil
 }
 var agentWriteOutput = func(ctx context.Context, jobId string, output string) error {
 	if strings.TrimSpace(output) == "" {
@@ -179,12 +223,43 @@ func (job *agentInteractiveJob) appendOutput(chunk string) {
 	}
 }
 
-func (job *agentInteractiveJob) snapshot(tailBytes int64) *wshrpc.CommandAgentGetCommandResultRtnData {
+func (job *agentInteractiveJob) snapshot(tailBytes int64, offset *int64) *wshrpc.CommandAgentGetCommandResultRtnData {
 	job.mu.Lock()
 	defer job.mu.Unlock()
-	output := job.output.String()
-	if tailBytes > 0 && int64(len(output)) > tailBytes {
-		output = output[len(output)-int(tailBytes):]
+	outputFull := job.output.String()
+	totalBytes := int64(len(outputFull))
+	if tailBytes <= 0 {
+		tailBytes = 32768
+	}
+	outputOffset := int64(0)
+	nextOffset := totalBytes
+	truncated := false
+	output := outputFull
+	if offset != nil {
+		outputOffset = *offset
+		if outputOffset < 0 {
+			outputOffset = 0
+		}
+		if outputOffset > totalBytes {
+			outputOffset = totalBytes
+		}
+		readSize := totalBytes - outputOffset
+		if readSize > tailBytes {
+			readSize = tailBytes
+			truncated = true
+		}
+		if readSize <= 0 {
+			output = ""
+			nextOffset = outputOffset
+		} else {
+			end := outputOffset + readSize
+			output = outputFull[int(outputOffset):int(end)]
+			nextOffset = end
+		}
+	} else if totalBytes > tailBytes {
+		outputOffset = totalBytes - tailBytes
+		output = outputFull[outputOffset:]
+		truncated = true
 	}
 	status := job.status
 	if status == "" {
@@ -195,6 +270,9 @@ func (job *agentInteractiveJob) snapshot(tailBytes int64) *wshrpc.CommandAgentGe
 		JobId:         job.jobId,
 		Status:        status,
 		Output:        output,
+		OutputOffset:  outputOffset,
+		NextOffset:    nextOffset,
+		Truncated:     truncated,
 		DurationMs:    durationMs,
 		ExitCode:      job.exitCode,
 		ExitSignal:    job.exitSignal,
@@ -412,7 +490,7 @@ func streamInteractivePipe(job *agentInteractiveJob, reader io.Reader) {
 		if n > 0 {
 			chunk := string(buf[:n])
 			job.appendOutput(chunk)
-			_ = agentWriteOutput(context.Background(), job.jobId, job.snapshot(0).Output)
+			_ = agentWriteOutput(context.Background(), job.jobId, job.snapshot(0, nil).Output)
 			if job.tuiDetected && job.tuiSuppressed {
 				job.mu.Lock()
 				job.errText = "Interactive TUI is suppressed for AI-run commands. Open it in the terminal instead."

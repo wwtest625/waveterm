@@ -1191,6 +1191,7 @@ type CommandAgentWriteStdinData struct {
 type CommandAgentGetCommandResultData struct {
 	JobId      string `json:"jobid"`
 	TailBytes  int64  `json:"tailbytes,omitempty"`
+	Offset     *int64 `json:"offset,omitempty"`
 	StdoutOnly bool   `json:"stdoutonly,omitempty"`
 }
 
@@ -1198,6 +1199,9 @@ type CommandAgentGetCommandResultRtnData struct {
 	JobId         string   `json:"jobid"`
 	Status        string   `json:"status"`
 	Output        string   `json:"output,omitempty"`
+	OutputOffset  int64    `json:"outputoffset,omitempty"`
+	NextOffset    int64    `json:"nextoffset,omitempty"`
+	Truncated     bool     `json:"truncated,omitempty"`
 	DurationMs    int64    `json:"durationms,omitempty"`
 	ExitCode      *int     `json:"exitcode,omitempty"`
 	ExitSignal    string   `json:"exitsignal,omitempty"`

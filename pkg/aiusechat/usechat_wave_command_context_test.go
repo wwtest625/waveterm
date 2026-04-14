@@ -5,6 +5,7 @@ package aiusechat
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -58,5 +59,26 @@ func TestCleanupWaveCommandJobsLocked_EnforcesMaxCount(t *testing.T) {
 	waveCommandJobContext.mu.Unlock()
 	if currentCount > waveCommandJobMaxCount {
 		t.Fatalf("context map should be capped at %d, got %d", waveCommandJobMaxCount, currentCount)
+	}
+}
+
+func TestMergeWaveCommandOutputText_AppendsAndKeepsTail(t *testing.T) {
+	existing := strings.Repeat("a", maxToolOutputTextLen-4)
+	merged := mergeWaveCommandOutputText(existing, "bcdef")
+	if len(merged) != maxToolOutputTextLen {
+		t.Fatalf("expected capped merged output length %d, got %d", maxToolOutputTextLen, len(merged))
+	}
+	if !strings.HasSuffix(merged, "bcdef") {
+		t.Fatalf("expected merged output to keep newest tail, got suffix %q", merged[len(merged)-5:])
+	}
+}
+
+func TestNextWaveCommandPollInterval_CapsAtMax(t *testing.T) {
+	interval := waveCommandPollFastInterval
+	for i := 0; i < 10; i++ {
+		interval = nextWaveCommandPollInterval(interval)
+	}
+	if interval != waveCommandPollMaxInterval {
+		t.Fatalf("expected poll interval to cap at %s, got %s", waveCommandPollMaxInterval, interval)
 	}
 }

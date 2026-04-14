@@ -32,6 +32,7 @@ type waveRunCommandArgs []string
 
 var dangerousWaveCommandPattern = regexp.MustCompile(`(?i)(\|\s*(bash|sh|zsh|pwsh|powershell|cmd)(\s|$)|(^|\s)sudo(\s|$)|(^|\s)(rm|format|shutdown|reboot|halt|poweroff|init|killall|pkill|fuser|dd|mkfs|fdisk|parted|iptables|ufw|firewall-cmd|chmod|chown|mount|umount|truncate|drop|delete)(\s|$))`)
 var streamPreferredWaveCommandPattern = regexp.MustCompile(`(?i)\b(apt|apt-get|yum|dnf|pacman|zypper|apk|brew)\s+(install|upgrade|update|dist-upgrade|full-upgrade|remove|autoremove)\b|\b(curl|wget|aria2c|rsync|scp|sftp)\b|\b(tail|journalctl|docker|kubectl)\b[^\n]*\s-f(\s|$)|\bwatch\b`)
+var waveAgentGetCommandResult = wshclient.AgentGetCommandResultCommand
 
 func (a *waveRunCommandArgs) UnmarshalJSON(data []byte) error {
 	var arr []string
@@ -249,14 +250,16 @@ func shouldUseInlineWaveRunCompletion(parsed *WaveRunCommandToolInput) bool {
 	return true
 }
 
-const waveRunCommandInlineWait = 3 * time.Second
+const waveRunCommandInlineWait = 700 * time.Millisecond
 
 func waitForWaveCommandCompletion(rpcClient *wshutil.WshRpc, jobID string, timeout time.Duration) (*wshrpc.CommandAgentGetCommandResultRtnData, error) {
 	deadline := time.Now().Add(timeout)
+	pollInterval := 120 * time.Millisecond
+	maxPollInterval := 320 * time.Millisecond
 	for time.Now().Before(deadline) {
-		result, err := wshclient.AgentGetCommandResultCommand(rpcClient, wshrpc.CommandAgentGetCommandResultData{
+		result, err := waveAgentGetCommandResult(rpcClient, wshrpc.CommandAgentGetCommandResultData{
 			JobId:     jobID,
-			TailBytes: 32768,
+			TailBytes: 8192,
 		}, nil)
 		if err != nil {
 			return nil, err
@@ -264,7 +267,21 @@ func waitForWaveCommandCompletion(rpcClient *wshutil.WshRpc, jobID string, timeo
 		if result == nil || result.Status != "running" {
 			return result, nil
 		}
-		time.Sleep(200 * time.Millisecond)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		sleepFor := pollInterval
+		if sleepFor > remaining {
+			sleepFor = remaining
+		}
+		time.Sleep(sleepFor)
+		if pollInterval < maxPollInterval {
+			pollInterval += 80 * time.Millisecond
+			if pollInterval > maxPollInterval {
+				pollInterval = maxPollInterval
+			}
+		}
 	}
 	return nil, nil
 }
@@ -323,6 +340,15 @@ func waveRunCommandResultPayload(jobID string, snapshot *wshrpc.CommandAgentGetC
 	resultPayload["exitcode"] = snapshot.ExitCode
 	resultPayload["exitsignal"] = snapshot.ExitSignal
 	resultPayload["durationms"] = snapshot.DurationMs
+	if snapshot.OutputOffset > 0 {
+		resultPayload["outputoffset"] = snapshot.OutputOffset
+	}
+	if snapshot.NextOffset > 0 {
+		resultPayload["nextoffset"] = snapshot.NextOffset
+	}
+	if snapshot.Truncated {
+		resultPayload["truncated"] = true
+	}
 	if strings.TrimSpace(snapshot.Output) != "" {
 		resultPayload["output"] = snapshot.Output
 	}

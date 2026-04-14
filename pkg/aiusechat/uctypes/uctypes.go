@@ -368,27 +368,30 @@ type AIUsage struct {
 }
 
 type AIMetrics struct {
-	ChatId            string         `json:"chatid"`
-	StepNum           int            `json:"stepnum"`
-	Usage             AIUsage        `json:"usage"`
-	RequestCount      int            `json:"requestcount"`
-	ToolUseCount      int            `json:"toolusecount"`
-	ToolUseErrorCount int            `json:"tooluseerrorcount"`
-	ToolDetail        map[string]int `json:"tooldetail,omitempty"`
-	PremiumReqCount   int            `json:"premiumreqcount"`
-	ProxyReqCount     int            `json:"proxyreqcount"`
-	HadError          bool           `json:"haderror"`
-	ImageCount        int            `json:"imagecount"`
-	PDFCount          int            `json:"pdfcount"`
-	TextDocCount      int            `json:"textdoccount"`
-	TextLen           int            `json:"textlen"`
-	FirstByteLatency  int            `json:"firstbytelatency"` // ms
-	RequestDuration   int            `json:"requestduration"`  // ms
-	WidgetAccess      bool           `json:"widgetaccess"`
-	ThinkingLevel     string         `json:"thinkinglevel,omitempty"`
-	AIMode            string         `json:"aimode,omitempty"`
-	AIProvider        string         `json:"aiprovider,omitempty"`
-	IsLocal           bool           `json:"islocal,omitempty"`
+	ChatId                   string         `json:"chatid"`
+	StepNum                  int            `json:"stepnum"`
+	Usage                    AIUsage        `json:"usage"`
+	RequestCount             int            `json:"requestcount"`
+	ToolUseCount             int            `json:"toolusecount"`
+	ToolUseErrorCount        int            `json:"tooluseerrorcount"`
+	ToolDetail               map[string]int `json:"tooldetail,omitempty"`
+	CheatsheetRefreshCount   int            `json:"cheatsheetrefreshcount"`
+	CheatsheetModelCallCount int            `json:"cheatsheetmodelcallcount"`
+	TabStateRefreshCount     int            `json:"tabstaterefreshcount"`
+	PremiumReqCount          int            `json:"premiumreqcount"`
+	ProxyReqCount            int            `json:"proxyreqcount"`
+	HadError                 bool           `json:"haderror"`
+	ImageCount               int            `json:"imagecount"`
+	PDFCount                 int            `json:"pdfcount"`
+	TextDocCount             int            `json:"textdoccount"`
+	TextLen                  int            `json:"textlen"`
+	FirstByteLatency         int            `json:"firstbytelatency"` // ms
+	RequestDuration          int            `json:"requestduration"`  // ms
+	WidgetAccess             bool           `json:"widgetaccess"`
+	ThinkingLevel            string         `json:"thinkinglevel,omitempty"`
+	AIMode                   string         `json:"aimode,omitempty"`
+	AIProvider               string         `json:"aiprovider,omitempty"`
+	IsLocal                  bool           `json:"islocal,omitempty"`
 }
 
 type AIFunctionCallInput struct {

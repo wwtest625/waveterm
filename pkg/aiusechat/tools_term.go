@@ -19,12 +19,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-type TermGetScrollbackToolInput struct {
-	WidgetId  string `json:"widget_id"`
-	LineStart int    `json:"line_start,omitempty"`
-	Count     int    `json:"count,omitempty"`
-}
-
 type CommandInfo struct {
 	Command  string `json:"command"`
 	Status   string `json:"status"`
@@ -41,44 +35,6 @@ type TermGetScrollbackToolOutput struct {
 	HasMore            bool         `json:"hasmore"`
 	NextStart          *int         `json:"nextstart"`
 	LastCommand        *CommandInfo `json:"lastcommand,omitempty"`
-}
-
-func parseTermGetScrollbackInput(input any) (*TermGetScrollbackToolInput, error) {
-	const (
-		DefaultCount = 200
-		MaxCount     = 1000
-	)
-
-	result := &TermGetScrollbackToolInput{
-		LineStart: 0,
-		Count:     0,
-	}
-
-	if input == nil {
-		result.Count = DefaultCount
-		return result, nil
-	}
-
-	inputBytes, err := json.Marshal(input)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal input: %w", err)
-	}
-
-	if err := json.Unmarshal(inputBytes, result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal input: %w", err)
-	}
-
-	if result.Count == 0 {
-		result.Count = DefaultCount
-	}
-
-	if result.Count < 0 {
-		return nil, fmt.Errorf("count must be positive")
-	}
-
-	result.Count = min(result.Count, MaxCount)
-
-	return result, nil
 }
 
 func getTermScrollbackOutput(tabId string, widgetId string, rpcData wshrpc.CommandTermGetScrollbackLinesData) (*TermGetScrollbackToolOutput, error) {
@@ -149,69 +105,6 @@ func getTermScrollbackOutput(tabId string, widgetId string, rpcData wshrpc.Comma
 		NextStart:          nextStart,
 		LastCommand:        lastCommand,
 	}, nil
-}
-
-func GetTermGetScrollbackToolDefinition(tabId string) uctypes.ToolDefinition {
-	return uctypes.ToolDefinition{
-		Name:        "term_get_scrollback",
-		DisplayName: "Get Terminal Scrollback",
-		Description: "Fetch terminal scrollback from a widget as plain text. Index 0 is the most recent line; indices increase going upward (older lines). Also returns last command and exit code if shell integration is enabled.",
-		ToolLogName: "term:getscrollback",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"widget_id": map[string]any{
-					"type":        "string",
-					"description": "8-character widget ID of the terminal widget",
-				},
-				"line_start": map[string]any{
-					"type":        "integer",
-					"minimum":     0,
-					"description": "Logical start index where 0 = most recent line (default: 0).",
-				},
-				"count": map[string]any{
-					"type":        "integer",
-					"minimum":     1,
-					"description": "Number of lines to return from line_start (default: 200).",
-				},
-			},
-			"required":             []string{"widget_id"},
-			"additionalProperties": false,
-		},
-		ToolCallDesc: func(input any, output any, toolUseData *uctypes.UIMessageDataToolUse) string {
-			parsed, err := parseTermGetScrollbackInput(input)
-			if err != nil {
-				return fmt.Sprintf("error parsing input: %v", err)
-			}
-
-			if parsed.LineStart == 0 && parsed.Count == 200 {
-				return fmt.Sprintf("reading terminal output from %s (most recent %d lines)", parsed.WidgetId, parsed.Count)
-			}
-			lineEnd := parsed.LineStart + parsed.Count
-			return fmt.Sprintf("reading terminal output from %s (lines %d-%d)", parsed.WidgetId, parsed.LineStart, lineEnd)
-		},
-		ToolAnyCallback: func(input any, toolUseData *uctypes.UIMessageDataToolUse) (any, error) {
-			parsed, err := parseTermGetScrollbackInput(input)
-			if err != nil {
-				return nil, err
-			}
-
-			lineEnd := parsed.LineStart + parsed.Count
-			output, err := getTermScrollbackOutput(
-				tabId,
-				parsed.WidgetId,
-				wshrpc.CommandTermGetScrollbackLinesData{
-					LineStart:   parsed.LineStart,
-					LineEnd:     lineEnd,
-					LastCommand: false,
-				},
-			)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get terminal scrollback: %w", err)
-			}
-			return output, nil
-		},
-	}
 }
 
 type TermCommandOutputToolInput struct {

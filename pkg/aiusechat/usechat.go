@@ -9,8 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/url"
 	"net/http"
+	"net/url"
 	"os"
 	"os/user"
 	"regexp"
@@ -285,6 +285,16 @@ func updateToolUseDataInChat(backend UseChatBackend, chatOpts uctypes.WaveChatOp
 	}
 }
 
+func applyCheatsheetRefreshMetrics(metrics *uctypes.AIMetrics, stats SessionCheatsheetRefreshStats) {
+	if metrics == nil || !stats.Refreshed {
+		return
+	}
+	metrics.CheatsheetRefreshCount++
+	if stats.UsedModel {
+		metrics.CheatsheetModelCallCount++
+	}
+}
+
 const maxToolOutputTextLen = 24 * 1024
 
 func truncateToolOutputText(text string) string {
@@ -300,7 +310,7 @@ func extractToolOutputText(toolName string, resultText string) string {
 	if trimmedResult == "" {
 		return ""
 	}
-	if toolName == "wave_run_command" || toolName == "wave_get_command_result" || toolName == "term_command_output" || toolName == "term_get_scrollback" {
+	if toolName == "wave_run_command" || toolName == "wave_get_command_result" || toolName == "term_command_output" {
 		var outputMap map[string]any
 		if err := json.Unmarshal([]byte(trimmedResult), &outputMap); err == nil {
 			for _, key := range []string{"output", "text", "stdout", "content"} {
@@ -470,6 +480,37 @@ func lookupWaveCommandJob(jobID string) string {
 	return entry.commandText
 }
 
+const (
+	waveCommandPollFastInterval    = 50 * time.Millisecond
+	waveCommandPollMaxInterval     = 2 * time.Second
+	waveCommandPollIdleTimeout     = 30 * time.Second
+	waveCommandPollAbsoluteTimeout = 5 * time.Minute
+	waveCommandPollChunkBytes      = 8192
+	waveCommandUiDurationStepMs    = int64(1000)
+)
+
+func mergeWaveCommandOutputText(existing string, chunk string) string {
+	if chunk == "" {
+		return existing
+	}
+	combined := existing + chunk
+	if len(combined) <= maxToolOutputTextLen {
+		return combined
+	}
+	return combined[len(combined)-maxToolOutputTextLen:]
+}
+
+func nextWaveCommandPollInterval(current time.Duration) time.Duration {
+	if current <= 0 {
+		return waveCommandPollFastInterval
+	}
+	next := current * 2
+	if next > waveCommandPollMaxInterval {
+		next = waveCommandPollMaxInterval
+	}
+	return next
+}
+
 func tryStartWaveCommandResultPoller(
 	ctx context.Context,
 	chatOpts uctypes.WaveChatOpts,
@@ -513,24 +554,34 @@ func tryStartWaveCommandResultPoller(
 		currentDuration := current.DurationMs
 		currentInteractionDedupKey := ""
 		terminalSeenAt := time.Time{}
-		deadline := time.Now().Add(60 * time.Second)
+		absoluteDeadline := time.Now().Add(waveCommandPollAbsoluteTimeout)
+		lastActivityAt := time.Now()
+		pollInterval := waveCommandPollFastInterval
+		lastStatus := snapshot.Status
+		offsetCursor := snapshot.NextOffset
+		if offsetCursor <= 0 && strings.TrimSpace(snapshot.Output) != "" {
+			offsetCursor = int64(len(snapshot.Output))
+		}
 		rpcClient := wshclient.GetBareRpcClient()
 		for {
+			now := time.Now()
 			if err := ctx.Err(); err != nil {
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = "command result polling canceled"
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
 			}
-			if time.Now().After(deadline) {
+			if now.After(absoluteDeadline) || now.Sub(lastActivityAt) > waveCommandPollIdleTimeout {
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = "command result polling timed out"
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
 			}
+			requestOffset := offsetCursor
 			result, err := wshclient.AgentGetCommandResultCommand(rpcClient, wshrpc.CommandAgentGetCommandResultData{
 				JobId:     snapshot.JobId,
-				TailBytes: 32768,
+				TailBytes: waveCommandPollChunkBytes,
+				Offset:    &requestOffset,
 			}, nil)
 			if err != nil {
 				log.Printf("failed to poll wave command result for %s: %v", snapshot.JobId, err)
@@ -541,13 +592,38 @@ func tryStartWaveCommandResultPoller(
 				return
 			}
 			current.DurationMs = result.DurationMs
-			current.OutputText = getWaveCommandResultOutputText(current.ToolName, result.Output)
+			chunkText := getWaveCommandResultOutputText(current.ToolName, result.Output)
+			outputChanged := false
+			if chunkText != "" {
+				if result.OutputOffset == offsetCursor && !result.Truncated {
+					merged := mergeWaveCommandOutputText(currentOutput, chunkText)
+					outputChanged = merged != currentOutput
+					current.OutputText = merged
+				} else {
+					outputChanged = chunkText != currentOutput
+					current.OutputText = chunkText
+				}
+			}
+			if result.NextOffset > 0 {
+				offsetCursor = result.NextOffset
+			} else if chunkText != "" {
+				offsetCursor += int64(len(result.Output))
+			}
 			detectedInteraction := detectCommandInteraction(commandText, result)
 			detectedInteractionKey := ""
 			if detectedInteraction != nil {
 				detectedInteractionKey = detectedInteraction.DedupKey
 			}
 			applyWaveCommandInteractionState(&current, detectedInteraction)
+			statusChanged := result.Status != lastStatus
+			interactionChanged := detectedInteractionKey != currentInteractionDedupKey
+			if outputChanged || interactionChanged || statusChanged {
+				lastActivityAt = time.Now()
+				pollInterval = waveCommandPollFastInterval
+			} else {
+				pollInterval = nextWaveCommandPollInterval(pollInterval)
+			}
+			lastStatus = result.Status
 			if result.Status == "gone" {
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = strings.TrimSpace(result.Error)
@@ -567,7 +643,8 @@ func tryStartWaveCommandResultPoller(
 			if result.Status == "running" {
 				current.Status = "running"
 				current.ErrorMessage = ""
-				if current.OutputText != currentOutput || current.DurationMs != currentDuration || detectedInteractionKey != currentInteractionDedupKey {
+				durationChangedForUI := (current.DurationMs-currentDuration) >= waveCommandUiDurationStepMs || current.DurationMs < currentDuration
+				if current.OutputText != currentOutput || durationChangedForUI || detectedInteractionKey != currentInteractionDedupKey {
 					currentOutput = current.OutputText
 					currentDuration = current.DurationMs
 					currentInteractionDedupKey = detectedInteractionKey
@@ -575,11 +652,11 @@ func tryStartWaveCommandResultPoller(
 				}
 				select {
 				case <-ctx.Done():
-				case <-time.After(250 * time.Millisecond):
+				case <-time.After(pollInterval):
 				}
 				continue
 			}
-			if shouldReturnWaveCommandResult(result, time.Now(), deadline, &terminalSeenAt) {
+			if shouldReturnWaveCommandResult(result, time.Now(), absoluteDeadline, &terminalSeenAt) {
 				current.Status = uctypes.ToolUseStatusCompleted
 				current.ErrorMessage = ""
 				applyWaveCommandInteractionState(&current, nil)
@@ -594,7 +671,7 @@ func tryStartWaveCommandResultPoller(
 			}
 			select {
 			case <-ctx.Done():
-			case <-time.After(250 * time.Millisecond):
+			case <-time.After(pollInterval):
 			}
 		}
 	}()
@@ -806,7 +883,7 @@ func canProcessToolCallInParallel(toolCall uctypes.WaveToolCall) bool {
 		return false
 	}
 	switch toolCall.Name {
-	case "capture_screenshot", "term_get_scrollback", "term_command_output", "builder_list_files":
+	case "capture_screenshot", "term_command_output", "builder_list_files":
 		return true
 	default:
 		return false
@@ -1019,7 +1096,7 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 			}
 		}
 	}
-	refreshSessionCheatsheet(backend, chatOpts)
+	applyCheatsheetRefreshMetrics(metrics, refreshSessionCheatsheet(backend, chatOpts))
 }
 
 func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseChatBackend, chatOpts uctypes.WaveChatOpts) (*uctypes.AIMetrics, error) {
@@ -1050,16 +1127,19 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 	}
 	baseSystemPrompt := append([]string(nil), chatOpts.SystemPrompt...)
 	firstStep := true
+	tabStateDirty := true
 	var cont *uctypes.WaveContinueResponse
 	for {
 		chatOpts.SystemPrompt = composeSystemPromptWithCheatsheet(baseSystemPrompt, chatstore.DefaultChatStore.GetSession(chatOpts.ChatId))
-		if chatOpts.TabStateGenerator != nil {
+		if chatOpts.TabStateGenerator != nil && tabStateDirty {
+			metrics.TabStateRefreshCount++
 			tabState, tabTools, tabId, tabErr := chatOpts.TabStateGenerator()
 			if tabErr == nil {
 				chatOpts.TabState = tabState
 				chatOpts.TabTools = tabTools
 				chatOpts.TabId = tabId
 			}
+			tabStateDirty = false
 		}
 		if chatOpts.BuilderAppGenerator != nil {
 			appGoFile, appStaticFiles, platformInfo, appErr := chatOpts.BuilderAppGenerator()
@@ -1125,7 +1205,7 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 				}
 			}
 		}
-		refreshSessionCheatsheet(backend, chatOpts)
+		applyCheatsheetRefreshMetrics(metrics, refreshSessionCheatsheet(backend, chatOpts))
 		firstStep = false
 		if stopReason != nil && stopReason.Kind == uctypes.StopKindPremiumRateLimit && chatOpts.Config.APIType == uctypes.APIType_OpenAIResponses && chatOpts.Config.Model == uctypes.PremiumOpenAIModel {
 			log.Printf("Premium rate limit hit with %s, switching to %s\n", uctypes.PremiumOpenAIModel, uctypes.DefaultOpenAIModel)
@@ -1138,6 +1218,7 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 		if stopReason != nil && stopReason.Kind == uctypes.StopKindToolUse {
 			metrics.ToolUseCount += len(stopReason.ToolCalls)
 			processAllToolCalls(backend, stopReason, chatOpts, sseHandler, metrics)
+			tabStateDirty = true
 			cont = &uctypes.WaveContinueResponse{
 				Model:            chatOpts.Config.Model,
 				ContinueFromKind: uctypes.StopKindToolUse,
@@ -1237,7 +1318,6 @@ func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, me
 	chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
 		LastState: "executing",
 	})
-	refreshSessionCheatsheet(backend, chatOpts)
 
 	metrics, err := RunAIChat(ctx, sseHandler, backend, chatOpts)
 	sessionState := "completed"
@@ -1247,8 +1327,9 @@ func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, me
 	chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
 		LastState: sessionState,
 	})
-	refreshSessionCheatsheet(backend, chatOpts)
+	postRunCheatsheetStats := refreshSessionCheatsheet(backend, chatOpts)
 	if metrics != nil {
+		applyCheatsheetRefreshMetrics(metrics, postRunCheatsheetStats)
 		metrics.RequestDuration = int(time.Since(startTime).Milliseconds())
 		for _, part := range message.Parts {
 			if part.Type == uctypes.AIMessagePartTypeText {
@@ -1264,8 +1345,9 @@ func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, me
 				}
 			}
 		}
-		log.Printf("WaveAI call metrics: requests=%d tools=%d premium=%d proxy=%d images=%d pdfs=%d textdocs=%d textlen=%d duration=%dms error=%v\n",
-			metrics.RequestCount, metrics.ToolUseCount, metrics.PremiumReqCount, metrics.ProxyReqCount,
+		log.Printf("WaveAI call metrics: requests=%d tools=%d cheatsheet_refresh=%d cheatsheet_model=%d tabstate_refresh=%d premium=%d proxy=%d images=%d pdfs=%d textdocs=%d textlen=%d duration=%dms error=%v\n",
+			metrics.RequestCount, metrics.ToolUseCount, metrics.CheatsheetRefreshCount, metrics.CheatsheetModelCallCount, metrics.TabStateRefreshCount,
+			metrics.PremiumReqCount, metrics.ProxyReqCount,
 			metrics.ImageCount, metrics.PDFCount, metrics.TextDocCount, metrics.TextLen, metrics.RequestDuration, metrics.HadError)
 
 		sendAIMetricsTelemetry(ctx, metrics)
@@ -1275,31 +1357,34 @@ func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, me
 
 func sendAIMetricsTelemetry(ctx context.Context, metrics *uctypes.AIMetrics) {
 	event := telemetrydata.MakeTEvent("waveai:post", telemetrydata.TEventProps{
-		WaveAIAPIType:              metrics.Usage.APIType,
-		WaveAIModel:                metrics.Usage.Model,
-		WaveAIChatId:               metrics.ChatId,
-		WaveAIStepNum:              metrics.StepNum,
-		WaveAIInputTokens:          metrics.Usage.InputTokens,
-		WaveAIOutputTokens:         metrics.Usage.OutputTokens,
-		WaveAINativeWebSearchCount: metrics.Usage.NativeWebSearchCount,
-		WaveAIRequestCount:         metrics.RequestCount,
-		WaveAIToolUseCount:         metrics.ToolUseCount,
-		WaveAIToolUseErrorCount:    metrics.ToolUseErrorCount,
-		WaveAIToolDetail:           metrics.ToolDetail,
-		WaveAIPremiumReq:           metrics.PremiumReqCount,
-		WaveAIProxyReq:             metrics.ProxyReqCount,
-		WaveAIHadError:             metrics.HadError,
-		WaveAIImageCount:           metrics.ImageCount,
-		WaveAIPDFCount:             metrics.PDFCount,
-		WaveAITextDocCount:         metrics.TextDocCount,
-		WaveAITextLen:              metrics.TextLen,
-		WaveAIFirstByteMs:          metrics.FirstByteLatency,
-		WaveAIRequestDurMs:         metrics.RequestDuration,
-		WaveAIWidgetAccess:         metrics.WidgetAccess,
-		WaveAIThinkingLevel:        metrics.ThinkingLevel,
-		WaveAIMode:                 metrics.AIMode,
-		WaveAIProvider:             metrics.AIProvider,
-		WaveAIIsLocal:              metrics.IsLocal,
+		WaveAIAPIType:                  metrics.Usage.APIType,
+		WaveAIModel:                    metrics.Usage.Model,
+		WaveAIChatId:                   metrics.ChatId,
+		WaveAIStepNum:                  metrics.StepNum,
+		WaveAIInputTokens:              metrics.Usage.InputTokens,
+		WaveAIOutputTokens:             metrics.Usage.OutputTokens,
+		WaveAINativeWebSearchCount:     metrics.Usage.NativeWebSearchCount,
+		WaveAIRequestCount:             metrics.RequestCount,
+		WaveAIToolUseCount:             metrics.ToolUseCount,
+		WaveAIToolUseErrorCount:        metrics.ToolUseErrorCount,
+		WaveAICheatsheetRefreshCount:   metrics.CheatsheetRefreshCount,
+		WaveAICheatsheetModelCallCount: metrics.CheatsheetModelCallCount,
+		WaveAITabStateRefreshCount:     metrics.TabStateRefreshCount,
+		WaveAIToolDetail:               metrics.ToolDetail,
+		WaveAIPremiumReq:               metrics.PremiumReqCount,
+		WaveAIProxyReq:                 metrics.ProxyReqCount,
+		WaveAIHadError:                 metrics.HadError,
+		WaveAIImageCount:               metrics.ImageCount,
+		WaveAIPDFCount:                 metrics.PDFCount,
+		WaveAITextDocCount:             metrics.TextDocCount,
+		WaveAITextLen:                  metrics.TextLen,
+		WaveAIFirstByteMs:              metrics.FirstByteLatency,
+		WaveAIRequestDurMs:             metrics.RequestDuration,
+		WaveAIWidgetAccess:             metrics.WidgetAccess,
+		WaveAIThinkingLevel:            metrics.ThinkingLevel,
+		WaveAIMode:                     metrics.AIMode,
+		WaveAIProvider:                 metrics.AIProvider,
+		WaveAIIsLocal:                  metrics.IsLocal,
 	})
 	_ = telemetry.RecordTEvent(ctx, event)
 }

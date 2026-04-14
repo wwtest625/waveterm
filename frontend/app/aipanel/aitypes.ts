@@ -229,6 +229,46 @@ export function mergeAgentRuntimeSnapshot(
     };
 }
 
+function toolArgsDeepEqual(left: any, right: any, depth = 0): boolean {
+    if (left === right) {
+        return true;
+    }
+    if (left == null || right == null) {
+        return left == null && right == null;
+    }
+    if (depth > 8) {
+        return false;
+    }
+    if (Array.isArray(left) || Array.isArray(right)) {
+        if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+            return false;
+        }
+        for (let i = 0; i < left.length; i++) {
+            if (!toolArgsDeepEqual(left[i], right[i], depth + 1)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (typeof left !== "object" || typeof right !== "object") {
+        return false;
+    }
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) {
+        return false;
+    }
+    for (const key of leftKeys) {
+        if (!Object.prototype.hasOwnProperty.call(right, key)) {
+            return false;
+        }
+        if (!toolArgsDeepEqual(left[key], right[key], depth + 1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function toolCallEnvelopeEquals(left?: ToolCallEnvelope, right?: ToolCallEnvelope): boolean {
     if (left === right) {
         return true;
@@ -246,7 +286,7 @@ function toolCallEnvelopeEquals(left?: ToolCallEnvelope, right?: ToolCallEnvelop
         left.safetyClass === right.safetyClass &&
         left.hostScope.type === right.hostScope.type &&
         left.hostScope.hostId === right.hostScope.hostId &&
-        JSON.stringify(left.args) === JSON.stringify(right.args) &&
+        toolArgsDeepEqual(left.args, right.args) &&
         retryMetaEquals(left.retry, right.retry)
     );
 }
@@ -311,7 +351,6 @@ export function inferToolCapability(toolName?: string): ToolCapability {
     switch (toolName) {
         case "read_text_file":
         case "read_dir":
-        case "term_get_scrollback":
         case "term_command_output":
             return "read";
         case "write_text_file":

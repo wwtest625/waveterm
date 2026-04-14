@@ -164,33 +164,36 @@ type TEventProps struct {
 	CountJobsConnected int            `json:"count:jobsconnected,omitempty"`
 	CountViews         map[string]int `json:"count:views,omitempty"`
 
-	WaveAIAPIType              string         `json:"waveai:apitype,omitempty"`
-	WaveAIModel                string         `json:"waveai:model,omitempty"`
-	WaveAIChatId               string         `json:"waveai:chatid,omitempty"`
-	WaveAIStepNum              int            `json:"waveai:stepnum,omitempty"`
-	WaveAIInputTokens          int            `json:"waveai:inputtokens,omitempty"`
-	WaveAIOutputTokens         int            `json:"waveai:outputtokens,omitempty"`
-	WaveAINativeWebSearchCount int            `json:"waveai:nativewebsearchcount,omitempty"`
-	WaveAIRequestCount         int            `json:"waveai:requestcount,omitempty"`
-	WaveAIToolUseCount         int            `json:"waveai:toolusecount,omitempty"`
-	WaveAIToolUseErrorCount    int            `json:"waveai:tooluseerrorcount,omitempty"`
-	WaveAIToolDetail           map[string]int `json:"waveai:tooldetail,omitempty"`
-	WaveAIPremiumReq           int            `json:"waveai:premiumreq,omitempty"`
-	WaveAIProxyReq             int            `json:"waveai:proxyreq,omitempty"`
-	WaveAIHadError             bool           `json:"waveai:haderror,omitempty"`
-	WaveAIImageCount           int            `json:"waveai:imagecount,omitempty"`
-	WaveAIPDFCount             int            `json:"waveai:pdfcount,omitempty"`
-	WaveAITextDocCount         int            `json:"waveai:textdoccount,omitempty"`
-	WaveAITextLen              int            `json:"waveai:textlen,omitempty"`
-	WaveAIFirstByteMs          int            `json:"waveai:firstbytems,omitempty"`  // ms
-	WaveAIRequestDurMs         int            `json:"waveai:requestdurms,omitempty"` // ms
-	WaveAIWidgetAccess         bool           `json:"waveai:widgetaccess,omitempty"`
-	WaveAIThinkingLevel        string         `json:"waveai:thinkinglevel,omitempty"`
-	WaveAIMode                 string         `json:"waveai:mode,omitempty"`
-	WaveAIProvider             string         `json:"waveai:provider,omitempty"`
-	WaveAIIsLocal              bool           `json:"waveai:islocal,omitempty"`
-	WaveAIFeedback             string         `json:"waveai:feedback,omitempty" tstype:"\"good\" | \"bad\""`
-	WaveAIAction               string         `json:"waveai:action,omitempty"`
+	WaveAIAPIType                  string         `json:"waveai:apitype,omitempty"`
+	WaveAIModel                    string         `json:"waveai:model,omitempty"`
+	WaveAIChatId                   string         `json:"waveai:chatid,omitempty"`
+	WaveAIStepNum                  int            `json:"waveai:stepnum,omitempty"`
+	WaveAIInputTokens              int            `json:"waveai:inputtokens,omitempty"`
+	WaveAIOutputTokens             int            `json:"waveai:outputtokens,omitempty"`
+	WaveAINativeWebSearchCount     int            `json:"waveai:nativewebsearchcount,omitempty"`
+	WaveAIRequestCount             int            `json:"waveai:requestcount,omitempty"`
+	WaveAIToolUseCount             int            `json:"waveai:toolusecount,omitempty"`
+	WaveAIToolUseErrorCount        int            `json:"waveai:tooluseerrorcount,omitempty"`
+	WaveAICheatsheetRefreshCount   int            `json:"waveai:cheatsheetrefreshcount,omitempty"`
+	WaveAICheatsheetModelCallCount int            `json:"waveai:cheatsheetmodelcallcount,omitempty"`
+	WaveAITabStateRefreshCount     int            `json:"waveai:tabstaterefreshcount,omitempty"`
+	WaveAIToolDetail               map[string]int `json:"waveai:tooldetail,omitempty"`
+	WaveAIPremiumReq               int            `json:"waveai:premiumreq,omitempty"`
+	WaveAIProxyReq                 int            `json:"waveai:proxyreq,omitempty"`
+	WaveAIHadError                 bool           `json:"waveai:haderror,omitempty"`
+	WaveAIImageCount               int            `json:"waveai:imagecount,omitempty"`
+	WaveAIPDFCount                 int            `json:"waveai:pdfcount,omitempty"`
+	WaveAITextDocCount             int            `json:"waveai:textdoccount,omitempty"`
+	WaveAITextLen                  int            `json:"waveai:textlen,omitempty"`
+	WaveAIFirstByteMs              int            `json:"waveai:firstbytems,omitempty"`  // ms
+	WaveAIRequestDurMs             int            `json:"waveai:requestdurms,omitempty"` // ms
+	WaveAIWidgetAccess             bool           `json:"waveai:widgetaccess,omitempty"`
+	WaveAIThinkingLevel            string         `json:"waveai:thinkinglevel,omitempty"`
+	WaveAIMode                     string         `json:"waveai:mode,omitempty"`
+	WaveAIProvider                 string         `json:"waveai:provider,omitempty"`
+	WaveAIIsLocal                  bool           `json:"waveai:islocal,omitempty"`
+	WaveAIFeedback                 string         `json:"waveai:feedback,omitempty" tstype:"\"good\" | \"bad\""`
+	WaveAIAction                   string         `json:"waveai:action,omitempty"`
 
 	JobDoneReason string `json:"job:donereason,omitempty"`
 	JobKind       string `json:"job:kind,omitempty"`

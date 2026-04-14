@@ -5,13 +5,101 @@ package aiusechat
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/openai"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/openaichat"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 )
+
+const cheatsheetModelRefreshEveryUserTurns = 5
+
+type cheatsheetRefreshState struct {
+	LastAppliedSignature string
+	LastAppliedState     string
+	LastModelSignature   string
+	LastModelUserTurns   int
+}
+
+type SessionCheatsheetRefreshStats struct {
+	Refreshed bool
+	UsedModel bool
+}
+
+var sessionCheatsheetRefreshGate = struct {
+	mu    sync.Mutex
+	state map[string]cheatsheetRefreshState
+}{
+	state: make(map[string]cheatsheetRefreshState),
+}
+
+func countUserTurns(messages []uctypes.UIMessage) int {
+	count := 0
+	for _, message := range messages {
+		if message.Role == "user" {
+			count++
+		}
+	}
+	return count
+}
+
+func buildCheatsheetSignature(messages []uctypes.UIMessage) string {
+	if len(messages) == 0 {
+		return "0"
+	}
+	last := messages[len(messages)-1]
+	partTypes := make([]string, 0, len(last.Parts))
+	for _, part := range last.Parts {
+		partTypes = append(partTypes, part.Type)
+	}
+	slices.Sort(partTypes)
+	return fmt.Sprintf("%d:%s:%d:%s", len(messages), last.Role, len(last.Parts), strings.Join(partTypes, ","))
+}
+
+func shouldForceModelCheatsheet(lastState string) bool {
+	switch strings.TrimSpace(lastState) {
+	case "completed", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldUseModelCheatsheet(chatID string, signature string, userTurns int, lastState string) bool {
+	sessionCheatsheetRefreshGate.mu.Lock()
+	defer sessionCheatsheetRefreshGate.mu.Unlock()
+	entry := sessionCheatsheetRefreshGate.state[chatID]
+	if entry.LastAppliedSignature == signature && entry.LastAppliedState == lastState {
+		return false
+	}
+	if shouldForceModelCheatsheet(lastState) {
+		return entry.LastModelSignature != signature
+	}
+	if userTurns <= 0 || userTurns%cheatsheetModelRefreshEveryUserTurns != 0 {
+		return false
+	}
+	if entry.LastModelUserTurns == userTurns && entry.LastModelSignature == signature {
+		return false
+	}
+	return true
+}
+
+func markCheatsheetRefresh(chatID string, signature string, lastState string, usedModel bool, userTurns int) {
+	sessionCheatsheetRefreshGate.mu.Lock()
+	defer sessionCheatsheetRefreshGate.mu.Unlock()
+	entry := sessionCheatsheetRefreshGate.state[chatID]
+	entry.LastAppliedSignature = signature
+	entry.LastAppliedState = lastState
+	if usedModel {
+		entry.LastModelSignature = signature
+		entry.LastModelUserTurns = userTurns
+	}
+	sessionCheatsheetRefreshGate.state[chatID] = entry
+}
 
 func formatSessionCheatsheet(meta *uctypes.UIChatSessionMeta) string {
 	if meta == nil || meta.Cheatsheet == nil {
@@ -253,17 +341,17 @@ func deriveSessionCheatsheet(messages []uctypes.UIMessage, lastState string) *uc
 	return cheatsheet
 }
 
-func refreshSessionCheatsheet(backend UseChatBackend, chatOpts uctypes.WaveChatOpts) {
+func refreshSessionCheatsheet(backend UseChatBackend, chatOpts uctypes.WaveChatOpts) SessionCheatsheetRefreshStats {
 	if backend == nil || strings.TrimSpace(chatOpts.ChatId) == "" {
-		return
+		return SessionCheatsheetRefreshStats{}
 	}
 	chat := chatstore.DefaultChatStore.Get(chatOpts.ChatId)
 	if chat == nil {
-		return
+		return SessionCheatsheetRefreshStats{}
 	}
 	uiChat, err := backend.ConvertAIChatToUIChat(*chat)
 	if err != nil || uiChat == nil {
-		return
+		return SessionCheatsheetRefreshStats{}
 	}
 	lastState := ""
 	var existing *uctypes.SessionCheatsheet
@@ -271,11 +359,24 @@ func refreshSessionCheatsheet(backend UseChatBackend, chatOpts uctypes.WaveChatO
 		lastState = chat.SessionMeta.LastTaskState
 		existing = chat.SessionMeta.Cheatsheet
 	}
-	cheatsheet := summarizeSessionCheatsheetWithModel(context.Background(), chatOpts, uiChat.Messages, lastState, existing)
+	signature := buildCheatsheetSignature(uiChat.Messages)
+	userTurns := countUserTurns(uiChat.Messages)
+	useModel := shouldUseModelCheatsheet(chatOpts.ChatId, signature, userTurns, lastState)
+	var cheatsheet *uctypes.SessionCheatsheet
+	modelUsed := false
+	if useModel {
+		cheatsheet = summarizeSessionCheatsheetWithModel(context.Background(), chatOpts, uiChat.Messages, lastState, existing)
+		modelUsed = cheatsheet != nil
+	}
 	if cheatsheet == nil {
 		cheatsheet = deriveSessionCheatsheet(uiChat.Messages, lastState)
 	}
+	markCheatsheetRefresh(chatOpts.ChatId, signature, lastState, modelUsed, userTurns)
 	chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
 		Cheatsheet: cheatsheet,
 	})
+	return SessionCheatsheetRefreshStats{
+		Refreshed: true,
+		UsedModel: modelUsed,
+	}
 }

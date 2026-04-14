@@ -45,7 +45,7 @@ const chatConfigs: ChatConfig[] = [
     },
     {
         userPrompt: "can you analyze the log output in my terminal?",
-        toolName: "term_get_scrollback",
+        toolName: "term_command_output",
         toolDescription: "reading terminal output from widget",
         markdownResponse: `Here's what your log shows:
 

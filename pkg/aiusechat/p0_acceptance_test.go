@@ -117,7 +117,7 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	}
 
 	toolCapabilityPrompt := getToolCapabilityPrompt([]uctypes.ToolDefinition{
-		GetTermGetScrollbackToolDefinition("tab-1"),
+		GetTermCommandOutputToolDefinition("tab-1"),
 		GetWaveRunCommandToolDefinition(),
 		GetWriteTextFileToolDefinition(),
 	})
@@ -132,7 +132,7 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	}
 
 	scrollbackOnlyPrompt := getToolCapabilityPrompt([]uctypes.ToolDefinition{
-		GetTermGetScrollbackToolDefinition("tab-1"),
+		GetTermCommandOutputToolDefinition("tab-1"),
 	})
 	if strings.Contains(scrollbackOnlyPrompt, "execute shell commands") {
 		t.Fatalf("expected scrollback-only prompt not to claim command execution, got %q", scrollbackOnlyPrompt)

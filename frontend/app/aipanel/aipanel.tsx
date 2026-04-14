@@ -182,8 +182,23 @@ function estimateMessageTokens(message: WaveUIMessage): number {
     return tokens;
 }
 
+const messageTokenEstimateCache = new WeakMap<WaveUIMessage, number>();
+
+function estimateMessageTokensCached(message: WaveUIMessage): number {
+    const cached = messageTokenEstimateCache.get(message);
+    if (cached != null) {
+        return cached;
+    }
+    const estimated = estimateMessageTokens(message);
+    messageTokenEstimateCache.set(message, estimated);
+    return estimated;
+}
+
 function computeContextUsageStats(messages: WaveUIMessage[], modelName: string | undefined): ContextUsageStats {
-    const usedTokens = messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+    let usedTokens = 0;
+    for (const message of messages) {
+        usedTokens += estimateMessageTokensCached(message);
+    }
     const totalTokens = resolveModelContextLimit(modelName);
     const usedPercent = totalTokens > 0 ? Math.min(100, Math.round((usedTokens / totalTokens) * 100)) : 0;
     return {

@@ -201,6 +201,7 @@ declare global {
     type CommandAgentGetCommandResultData = {
         jobid: string;
         tailbytes?: number;
+        offset?: number;
         stdoutonly?: boolean;
     };
 
@@ -209,6 +210,9 @@ declare global {
         jobid: string;
         status: string;
         output?: string;
+        outputoffset?: number;
+        nextoffset?: number;
+        truncated?: boolean;
         durationms?: number;
         exitcode?: number;
         exitsignal?: string;

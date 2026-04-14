@@ -24,7 +24,7 @@ func TestBuildToolExecutionPlan(t *testing.T) {
 		makeToolCallForPlan("wave_run_command", uctypes.ApprovalAutoApproved),
 		makeToolCallForPlan("write_text_file", uctypes.ApprovalNeedsApproval),
 		makeToolCallForPlan("wave_get_command_result", uctypes.ApprovalAutoApproved),
-		makeToolCallForPlan("term_get_scrollback", uctypes.ApprovalNeedsApproval),
+		makeToolCallForPlan("term_command_output", uctypes.ApprovalNeedsApproval),
 	}
 
 	plan := buildToolExecutionPlan(toolCalls)
