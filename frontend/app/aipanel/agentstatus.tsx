@@ -46,11 +46,6 @@ function getToolUsePhase(
         case "term_get_scrollback":
         case "term_command_output":
             return { state: "planning", phaseLabel: "Reading Terminal" };
-        case "wave_get_command_result":
-            if (toolStatus === "running") {
-                return { state: "executing", phaseLabel: "Executing Command" };
-            }
-            return { state: "planning", phaseLabel: "Reading Terminal" };
         case "wave_run_command":
             return { state: "executing", phaseLabel: "Executing Command" };
         default:
@@ -64,7 +59,6 @@ function getToolProgressPhase(toolName: string | undefined, statusLine: string |
             return { state: "executing", phaseLabel: "Executing Command", blockedReason: statusLine };
         case "term_get_scrollback":
         case "term_command_output":
-        case "wave_get_command_result":
             return { state: "planning", phaseLabel: "Reading Terminal", blockedReason: statusLine };
         default:
             return null;
@@ -91,12 +85,7 @@ function isObservedTerminalToolName(toolName: unknown): boolean {
     if (typeof toolName !== "string" || toolName.trim() === "") {
         return false;
     }
-    return (
-        toolName === "wave_run_command" ||
-        toolName === "term_get_scrollback" ||
-        toolName === "term_command_output" ||
-        toolName === "wave_get_command_result"
-    );
+    return toolName === "wave_run_command" || toolName === "term_get_scrollback" || toolName === "term_command_output";
 }
 
 function isTextPart(

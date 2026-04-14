@@ -258,6 +258,8 @@ type UIMessageDataToolUse struct {
 	JobId               string   `json:"jobid,omitempty"`
 	RunTs               int64    `json:"runts,omitempty"`
 	DurationMs          int64    `json:"durationms,omitempty"`
+	ExitCode            *int     `json:"exitcode,omitempty"`
+	ExitSignal          string   `json:"exitsignal,omitempty"`
 	ErrorMessage        string   `json:"errormessage,omitempty"`
 	OutputText          string   `json:"outputtext,omitempty"`
 	AwaitingInput       bool     `json:"awaitinginput,omitempty"`

@@ -1771,7 +1771,7 @@ func (ws *WshServer) AgentGetCommandResultCommand(ctx context.Context, data wshr
 		return &wshrpc.CommandAgentGetCommandResultRtnData{
 			JobId:  data.JobId,
 			Status: "gone",
-			Error:  "job result is no longer available",
+			Error:  "job result is unavailable (job may have been cleaned up, deleted, or never existed)",
 		}, nil
 	}
 	result := &wshrpc.CommandAgentGetCommandResultRtnData{

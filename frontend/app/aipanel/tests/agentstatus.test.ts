@@ -14,8 +14,8 @@ describe("deriveAgentRuntimeStatus", () => {
                         type: "data-tooluse",
                         data: {
                             toolcallid: "tool-1",
-                            toolname: "wave_get_command_result",
-                            tooldesc: "polling command result for job-1",
+                            toolname: "wave_run_command",
+                            tooldesc: "running \"sleep 5\" on current terminal",
                             status: "running",
                             jobid: "job-1",
                             durationms: 1200,
@@ -36,6 +36,6 @@ describe("deriveAgentRuntimeStatus", () => {
         expect(snapshot.state).toBe("executing");
         expect(snapshot.phaseLabel).toBe("Executing Command");
         expect(snapshot.activeJobId).toBe("job-1");
-        expect(snapshot.activeTool).toBe("wave_get_command_result");
+        expect(snapshot.activeTool).toBe("wave_run_command");
     });
 });

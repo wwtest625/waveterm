@@ -20,6 +20,8 @@ type WaveUIDataTypes = {
         jobid?: string;
         runts?: number;
         durationms?: number;
+        exitcode?: number;
+        exitsignal?: string;
         errormessage?: string;
         outputtext?: string;
         awaitinginput?: boolean;
@@ -311,7 +313,6 @@ export function inferToolCapability(toolName?: string): ToolCapability {
         case "read_dir":
         case "term_get_scrollback":
         case "term_command_output":
-        case "wave_get_command_result":
             return "read";
         case "write_text_file":
         case "delete_text_file":

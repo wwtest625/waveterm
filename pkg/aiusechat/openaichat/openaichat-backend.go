@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -73,7 +74,7 @@ func RunChatStep(
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, nil, nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, nil, nil, buildChatStatusError(resp.StatusCode, string(bodyBytes), chatOpts.Config.Endpoint)
 	}
 
 	// Setup SSE if this is a new request (not a continuation)
@@ -90,6 +91,36 @@ func RunChatStep(
 	}
 
 	return stopReason, []*StoredChatMessage{assistantMsg}, nil, nil
+}
+
+func buildChatStatusError(statusCode int, body string, endpoint string) error {
+	base := fmt.Sprintf("API returned status %d from %s: %s", statusCode, endpoint, body)
+	if statusCode != http.StatusNotFound {
+		return errors.New(base)
+	}
+	hint := suggestChatEndpointHint(endpoint)
+	if hint == "" {
+		return errors.New(base)
+	}
+	return fmt.Errorf("%s. Hint: %s", base, hint)
+}
+
+func suggestChatEndpointHint(endpoint string) string {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimSuffix(u.Path, "/")
+	if path == "" {
+		return "OpenAI Chat API endpoints usually end with /v1/chat/completions"
+	}
+	if strings.HasSuffix(path, "/v1") {
+		return "this endpoint looks like a base API root; for OpenAI Chat API use .../v1/chat/completions"
+	}
+	if !strings.HasSuffix(path, "/chat/completions") {
+		return "for OpenAI Chat API the endpoint should usually end with /chat/completions"
+	}
+	return ""
 }
 
 func processChatStream(

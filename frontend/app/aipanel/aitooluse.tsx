@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { BlockModel } from "@/app/block/block-model";
+import { recordTEvent } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { recordTEvent } from "@/app/store/global";
 import { base64ToString, cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { memo, useEffect, useRef, useState } from "react";
@@ -18,7 +18,6 @@ const BackupRetentionDays = 5;
 
 const ToolDisplayNames: Record<string, string> = {
     wave_run_command: "执行命令",
-    wave_get_command_result: "获取结果",
     read_text_file: "读取文件",
     read_dir: "读取目录",
     write_text_file: "写入文件",
@@ -35,7 +34,7 @@ export function getToolDisplayName(toolName?: string): string {
 }
 
 export function shouldHideProgressStatusLines(toolName?: string): boolean {
-    return toolName === "wave_get_command_result" || toolName === "term_command_output";
+    return toolName === "term_command_output";
 }
 
 type ToolGroupSummary = {
@@ -77,13 +76,13 @@ function summarizeErrorMessage(toolName: string | undefined, message?: string | 
     if (toolName === "wave_run_command" && text.includes("failed to start remote job")) {
         return "远端命令启动失败";
     }
-    if (toolName === "wave_get_command_result" && text.includes("job not found")) {
+    if (toolName === "wave_run_command" && text.includes("job result is unavailable")) {
         return "执行结果不存在或已失效";
     }
-    if (toolName === "wave_get_command_result" && text.includes("command result polling timed out")) {
+    if (toolName === "wave_run_command" && text.includes("command result polling timed out")) {
         return "后台轮询超时";
     }
-    if (toolName === "wave_get_command_result" && text.includes("command result polling canceled")) {
+    if (toolName === "wave_run_command" && text.includes("command result polling canceled")) {
         return "后台轮询已取消";
     }
     if (text.length > 120) {
@@ -543,11 +542,6 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
         }
     };
 
-    const handleOpenDiff = () => {
-        recordTEvent("waveai:showdiff");
-        fireAndForget(() => WaveAIModel.getInstance().openDiff(toolData.inputfilename, toolData.toolcallid));
-    };
-
     const handleToggleInlineDiff = () => {
         if (inlineDiffOpen) {
             setInlineDiffOpen(false);
@@ -625,16 +619,6 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
                     >
                         <span className="text-xs">{inlineDiffOpen ? "Hide Changes" : "Show Changes"}</span>
                         <i className={`fa ${inlineDiffOpen ? "fa-chevron-up" : "fa-chevron-down"} text-xs`}></i>
-                    </button>
-                )}
-                {isFileWriteTool && toolData.inputfilename && (
-                    <button
-                        onClick={handleOpenDiff}
-                        className="flex-shrink-0 px-1.5 py-0.5 border border-zinc-600 hover:border-zinc-500 hover:bg-zinc-700 rounded cursor-pointer transition-colors flex items-center gap-1 text-zinc-400"
-                        title="Open in diff viewer"
-                    >
-                        <span className="text-xs">Show Diff</span>
-                        <i className="fa fa-arrow-up-right-from-square text-xs"></i>
                     </button>
                 )}
             </div>

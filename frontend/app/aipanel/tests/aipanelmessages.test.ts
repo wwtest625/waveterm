@@ -3,19 +3,21 @@ import { getAssistantMessageLayout } from "../aimessage";
 import {
     buildTaskChainSteps,
     buildTaskTurns,
+    splitReasoningFromText,
     formatCommandDuration,
     formatExitCodeLabel,
-    getRawOutputDisplayState,
-    getTurnExitCode,
     getPendingApprovalToolUses,
+    getRawOutputDisplayState,
+    getThinkingDisplayState,
     getTaskChainDetailLanguage,
     getTaskChainDisplayGroups,
     getTaskChainDisplayState,
+    getTurnExitCode,
     resolveTurnFallbackOutput,
-    shouldRenderTaskChainBlockedReason,
     shouldAnimateTaskStep,
-    shouldShowTurnTaskChain,
     shouldRenderStreamingPlainText,
+    shouldRenderTaskChainBlockedReason,
+    shouldShowTurnTaskChain,
 } from "../aipanelmessages";
 import { getToolDisplayName, shouldHideProgressStatusLines, summarizeToolGroup } from "../aitooluse";
 
@@ -137,8 +139,8 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-2",
-                        toolname: "wave_get_command_result",
-                        tooldesc: "polling result",
+                        toolname: "term_command_output",
+                        tooldesc: "latest command output",
                         status: "pending",
                         durationms: 1532,
                         outputtext: "Model name: Intel(R) Xeon(R) Platinum 8369C CPU @ 2.90GHz\nCPU(s): 128",
@@ -148,7 +150,7 @@ describe("aipanel task turns", () => {
                     type: "data-toolprogress",
                     data: {
                         toolcallid: "tool-2",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         statuslines: ["polling command result for 123"],
                     },
                 } as any,
@@ -171,7 +173,7 @@ describe("aipanel task turns", () => {
         expect(steps[0].detail).toBe("uname -a");
         expect(getTaskChainDetailLanguage(steps[0])).toBe("bash");
         expect(steps[0].status).toBe("completed");
-        expect(steps[1].title).toBe("获取执行结果");
+        expect(steps[1].title).toBe("读取终端输出");
         expect(getTaskChainDetailLanguage(steps[1])).toBeUndefined();
         expect(steps[1].status).toBe("running");
         expect(steps[1].detail).toBe("Model name: Intel(R) Xeon(R) Platinum 8369C CPU @ 2.90GHz\nCPU(s): 128");
@@ -215,7 +217,7 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-2",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "waiting for approval",
                         status: "pending",
                         approval: "needs-approval",
@@ -228,7 +230,7 @@ describe("aipanel task turns", () => {
             state: "awaiting_approval",
             phaseLabel: "Waiting Approval",
             blockedReason: "Waiting for tool approval",
-            activeTool: "wave_get_command_result",
+            activeTool: "term_command_output",
             activeJobId: "job-123",
             lastCommand: "lscpu",
         });
@@ -246,7 +248,7 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-1",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "CN mismatch",
                         status: "error",
                         errormessage: "CN mismatch",
@@ -268,7 +270,7 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-1",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "job not found: abc",
                         status: "error",
                         errormessage: "job not found: abc",
@@ -362,6 +364,59 @@ describe("aipanel task turns", () => {
         expect(steps[0].detail).toBe("bash -lc cat /etc/os-release; echo; echo");
     });
 
+    it("shows inline wave_run_command output as the command result", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-inline",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "ls -ld /app/polyglot"',
+                        status: "completed",
+                        durationms: 200,
+                        exitcode: 2,
+                        outputtext: "ls: cannot access '/app/polyglot': No such file or directory",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        const groups = getTaskChainDisplayGroups(steps);
+
+        expect(steps).toHaveLength(2);
+        expect(groups).toHaveLength(1);
+        expect(groups[0].primary.detail).toBe("ls -ld /app/polyglot");
+        expect(groups[0].primary.exitCode).toBe(2);
+        expect(groups[0].primary.durationLabel).toBe("耗时 200ms");
+        expect(groups[0].secondary?.title).toBe("读取终端输出");
+        expect(groups[0].secondary?.detail).toBe("ls: cannot access '/app/polyglot': No such file or directory");
+    });
+
+    it("shows outputless wave_run_command exit codes on the command step", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-mkdir",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "mkdir -p /app/polyglot"',
+                        status: "completed",
+                        durationms: 4,
+                        exitcode: 0,
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(steps).toHaveLength(1);
+        expect(steps[0].exitCode).toBe(0);
+        expect(steps[0].durationLabel).toBe("耗时 4ms");
+    });
+
     it("describes live command snapshots as background refreshing", () => {
         const steps = buildTaskChainSteps(
             [
@@ -378,7 +433,7 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-2",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "polling result",
                         status: "running",
                         durationms: 3150,
@@ -404,7 +459,7 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-2",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "polling result",
                         status: "running",
                         durationms: 3150,
@@ -428,7 +483,7 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-1",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "polling result",
                         status: "running",
                         durationms: 900,
@@ -467,7 +522,7 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-3",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "polling command result for 123",
                         status: "completed",
                         outputtext: "Architecture: x86_64",
@@ -477,7 +532,7 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-4",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "polling command result for 456",
                         status: "completed",
                         outputtext: "MemTotal: 395629656 kB",
@@ -491,7 +546,7 @@ describe("aipanel task turns", () => {
 
         expect(groups).toHaveLength(2);
         expect(groups[0].primary.title).toBe("执行命令");
-        expect(groups[0].secondary?.title).toBe("获取执行结果");
+        expect(groups[0].secondary?.title).toBe("读取终端输出");
         expect(groups[0].secondary?.detail).toBe("Architecture: x86_64");
         expect(groups[1].primary.title).toBe("执行命令");
         expect(groups[1].secondary?.detail).toBe("MemTotal: 395629656 kB");
@@ -504,7 +559,7 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-1",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "polling command result for 456",
                         status: "completed",
                         outputtext:
@@ -527,7 +582,7 @@ describe("aipanel task turns", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-1",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "polling command result for 88c620_python_???",
                         status: "completed",
                     },
@@ -564,11 +619,12 @@ describe("aipanel task turns", () => {
                         type: "data-tooluse",
                         data: {
                             toolcallid: "tool-2",
-                            toolname: "wave_get_command_result",
-                            tooldesc: "Error: CN does not match",
+                            toolname: "wave_run_command",
+                            tooldesc: 'running "python3 /root/ssl/check_cert.py"',
                             status: "error",
                             errormessage: "Error: CN does not match",
                             durationms: 120,
+                            exitcode: 1,
                         },
                     },
                 ],
@@ -656,7 +712,7 @@ describe("aipanel task turns", () => {
     });
 
     it("hides command result progress lines from tool progress cards", () => {
-        expect(shouldHideProgressStatusLines("wave_get_command_result")).toBe(true);
+        expect(shouldHideProgressStatusLines("wave_run_command")).toBe(false);
         expect(shouldHideProgressStatusLines("term_command_output")).toBe(true);
         expect(shouldHideProgressStatusLines("read_text_file")).toBe(false);
     });
@@ -665,6 +721,31 @@ describe("aipanel task turns", () => {
         expect(shouldRenderStreamingPlainText(true, "正在输出 **bold**")).toBe(true);
         expect(shouldRenderStreamingPlainText(false, "最终结果")).toBe(false);
         expect(shouldRenderStreamingPlainText(true, "")).toBe(false);
+    });
+
+    it("extracts <think> blocks into a separate reasoning section", () => {
+        const content = splitReasoningFromText(
+            "<think>先看目录\n再运行命令</think>\n\n最终结果：目录不存在，已重新创建。"
+        );
+
+        expect(content.thinkingText).toBe("先看目录\n再运行命令");
+        expect(content.answerText).toBe("最终结果：目录不存在，已重新创建。");
+    });
+
+    it("extracts dangling <think> content while streaming", () => {
+        const content = splitReasoningFromText("<think>正在分析问题\n准备执行下一步");
+
+        expect(content.thinkingText).toBe("正在分析问题\n准备执行下一步");
+        expect(content.answerText).toBe("");
+    });
+
+    it("collapses thinking output after four lines by default", () => {
+        const state = getThinkingDisplayState("1\n2\n3\n4\n5");
+
+        expect(state.lineCount).toBe(5);
+        expect(state.shouldCollapse).toBe(true);
+        expect(state.collapsedText).toBe("1\n2\n3\n4");
+        expect(state.expandedText).toBe("1\n2\n3\n4\n5");
     });
 });
 
@@ -739,7 +820,7 @@ describe("aitooluse summaries", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-2",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         tooldesc: "polling command result for abc",
                         status: "completed",
                     },
@@ -783,8 +864,8 @@ describe("aitooluse summaries", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-timeout",
-                        toolname: "wave_get_command_result",
-                        tooldesc: "polling result",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "sleep 5"',
                         status: "error",
                         errormessage: "command result polling timed out",
                     },
@@ -798,8 +879,8 @@ describe("aitooluse summaries", () => {
                     type: "data-tooluse",
                     data: {
                         toolcallid: "tool-canceled",
-                        toolname: "wave_get_command_result",
-                        tooldesc: "polling result",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "sleep 5"',
                         status: "error",
                         errormessage: "command result polling canceled",
                     },
@@ -828,7 +909,7 @@ describe("aitooluse summaries", () => {
                     type: "data-toolprogress",
                     data: {
                         toolcallid: "tool-2",
-                        toolname: "wave_get_command_result",
+                        toolname: "term_command_output",
                         statuslines: ["polling command result for abc"],
                     },
                 } as any,

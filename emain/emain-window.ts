@@ -408,7 +408,19 @@ export class WaveBrowserWindow extends BaseWindow {
 
     private async initializeTab(tabView: WaveTabView, primaryStartupTab: boolean) {
         const clientId = await getClientId();
-        await this.awaitWithDevTimeout(tabView.initPromise, "initPromise", tabView.waveTabId);
+        console.log("initializeTab: waiting for initPromise", tabView.waveTabId, "wcid=", tabView.webContents?.id);
+        if (!tabView.isInitialized) {
+            const initRaceStart = Date.now();
+            await Promise.race([tabView.initPromise, delay(300)]);
+            if (!tabView.isInitialized) {
+                console.warn(
+                    "initializeTab: initPromise not resolved quickly; continuing without blocking",
+                    tabView.waveTabId,
+                    "waitMs=",
+                    Date.now() - initRaceStart
+                );
+            }
+        }
         this.contentView.addChildView(tabView);
         const initOpts: WaveInitOpts = {
             tabId: tabView.waveTabId,
@@ -429,6 +441,7 @@ export class WaveBrowserWindow extends BaseWindow {
             primaryStartupTab ? "(primary startup)" : ""
         );
         tabView.webContents.send("wave-init", initOpts);
+        console.log("initializeTab: wave-init sent", tabView.waveTabId, "wcid=", tabView.webContents?.id);
         await this.awaitWithDevTimeout(tabView.waveReadyPromise, "waveReadyPromise", tabView.waveTabId);
         console.log("wave-ready init time", Date.now() - startTime + "ms");
     }

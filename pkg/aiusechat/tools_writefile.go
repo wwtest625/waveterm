@@ -479,7 +479,7 @@ func GetWriteTextFileToolDefinition() uctypes.ToolDefinition {
 		},
 		ToolAnyCallback: writeTextFileCallback,
 		ToolApproval: func(input any) string {
-			return uctypes.ApprovalNeedsApproval
+			return uctypes.ApprovalAutoApproved
 		},
 		ToolVerifyInput: verifyWriteTextFileInput,
 	}
@@ -709,7 +709,7 @@ func GetEditTextFileToolDefinition() uctypes.ToolDefinition {
 		},
 		ToolAnyCallback: editTextFileCallback,
 		ToolApproval: func(input any) string {
-			return uctypes.ApprovalNeedsApproval
+			return uctypes.ApprovalAutoApproved
 		},
 		ToolVerifyInput: verifyEditTextFileInput,
 	}

@@ -57,21 +57,43 @@ function updateZoomFactor(zoomFactor: number) {
 
 async function initBare() {
     getApi().sendLog("Init Bare");
+    console.log("initBare: start");
     document.body.style.visibility = "hidden";
     document.body.style.opacity = "0";
     document.body.classList.add("is-transparent");
     getApi().onWaveInit(initWaveWrap);
     getApi().onBuilderInit(initBuilderWrap);
-    setKeyUtilPlatform(platform);
-    loadFonts();
-    updateZoomFactor(getApi().getZoomFactor());
-    getApi().onZoomFactorChange((zoomFactor) => {
-        updateZoomFactor(zoomFactor);
-    });
+    console.log("initBare: sending ready status");
     getApi().setWindowInitStatus("ready");
+    console.log("initBare: ready status sent");
+    try {
+        setKeyUtilPlatform(platform);
+        loadFonts();
+        updateZoomFactor(getApi().getZoomFactor());
+        getApi().onZoomFactorChange((zoomFactor) => {
+            updateZoomFactor(zoomFactor);
+        });
+    } catch (e) {
+        getApi().sendLog("Init Bare post-ready error: " + e.message + "\n" + e.stack);
+        console.error("initBare post-ready error", e);
+    }
 }
 
-document.addEventListener("DOMContentLoaded", initBare);
+let hasStartedBareInit = false;
+
+function startBareInitOnce() {
+    if (hasStartedBareInit) {
+        return;
+    }
+    hasStartedBareInit = true;
+    void initBare();
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", startBareInitOnce, { once: true });
+} else {
+    startBareInitOnce();
+}
 
 async function initWaveWrap(initOpts: WaveInitOpts) {
     try {

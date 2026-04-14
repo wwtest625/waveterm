@@ -147,7 +147,7 @@ export class WaveAIModel {
             if (value === "planning" || value === "auto-approve" || value === "default") {
                 return value;
             }
-            return "default";
+            return "auto-approve";
         });
 
         this.codeBlockMaxWidth = jotai.atom((get) => {
@@ -945,6 +945,15 @@ export class WaveAIModel {
                 ...commandResult,
                 status: "error",
                 error: "Timed out waiting for command completion",
+            };
+        }
+        if (commandResult.status === "gone") {
+            commandResult = {
+                ...commandResult,
+                status: "error",
+                error:
+                    commandResult.error ||
+                    "Command result is unavailable (it may have been cleaned up). Please run the command again.",
             };
         }
         this.clearInteractionResult();

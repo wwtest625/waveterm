@@ -16,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/service/blockservice"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
 type WaveRunCommandToolInput struct {
@@ -48,10 +49,6 @@ func (a *waveRunCommandArgs) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	return fmt.Errorf("args must be a string or array of strings")
-}
-
-type WaveGetCommandResultToolInput struct {
-	JobId string `json:"job_id"`
 }
 
 func parseWaveRunCommandToolInput(input any) (*WaveRunCommandToolInput, error) {
@@ -236,35 +233,155 @@ func getWaveRunCommandPromptHint(parsed *WaveRunCommandToolInput) string {
 	return "Command is waiting for terminal input"
 }
 
-func parseWaveGetCommandResultToolInput(input any) (*WaveGetCommandResultToolInput, error) {
-	result := &WaveGetCommandResultToolInput{}
-	inputBytes, err := json.Marshal(input)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal input: %w", err)
+func shouldUseInlineWaveRunCompletion(parsed *WaveRunCommandToolInput) bool {
+	if parsed == nil {
+		return false
 	}
-	if err := json.Unmarshal(inputBytes, result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal input: %w", err)
+	if parsed.Interactive {
+		return false
 	}
-	if strings.TrimSpace(result.JobId) == "" {
-		var aliasInput struct {
-			JobId string `json:"jobid"`
+	if isLikelyInteractiveWaveRunCommand(parsed) {
+		return false
+	}
+	if isLikelyStreamingWaveRunCommand(parsed) {
+		return false
+	}
+	return true
+}
+
+const waveRunCommandInlineWait = 3 * time.Second
+
+func waitForWaveCommandCompletion(rpcClient *wshutil.WshRpc, jobID string, timeout time.Duration) (*wshrpc.CommandAgentGetCommandResultRtnData, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		result, err := wshclient.AgentGetCommandResultCommand(rpcClient, wshrpc.CommandAgentGetCommandResultData{
+			JobId:     jobID,
+			TailBytes: 32768,
+		}, nil)
+		if err != nil {
+			return nil, err
 		}
-		if err := json.Unmarshal(inputBytes, &aliasInput); err == nil {
-			result.JobId = aliasInput.JobId
+		if result == nil || result.Status != "running" {
+			return result, nil
 		}
+		time.Sleep(200 * time.Millisecond)
 	}
-	result.JobId = strings.TrimSpace(result.JobId)
-	if strings.TrimSpace(result.JobId) == "" {
-		return nil, fmt.Errorf("job_id is required")
+	return nil, nil
+}
+
+func waveRunCommandResultSummary(snapshot *wshrpc.CommandAgentGetCommandResultRtnData) string {
+	if snapshot == nil {
+		return "Command is still running in the background."
 	}
-	return result, nil
+	outputFirstLine := strings.TrimSpace(strings.Split(strings.TrimSpace(snapshot.Output), "\n")[0])
+	errorText := strings.TrimSpace(snapshot.Error)
+	if snapshot.Status == "gone" {
+		if errorText != "" {
+			return errorText
+		}
+		return "Command result is unavailable."
+	}
+	if snapshot.Status == "running" {
+		return "Command is still running in the background."
+	}
+	if snapshot.ExitCode != nil {
+		if *snapshot.ExitCode == 0 {
+			if outputFirstLine != "" {
+				return outputFirstLine
+			}
+			return "Command completed successfully (exit 0)."
+		}
+		if errorText != "" {
+			return fmt.Sprintf("Command failed with exit %d: %s", *snapshot.ExitCode, errorText)
+		}
+		return fmt.Sprintf("Command failed with exit %d.", *snapshot.ExitCode)
+	}
+	if errorText != "" {
+		return errorText
+	}
+	if outputFirstLine != "" {
+		return outputFirstLine
+	}
+	if snapshot.Status == "done" {
+		return "Command completed."
+	}
+	if snapshot.Status == "error" {
+		return "Command failed."
+	}
+	return "Command finished."
+}
+
+func waveRunCommandResultPayload(jobID string, snapshot *wshrpc.CommandAgentGetCommandResultRtnData) map[string]any {
+	resultPayload := map[string]any{"jobid": jobID}
+	if snapshot == nil {
+		resultPayload["status"] = "running"
+		resultPayload["summary"] = waveRunCommandResultSummary(nil)
+		return resultPayload
+	}
+	resultPayload["status"] = snapshot.Status
+	resultPayload["summary"] = waveRunCommandResultSummary(snapshot)
+	resultPayload["exitcode"] = snapshot.ExitCode
+	resultPayload["exitsignal"] = snapshot.ExitSignal
+	resultPayload["durationms"] = snapshot.DurationMs
+	if strings.TrimSpace(snapshot.Output) != "" {
+		resultPayload["output"] = snapshot.Output
+	}
+	if strings.TrimSpace(snapshot.Error) != "" {
+		resultPayload["error"] = snapshot.Error
+	}
+	return resultPayload
+}
+
+func isWaveCommandTerminalTool(toolName string) bool {
+	return toolName == "wave_run_command" || toolName == "term_command_output"
+}
+
+func getWaveCommandResultToolName(toolName string) string {
+	if toolName == "wave_run_command" {
+		return "wave_run_command"
+	}
+	return toolName
+}
+
+func getWaveCommandResultOutputText(toolName string, output string) string {
+	return extractToolOutputText(getWaveCommandResultToolName(toolName), output)
+}
+
+func makeWaveCommandToolUseData(toolName string, toolCallID string, snapshot *wshrpc.CommandAgentGetCommandResultRtnData) uctypes.UIMessageDataToolUse {
+	toolUse := uctypes.UIMessageDataToolUse{
+		ToolCallId: toolCallID,
+		ToolName:   getWaveCommandResultToolName(toolName),
+	}
+	if snapshot == nil {
+		toolUse.Status = "running"
+		return toolUse
+	}
+	toolUse.JobId = snapshot.JobId
+	toolUse.DurationMs = snapshot.DurationMs
+	toolUse.ExitCode = snapshot.ExitCode
+	toolUse.ExitSignal = snapshot.ExitSignal
+	toolUse.OutputText = getWaveCommandResultOutputText(toolName, snapshot.Output)
+	if snapshot.Status == "running" {
+		toolUse.Status = "running"
+		return toolUse
+	}
+	if snapshot.Status == "gone" || snapshot.Status == "error" || strings.TrimSpace(snapshot.Error) != "" {
+		toolUse.Status = uctypes.ToolUseStatusError
+		toolUse.ErrorMessage = strings.TrimSpace(snapshot.Error)
+		if toolUse.ErrorMessage == "" {
+			toolUse.ErrorMessage = "command result is unavailable; rerun the command"
+		}
+		return toolUse
+	}
+	toolUse.Status = uctypes.ToolUseStatusCompleted
+	return toolUse
 }
 
 func GetWaveRunCommandToolDefinition() uctypes.ToolDefinition {
 	return uctypes.ToolDefinition{
 		Name:        "wave_run_command",
 		DisplayName: "Run Command via Wave RPC",
-		Description: "Start a background command on a Wave connection using Wave RPC job execution. If connection is omitted, Wave uses the current terminal in the same tab by default. When that terminal is already remote, run the target shell command directly there instead of wrapping it in ssh, unless the user explicitly asked for a nested SSH hop.",
+		Description: "Run a command on a Wave connection. Short non-interactive commands return inline results when available; long-running or interactive commands return a job id for background polling. If connection is omitted, Wave uses the current terminal in the same tab by default. When that terminal is already remote, run the target shell command directly there instead of wrapping it in ssh, unless the user explicitly asked for a nested SSH hop.",
 		ToolLogName: "wave:runcommand",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -332,61 +449,23 @@ func GetWaveRunCommandToolDefinition() uctypes.ToolDefinition {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{
-				"job_id": result.JobId,
-				"jobid":  result.JobId,
-			}, nil
+			resultPayload := map[string]any{
+				"jobid": result.JobId,
+			}
+			if shouldUseInlineWaveRunCompletion(parsed) {
+				snapshot, pollErr := waitForWaveCommandCompletion(rpcClient, result.JobId, waveRunCommandInlineWait)
+				if pollErr == nil {
+					return waveRunCommandResultPayload(result.JobId, snapshot), nil
+				}
+				resultPayload["status"] = "running"
+			}
+			return resultPayload, nil
 		},
 		ToolApproval: func(input any) string {
 			if isDangerousWaveRunCommandInput(input) {
 				return uctypes.ApprovalNeedsApproval
 			}
 			return uctypes.ApprovalAutoApproved
-		},
-	}
-}
-
-func GetWaveGetCommandResultToolDefinition() uctypes.ToolDefinition {
-	return uctypes.ToolDefinition{
-		Name:        "wave_get_command_result",
-		DisplayName: "Poll Wave Command Result",
-		Description: "Fetch the latest Wave RPC background command snapshot. The scheduler continues polling in the background.",
-		ToolLogName: "wave:getcommandresult",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"job_id": map[string]any{
-					"type":        "string",
-					"description": "Wave job id returned by wave_run_command. Prefer this field name.",
-				},
-				"jobid": map[string]any{
-					"type":        "string",
-					"description": "Legacy alias for job_id kept for backward compatibility.",
-				},
-			},
-			"additionalProperties": false,
-		},
-		ToolCallDesc: func(input any, output any, toolUseData *uctypes.UIMessageDataToolUse) string {
-			parsed, err := parseWaveGetCommandResultToolInput(input)
-			if err != nil {
-				return fmt.Sprintf("error parsing input: %v", err)
-			}
-			return fmt.Sprintf("polling command result for %s", parsed.JobId)
-		},
-		ToolAnyCallback: func(input any, toolUseData *uctypes.UIMessageDataToolUse) (any, error) {
-			parsed, err := parseWaveGetCommandResultToolInput(input)
-			if err != nil {
-				return nil, err
-			}
-			rpcClient := wshclient.GetBareRpcClient()
-			result, err := wshclient.AgentGetCommandResultCommand(rpcClient, wshrpc.CommandAgentGetCommandResultData{
-				JobId:     parsed.JobId,
-				TailBytes: 32768,
-			}, nil)
-			if err != nil {
-				return nil, err
-			}
-			return result, nil
 		},
 	}
 }

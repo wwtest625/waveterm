@@ -3,9 +3,11 @@
 
 import type { WaveConfigViewModel } from "@/app/view/waveconfig/waveconfig-model";
 import { ModelSelector } from "@/app/aipanel/modelselector";
+import { getWebServerEndpoint } from "@/util/endpoints";
+import { fetch } from "@/util/fetchutil";
 import { cn } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 interface ToggleSwitchProps {
     checked: boolean;
@@ -128,6 +130,13 @@ SettingSection.displayName = "SettingSection";
 
 type WaveAIModesData = Record<string, any>;
 
+type TestState = "idle" | "testing" | "success" | "error";
+
+interface ModelListResponse {
+    models: Array<{ id: string; name?: string; object?: string }>;
+    error?: string;
+}
+
 interface WaveAIVisualContentProps {
     model: WaveConfigViewModel;
 }
@@ -139,6 +148,8 @@ export const WaveAIVisualContent = memo(({ model }: WaveAIVisualContentProps) =>
     const [isCreating, setIsCreating] = useState(false);
     const [newModeName, setNewModeName] = useState("");
     const [showModelSelector, setShowModelSelector] = useState(false);
+    const [testState, setTestState] = useState<TestState>("idle");
+    const [testMessage, setTestMessage] = useState("");
 
     const aiModes: WaveAIModesData = useMemo(() => {
         try {
@@ -217,6 +228,42 @@ export const WaveAIVisualContent = memo(({ model }: WaveAIVisualContentProps) =>
         setIsCreating(false);
         setNewModeName("");
     }, [aiModes, newModeName, setFileContent, model]);
+
+    const testCurrentMode = useCallback(async () => {
+        if (!selectedMode || !currentMode) {
+            return;
+        }
+        setTestState("testing");
+        setTestMessage("正在测试连接...");
+        try {
+            const params = new URLSearchParams();
+            if (currentMode?.["ai:provider"]) params.set("provider", currentMode["ai:provider"]);
+            if (currentMode?.["ai:endpoint"]) params.set("endpoint", currentMode["ai:endpoint"]);
+            if (currentMode?.["ai:apitokensecretname"]) params.set("secret", currentMode["ai:apitokensecretname"]);
+            params.set("modeKey", selectedMode);
+            const url = `${getWebServerEndpoint()}/api/get-model-list?${params.toString()}`;
+            const response = await fetch(url);
+            const data = (await response.json()) as ModelListResponse;
+            if (!response.ok) {
+                throw new Error(data?.error || `HTTP ${response.status}`);
+            }
+            if (data?.error) {
+                throw new Error(data.error);
+            }
+            const modelCount = data?.models?.length ?? 0;
+            setTestState("success");
+            setTestMessage(`连接成功，可用模型 ${modelCount} 个`);
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            setTestState("error");
+            setTestMessage(errorMessage);
+        }
+    }, [selectedMode, currentMode]);
+
+    useEffect(() => {
+        setTestState("idle");
+        setTestMessage("");
+    }, [selectedMode, currentMode?.["ai:provider"], currentMode?.["ai:endpoint"], currentMode?.["ai:apitokensecretname"]]);
 
     const renderModeList = () => (
         <div className="flex flex-col h-full">
@@ -420,6 +467,32 @@ export const WaveAIVisualContent = memo(({ model }: WaveAIVisualContentProps) =>
                                             <i className="fa-solid fa-robot text-[10px]" />
                                             {currentMode["ai:model"]}
                                         </span>
+                                        <button
+                                            onClick={testCurrentMode}
+                                            disabled={testState === "testing"}
+                                            className={cn(
+                                                "inline-flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors",
+                                                testState === "testing"
+                                                    ? "bg-zinc-700 text-zinc-400 cursor-wait"
+                                                    : "bg-zinc-700 hover:bg-zinc-600 text-zinc-200"
+                                            )}
+                                            title="测试当前模式的 API 连通性"
+                                        >
+                                            <i className={cn("fa-solid", testState === "testing" ? "fa-spinner fa-spin" : "fa-vial-circle-check")} />
+                                            测试
+                                        </button>
+                                    </div>
+                                )}
+                                {testState !== "idle" && (
+                                    <div
+                                        className={cn(
+                                            "text-xs",
+                                            testState === "success" && "text-green-400",
+                                            testState === "error" && "text-red-400",
+                                            testState === "testing" && "text-zinc-400"
+                                        )}
+                                    >
+                                        {testMessage}
                                     </div>
                                 )}
                             </div>

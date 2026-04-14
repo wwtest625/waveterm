@@ -822,7 +822,7 @@ const AIPanelComponentInner = memo(() => {
         const latestToolProgress = getLatestToolProgressPart(lastAssistantMessage);
         const currentInteraction = globalStore.get(model.commandInteractionAtom);
         if (
-            latestToolUse?.data?.toolname === "wave_get_command_result" &&
+            latestToolUse?.data?.toolname === "wave_run_command" &&
             latestToolUse.data.status === "running" &&
             latestToolUse.data.jobid &&
             (latestToolUse.data.awaitinginput || latestToolUse.data.tuidetected)
@@ -856,7 +856,7 @@ const AIPanelComponentInner = memo(() => {
             }
         } else if (
             currentInteraction?.jobId &&
-            latestToolUse?.data?.toolname === "wave_get_command_result" &&
+            latestToolUse?.data?.toolname === "wave_run_command" &&
             latestToolUse.data.jobid === currentInteraction.jobId &&
             (latestToolUse.data.status !== "running" ||
                 (!latestToolUse.data.awaitinginput && !latestToolUse.data.tuidetected))

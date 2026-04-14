@@ -57,6 +57,7 @@ type TaskChainDisplayState = {
 
 const RAW_OUTPUT_COLLAPSE_LINES = 5;
 const TASK_CHAIN_OUTPUT_COLLAPSE_LINES = 3;
+const THINKING_OUTPUT_COLLAPSE_LINES = 4;
 
 const ToolDetailTypes = new Set(["data-tooluse", "data-toolprogress"]);
 
@@ -92,6 +93,78 @@ function normalizeAssistantText(text: string): string {
     return (shouldDropLeadIn ? lines.slice(1) : lines).join("\n").trim();
 }
 
+type AssistantDisplayContent = {
+    answerText: string;
+    thinkingText: string;
+};
+
+export function splitReasoningFromText(text: string): AssistantDisplayContent {
+    let remaining = text;
+    const reasoningSegments: string[] = [];
+    const thinkTagPairs = ["think", "thinking"];
+
+    for (const tagName of thinkTagPairs) {
+        const pairRegex = new RegExp(`<${tagName}>([\\s\\S]*?)<\\/${tagName}>`, "gi");
+        remaining = remaining.replace(pairRegex, (_match, captured: string) => {
+            const segment = captured.trim();
+            if (segment) {
+                reasoningSegments.push(segment);
+            }
+            return "\n";
+        });
+    }
+
+    for (const tagName of thinkTagPairs) {
+        const openingTag = `<${tagName}>`;
+        const closingTag = `</${tagName}>`;
+        const normalized = remaining.toLowerCase();
+        const openingTagIndex = normalized.lastIndexOf(openingTag);
+        const closingTagIndex = normalized.lastIndexOf(closingTag);
+        if (openingTagIndex !== -1 && closingTagIndex < openingTagIndex) {
+            const danglingReasoning = remaining.slice(openingTagIndex + openingTag.length).trim();
+            if (danglingReasoning) {
+                reasoningSegments.push(danglingReasoning);
+            }
+            remaining = remaining.slice(0, openingTagIndex);
+        }
+    }
+
+    return {
+        answerText: normalizeAssistantText(remaining),
+        thinkingText: reasoningSegments.join("\n\n").trim(),
+    };
+}
+
+function getAssistantDisplayContent(messages: WaveUIMessage[]): AssistantDisplayContent {
+    const answerSegments: string[] = [];
+    const thinkingSegments: string[] = [];
+
+    for (const message of messages) {
+        if (!message?.parts?.length) {
+            continue;
+        }
+        const rawText = message.parts
+            .filter(isTextPart)
+            .map((part) => part.text ?? "")
+            .join("\n\n");
+        if (!rawText.trim()) {
+            continue;
+        }
+        const { answerText, thinkingText } = splitReasoningFromText(rawText);
+        if (answerText) {
+            answerSegments.push(answerText);
+        }
+        if (thinkingText) {
+            thinkingSegments.push(thinkingText);
+        }
+    }
+
+    return {
+        answerText: normalizeAssistantText(answerSegments.join("\n\n")),
+        thinkingText: thinkingSegments.join("\n\n").trim(),
+    };
+}
+
 function getMessageText(message?: WaveUIMessage): string {
     if (!message?.parts?.length) {
         return "";
@@ -104,13 +177,16 @@ function getMessageText(message?: WaveUIMessage): string {
     );
 }
 
-function getAssistantText(messages: WaveUIMessage[]): string {
-    return normalizeAssistantText(
-        messages
-            .map((message) => getMessageText(message))
-            .filter(Boolean)
-            .join("\n\n")
-    );
+export function getThinkingDisplayState(outputText: string, maxLines = THINKING_OUTPUT_COLLAPSE_LINES) {
+    const normalized = outputText.trim();
+    const lines = normalized ? normalized.split(/\r?\n/) : [];
+    const shouldCollapse = lines.length > maxLines;
+    return {
+        lineCount: lines.length,
+        shouldCollapse,
+        collapsedText: shouldCollapse ? lines.slice(0, maxLines).join("\n") : normalized,
+        expandedText: normalized,
+    };
 }
 
 function getToolParts(
@@ -162,8 +238,8 @@ function getToolStepTitle(toolName: string): string {
     switch (toolName) {
         case "wave_run_command":
             return "执行命令";
-        case "wave_get_command_result":
-            return "获取执行结果";
+        case "term_command_output":
+            return "读取终端输出";
         case "term_get_scrollback":
         case "term_command_output":
             return "读取终端输出";
@@ -300,12 +376,8 @@ function formatStepDetail(
         if (toolName === "wave_run_command") {
             return extractCommandFromToolDesc(part.data.tooldesc);
         }
-        if (
-            toolName === "wave_get_command_result" ||
-            toolName === "term_command_output" ||
-            toolName === "term_get_scrollback"
-        ) {
-            if (toolName === "wave_get_command_result" && part.data.status === "running") {
+        if (toolName === "term_command_output" || toolName === "term_get_scrollback") {
+            if (toolName === "term_command_output" && part.data.status === "running") {
                 const outputPreview = getMeaningfulOutputPreview(part.data.outputtext, 3);
                 if (outputPreview) {
                     return outputPreview;
@@ -320,13 +392,14 @@ function formatStepDetail(
             if (errorMessage) {
                 return errorMessage;
             }
-            const fallbackDetail = getFirstMeaningfulLine(part.data.tooldesc) ?? normalizeToolDetail(part.data.tooldesc);
+            const fallbackDetail =
+                getFirstMeaningfulLine(part.data.tooldesc) ?? normalizeToolDetail(part.data.tooldesc);
             return isPollingCommandPlaceholder(fallbackDetail) ? undefined : fallbackDetail;
         }
         return normalizeToolDetail(part.data.tooldesc || part.data.errormessage);
     }
 
-    if (toolName === "wave_get_command_result" || toolName === "term_command_output") {
+    if (toolName === "term_command_output") {
         return undefined;
     }
     if (toolName === "term_get_scrollback") {
@@ -380,30 +453,47 @@ export function buildTaskChainSteps(
 
     for (const part of parts) {
         if (part.type === "data-tooluse") {
+            const toolUseStatus = deriveToolUseStatus(part, isStreaming);
+            const commandOutput = part.data.outputtext?.trim() || part.data.errormessage?.trim();
             const step: TaskChainStep = {
                 id: part.data.toolcallid,
                 title: getToolStepTitle(part.data.toolname),
                 detail: formatStepDetail(part.data.toolname, part),
                 durationLabel: getDurationLabel(part.data.durationms),
                 exitCode:
-                    part.data.toolname === "wave_get_command_result" || part.data.toolname === "term_command_output"
-                        ? part.data.status === "completed"
-                            ? 0
-                            : part.data.status === "error"
-                              ? 1
-                              : undefined
-                        : undefined,
-                status: deriveToolUseStatus(part, isStreaming),
+                    part.data.toolname === "wave_run_command"
+                        ? part.data.exitcode
+                        : part.data.toolname === "term_command_output"
+                          ? part.data.status === "completed"
+                              ? 0
+                              : part.data.status === "error"
+                                ? 1
+                                : undefined
+                          : undefined,
+                status: toolUseStatus,
                 toolName: part.data.toolname,
             };
             const appended = appendStep(step);
             byToolCallId.set(part.data.toolcallid, appended);
+            if (
+                part.data.toolname === "wave_run_command" &&
+                commandOutput &&
+                (part.data.status === "completed" || part.data.exitcode != null)
+            ) {
+                appendStep({
+                    id: `${part.data.toolcallid}:output`,
+                    title: getToolStepTitle("term_command_output"),
+                    detail: commandOutput,
+                    status: toolUseStatus,
+                    toolName: "term_command_output",
+                });
+            }
             continue;
         }
         const existing = byToolCallId.get(part.data.toolcallid);
         if (existing != null) {
             if ((existing.status === "pending" || existing.status === "running") && part.data.statuslines?.length) {
-                if (part.data.toolname === "wave_get_command_result" || part.data.toolname === "term_command_output") {
+                if (part.data.toolname === "term_command_output") {
                     continue;
                 }
                 existing.detail = formatStepDetail(part.data.toolname, part);
@@ -423,7 +513,7 @@ export function buildTaskChainSteps(
 }
 
 function isOutputLikeStep(step: TaskChainStep): boolean {
-    return step.toolName === "wave_get_command_result" || step.toolName === "term_command_output";
+    return step.toolName === "term_command_output";
 }
 
 export function getTaskChainDisplayGroups(steps: TaskChainStep[]): TaskChainDisplayGroup[] {
@@ -466,7 +556,8 @@ export function getTaskChainDisplayState(
         systemFailedStep;
     const runtimeIsFailureState =
         runtime?.state === "failed_retryable" || runtime?.state === "failed_fatal" || runtime?.state === "unavailable";
-    const hasSystemFailure = Boolean(systemFailedStep) || (runtimeIsFailureState && isSystemFailureText(runtime?.blockedReason));
+    const hasSystemFailure =
+        Boolean(systemFailedStep) || (runtimeIsFailureState && isSystemFailureText(runtime?.blockedReason));
     const statusLabel =
         runtime?.phaseLabel && (!runtimeIsFailureState || hasSystemFailure)
             ? runtime.phaseLabel
@@ -474,7 +565,9 @@ export function getTaskChainDisplayState(
               ? getTaskStepStateLabel(activeStep.status)
               : undefined;
     const blockedReason =
-        runtime?.blockedReason && (!runtimeIsFailureState || hasSystemFailure) ? runtime.blockedReason : activeStep?.detail;
+        runtime?.blockedReason && (!runtimeIsFailureState || hasSystemFailure)
+            ? runtime.blockedReason
+            : activeStep?.detail;
     const toneClassName = hasSystemFailure
         ? getTaskChainToneClass("failed")
         : getTaskChainToneClass(runtime?.state ?? (activeStep ? activeStep.status : undefined));
@@ -664,19 +757,23 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                             className={cn(
                                 "rounded-md px-2 py-1.5 transition-all duration-200",
                                 "hover:bg-white/[0.055]",
-                                isActive ? `${stepToneClass} ${animateStep ? "animate-pulse" : ""}` : "border-transparent bg-transparent"
+                                isActive
+                                    ? `${stepToneClass} ${animateStep ? "animate-pulse" : ""}`
+                                    : "border-transparent bg-transparent"
                             )}
                         >
                             <div className="flex items-center gap-2 text-[13px]">
                                 <span className="inline-flex w-5 justify-end text-zinc-500">{index + 1}.</span>
-                                <i className={`fa ${iconClass} w-4 text-center ${animateStep ? "animate-pulse" : ""}`}></i>
+                                <i
+                                    className={`fa ${iconClass} w-4 text-center ${animateStep ? "animate-pulse" : ""}`}
+                                ></i>
                                 <span className={titleClass}>{step.title}</span>
                                 {(step.duplicateCount ?? 1) > 1 && (
                                     <span className="rounded-full border border-white/10 bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-zinc-300">
                                         ×{step.duplicateCount}
                                     </span>
                                 )}
-                                {step.status === "running" && step.toolName === "wave_get_command_result" && (
+                                {step.status === "running" && step.toolName === "term_command_output" && (
                                     <span className="rounded-full border border-yellow-400/30 bg-yellow-400/10 px-2 py-0.5 text-[10px] font-medium tracking-[0.08em] text-yellow-200">
                                         后台刷新中
                                     </span>
@@ -751,41 +848,41 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                         const displayedText = isExpanded
                                             ? outputDisplay.expandedText
                                             : outputDisplay.collapsedText;
-                                            return (
-                                                <div className="mt-1 pl-5">
-                                                    <div className="relative">
-                                                        <pre
-                                                            className={cn(
-                                                                "whitespace-pre-wrap break-all rounded-md bg-black px-2.5 py-2 pt-7 pr-20 text-[14px] leading-6",
-                                                                isActive ? "text-zinc-100/95" : "text-zinc-200/90"
-                                                            )}
-                                                            style={{ fontFamily: AI_CODE_FONT_FAMILY }}
-                                                        >
-                                                            {displayedText}
-                                                        </pre>
-                                                        {outputDisplay.shouldCollapse && (
-                                                            <button
-                                                                type="button"
-                                                                className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/30 px-2 py-0.5 text-[11px] text-zinc-200 transition hover:bg-black/45"
-                                                                onClick={() =>
-                                                                    setExpandedOutputSteps((prev) => ({
-                                                                        ...prev,
-                                                                        [step.id]: !isExpanded,
-                                                                    }))
-                                                                }
-                                                            >
-                                                                <span>更多</span>
-                                                                <i
-                                                                    className={cn(
-                                                                        "fa-solid text-[10px]",
-                                                                        isExpanded ? "fa-chevron-up" : "fa-chevron-down"
-                                                                    )}
-                                                                />
-                                                            </button>
+                                        return (
+                                            <div className="mt-1 pl-5">
+                                                <div className="relative">
+                                                    <pre
+                                                        className={cn(
+                                                            "whitespace-pre-wrap break-all rounded-md bg-black px-2.5 py-2 pt-7 pr-20 text-[14px] leading-6",
+                                                            isActive ? "text-zinc-100/95" : "text-zinc-200/90"
                                                         )}
-                                                    </div>
+                                                        style={{ fontFamily: AI_CODE_FONT_FAMILY }}
+                                                    >
+                                                        {displayedText}
+                                                    </pre>
+                                                    {outputDisplay.shouldCollapse && (
+                                                        <button
+                                                            type="button"
+                                                            className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/30 px-2 py-0.5 text-[11px] text-zinc-200 transition hover:bg-black/45"
+                                                            onClick={() =>
+                                                                setExpandedOutputSteps((prev) => ({
+                                                                    ...prev,
+                                                                    [step.id]: !isExpanded,
+                                                                }))
+                                                            }
+                                                        >
+                                                            <span>更多</span>
+                                                            <i
+                                                                className={cn(
+                                                                    "fa-solid text-[10px]",
+                                                                    isExpanded ? "fa-chevron-up" : "fa-chevron-down"
+                                                                )}
+                                                            />
+                                                        </button>
+                                                    )}
                                                 </div>
-                                            );
+                                            </div>
+                                        );
                                     }
                                     return (
                                         <div
@@ -952,13 +1049,13 @@ export function getTurnExitCode(messages: WaveUIMessage[]): number | undefined {
         .find(
             (part) =>
                 part.type === "data-tooluse" &&
-                (part.data.toolname === "wave_get_command_result" || part.data.toolname === "term_command_output") &&
+                (part.data.toolname === "wave_run_command" || part.data.toolname === "term_command_output") &&
                 (part.data.status === "completed" || part.data.status === "error")
         );
     if (latestToolUse?.type !== "data-tooluse") {
         return undefined;
     }
-    return latestToolUse.data.status === "completed" ? 0 : 1;
+    return latestToolUse.data.exitcode ?? (latestToolUse.data.status === "completed" ? 0 : 1);
 }
 
 export function buildTaskTurns(messages: WaveUIMessage[], status: string): TaskTurn[] {
@@ -1239,13 +1336,63 @@ const ToolTrace = memo(({ turn }: { turn: TaskTurn }) => {
 
 ToolTrace.displayName = "ToolTrace";
 
+const ThinkingTraceCard = memo(({ reasoningText, isStreaming }: { reasoningText: string; isStreaming: boolean }) => {
+    const [expanded, setExpanded] = useState(false);
+    const displayState = getThinkingDisplayState(reasoningText);
+    const displayedText = expanded ? displayState.expandedText : displayState.collapsedText;
+
+    useEffect(() => {
+        if (isStreaming) {
+            setExpanded(false);
+        }
+    }, [isStreaming, reasoningText]);
+
+    if (!reasoningText) {
+        return null;
+    }
+
+    return (
+        <div className="mb-3 overflow-hidden rounded-xl border border-emerald-300/20 bg-emerald-300/[0.06]">
+            <div className="flex items-center justify-between gap-2 border-b border-emerald-300/15 px-3 py-2">
+                <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-emerald-200/85">
+                    <i className="fa-solid fa-brain" />
+                    <span>深度思考</span>
+                    {isStreaming && <span className="text-emerald-200/60">处理中</span>}
+                </div>
+                {displayState.shouldCollapse && (
+                    <button
+                        type="button"
+                        onClick={() => setExpanded((value) => !value)}
+                        className="text-[10px] uppercase tracking-[0.16em] text-emerald-200/70 transition hover:text-emerald-100"
+                    >
+                        {expanded ? "收起" : `展开 (${displayState.lineCount})`}
+                    </button>
+                )}
+            </div>
+            <pre
+                className="max-h-[20lh] overflow-auto whitespace-pre-wrap px-3 py-2 text-xs leading-5 text-emerald-50/85"
+                style={{ fontFamily: AI_CODE_FONT_FAMILY }}
+            >
+                {displayedText}
+            </pre>
+            {displayState.shouldCollapse && !expanded && (
+                <div className="border-t border-emerald-300/15 px-3 py-1.5 text-[10px] text-emerald-200/65">
+                    仅显示前 {THINKING_OUTPUT_COLLAPSE_LINES} 行
+                </div>
+            )}
+        </div>
+    );
+});
+
+ThinkingTraceCard.displayName = "ThinkingTraceCard";
+
 const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fallbackOutput?: string }) => {
-    const assistantText = getAssistantText(turn.assistantMessages);
+    const { answerText: assistantText, thinkingText } = getAssistantDisplayContent(turn.assistantMessages);
     const rawToolOutput = toOutputText(fallbackOutput);
     const exitCodeLabel = formatExitCodeLabel(getTurnExitCode(turn.assistantMessages));
     const outputText = assistantText || fallbackOutput || "";
     const showRawOutputBlock = !turn.isStreaming && rawToolOutput.length > 0 && assistantText.length === 0;
-    const showEmptyState = !assistantText && !rawToolOutput && !turn.isStreaming;
+    const showEmptyState = !assistantText && !thinkingText && !rawToolOutput && !turn.isStreaming;
     const showCompletionHeader = !turn.isStreaming && assistantText.length > 0;
     const model = WaveAIModel.getInstance();
     const railStatus = turn.isStreaming ? "streaming" : "ready";
@@ -1277,6 +1424,8 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
             <AssistantRail status={railStatus} />
             <div className="min-w-0 flex-1 rounded-[18px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.025))] px-3.5 py-3.5 shadow-[0_12px_28px_rgba(0,0,0,0.12)]">
                 {showCompletionHeader && <CompletionHeader />}
+
+                {thinkingText && <ThinkingTraceCard reasoningText={thinkingText} isStreaming={turn.isStreaming} />}
 
                 {assistantText && (
                     <div>

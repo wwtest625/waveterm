@@ -5,6 +5,8 @@ package aiusechat
 
 import (
 	"strings"
+
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 )
 
 // 基础系统提示词尽量短。
@@ -17,27 +19,11 @@ var SystemPromptText_OpenAI = strings.Join([]string{
 	// 任务按短链路思考，不要发散成大段解释。
 	`Think in a short task chain: current step, next step, result.`,
 	// 能用工具就用工具，不要空讲。
-	`Use tools when available instead of describing them. For shell commands, terminal inspection, and system facts, call wave_run_command or the relevant terminal tool instead of returning a bash code block.`,
+	`Use tools when available instead of describing them. For shell commands, terminal inspection, and system facts, call wave_run_command or the relevant terminal tool instead of returning a bash code block. When the current terminal is already remote, run the command there by default instead of suggesting a separate SSH hop.`,
+	// 工具名必须来自当前提供列表，禁止杜撰。
+	`Tool-calling hard rule: only call tools that are explicitly present in the provided tool list for the current request. Never invent tool names, aliases, or pseudo-tools (for example: "think").`,
 	// 文件写入必须由用户明确提出，避免擅自落盘。
-	`Do not call write_text_file, edit_text_file, or delete_text_file unless the user explicitly asks to save or modify local files.`,
-}, " ")
-
-// 无工具模式也要保留同样的角色感，只是明确不能碰终端和文件。
-var SystemPromptText_NoTools = strings.Join([]string{
-	// 先把角色说死，避免模型跑偏。
-	`You are Wave AI, an assistant embedded in Wave Terminal.`,
-	// 回答要短，别铺陈。
-	`Be concise, direct, and truthful.`,
-	// 任务按短链路思考，不要发散成大段解释。
-	`Think in a short task chain: current step, next step, result.`,
-	// 这里明确没法碰终端和文件。
-	`You cannot access the terminal, files, or widgets directly.`,
-	// 只能基于已知文本回答，缺信息就问。
-	`Answer from the text you have, and ask for missing details when needed.`,
-	// 命令和代码保持块状，方便复制。
-	`For shell commands and code, use fenced Markdown blocks.`,
-	// 没有的权限不要装作有。
-	`Never invent access you do not have.`,
+	`Do not call write_text_file, edit_text_file, or delete_text_file unless the user explicitly asks to save or modify local files. Do not fall back to bash heredocs or shell redirection for file writes when file tools are available.`,
 }, " ")
 
 // 只在确实需要写文件类工具时追加，避免把主提示词撑太大。
@@ -46,13 +32,41 @@ var SystemPromptText_StrictToolAddOn = `When a file write/edit tool call is need
 // 只给文件编辑工具的短提示，提醒模型先看最新内容，再做小步修改。
 var SystemPromptText_EditWorkflowAddOn = `For file edits, prefer the latest file content, keep each change small, and retry with fewer replacements when one misses.`
 
-func getModeAwareSystemPromptText(provider string, mode AgentMode) string {
+// 单一澄清策略：只在缺关键执行参数时提问，信息足够就直接执行。
+var SystemPromptText_ExecutionPolicyAddOn = `Execution policy: ask questions only when critical execution parameters are missing and the implementation outcome would change. Ask at most 3 concrete questions. If the user explicitly requests a modification and required parameters are already provided, execute immediately using available tools. Do not ask about reversible minor preferences or ask whether to continue required next steps.`
+
+func getModeAwareSystemPromptText(mode AgentMode) string {
 	mode = resolveAgentMode(string(mode))
-	// 这里只放模式差异，不再塞长说明。
-	base := []string{`Use only the tools actually provided to you.`}
 	if mode == AgentModeAutoApprove {
-		// 自动批准模式只放行安全动作。
-		base = append(base, "Auto-approve mode may skip approval for safe actions.")
+		return "Auto-approve mode may skip approval for safe actions."
 	}
-	return strings.Join(base, " ")
+	return ""
+}
+
+func getToolCapabilityPrompt(tools []uctypes.ToolDefinition) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	available := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		available[tool.Name] = true
+	}
+	var lines []string
+	lines = append(lines, "Current tool capabilities:")
+	if available["wave_run_command"] {
+		lines = append(lines, "- wave_run_command: execute shell commands on the current Wave connection or current terminal target.")
+	}
+	if available["term_get_scrollback"] || available["term_command_output"] {
+		lines = append(lines, "- terminal output tools: inspect terminal scrollback and recent command output.")
+	}
+	if available["write_text_file"] || available["edit_text_file"] || available["delete_text_file"] {
+		lines = append(lines, "- file tools: write, edit, or delete local files when the user explicitly asks for file changes.")
+	}
+	if available["capture_screenshot"] {
+		lines = append(lines, "- capture_screenshot: inspect the visible widget when visual context is needed.")
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
 }

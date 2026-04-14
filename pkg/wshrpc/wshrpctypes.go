@@ -1172,7 +1172,13 @@ type CommandAgentRunCommandData struct {
 }
 
 type CommandAgentRunCommandRtnData struct {
-	JobId string `json:"jobid"`
+	JobId      string `json:"jobid"`
+	Status     string `json:"status,omitempty"`
+	Output     string `json:"output,omitempty"`
+	DurationMs int64  `json:"durationms,omitempty"`
+	ExitCode   *int   `json:"exitcode,omitempty"`
+	ExitSignal string `json:"exitsignal,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 type CommandAgentWriteStdinData struct {

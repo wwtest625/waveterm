@@ -60,16 +60,26 @@ func resolveAIMode(requestedMode string, premium bool) (string, *wconfig.AIModeC
 func applyProviderDefaults(config *wconfig.AIModeConfigType) {
 	if config.Provider == uctypes.AIProvider_Wave {
 		config.WaveAICloud = true
+		if config.APIType == "" {
+			config.APIType = uctypes.APIType_OpenAIResponses
+		}
 		if config.Endpoint == "" {
 			config.Endpoint = uctypes.DefaultAIEndpoint
 			if os.Getenv(uctypes.WaveAIEndpointEnvName) != "" {
 				config.Endpoint = os.Getenv(uctypes.WaveAIEndpointEnvName)
 			}
 		}
+		if len(config.Capabilities) == 0 {
+			config.Capabilities = []string{uctypes.AICapabilityTools, uctypes.AICapabilityImages, uctypes.AICapabilityPdfs}
+		}
 	}
 	if config.Provider == uctypes.AIProvider_OpenAI {
 		if config.APIType == "" {
 			config.APIType = getOpenAIAPIType(config.Model)
+		}
+		if isNewOpenAIModel(config.Model) {
+			// Reasoning-capable OpenAI models should always use the Responses API.
+			config.APIType = uctypes.APIType_OpenAIResponses
 		}
 		if config.Endpoint == "" {
 			switch config.APIType {
@@ -158,6 +168,10 @@ func applyProviderDefaults(config *wconfig.AIModeConfigType) {
 		}
 		if config.APIType == "" {
 			config.APIType = getAzureAPIType(config.Model)
+		}
+		if isNewOpenAIModel(config.Model) {
+			// Keep Azure routing aligned with OpenAI model capabilities.
+			config.APIType = uctypes.APIType_OpenAIResponses
 		}
 		if config.Endpoint == "" && isValidAzureResourceName(config.AzureResourceName) && isAzureAPIType(config.APIType) {
 			switch config.APIType {
@@ -286,13 +300,13 @@ func handleConfigUpdate(fullConfig wconfig.FullConfigType) {
 
 func ComputeResolvedAIModeConfigs(fullConfig wconfig.FullConfigType) map[string]wconfig.AIModeConfigType {
 	resolvedConfigs := make(map[string]wconfig.AIModeConfigType)
-	
+
 	for modeName, modeConfig := range fullConfig.WaveAIModes {
 		resolved := modeConfig
 		applyProviderDefaults(&resolved)
 		resolvedConfigs[modeName] = resolved
 	}
-	
+
 	return resolvedConfigs
 }
 
@@ -300,7 +314,7 @@ func broadcastAIModeConfigs(configs map[string]wconfig.AIModeConfigType) {
 	update := wconfig.AIModeConfigUpdate{
 		Configs: configs,
 	}
-	
+
 	wps.Broker.Publish(wps.WaveEvent{
 		Event: wps.Event_AIModeConfig,
 		Data:  update,

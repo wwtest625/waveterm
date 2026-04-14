@@ -502,13 +502,22 @@ func (cs *ChatStore) PostMessage(chatId string, aiOpts *uctypes.AIOptsType, mess
 	} else {
 		// Verify that the AI options match
 		if chat.APIType != aiOpts.APIType {
-			return fmt.Errorf("API type mismatch: expected %s, got %s (must start a new chat)", chat.APIType, aiOpts.APIType)
+			return fmt.Errorf(
+				"this chat uses API type %s, but current mode uses %s. Please start a new chat, or switch back to %s for this chat",
+				chat.APIType, aiOpts.APIType, chat.APIType,
+			)
 		}
 		if !uctypes.AreModelsCompatible(chat.APIType, chat.Model, aiOpts.Model) {
-			return fmt.Errorf("model mismatch: expected %s, got %s (must start a new chat)", chat.Model, aiOpts.Model)
+			return fmt.Errorf(
+				"this chat uses model %s, but current mode uses %s. Please start a new chat, or switch back to %s for this chat",
+				chat.Model, aiOpts.Model, chat.Model,
+			)
 		}
 		if chat.APIVersion != aiOpts.APIVersion {
-			return fmt.Errorf("API version mismatch: expected %s, got %s (must start a new chat)", chat.APIVersion, aiOpts.APIVersion)
+			return fmt.Errorf(
+				"this chat uses API version %s, but current mode uses %s. Please start a new chat, or switch back to %s for this chat",
+				chat.APIVersion, aiOpts.APIVersion, chat.APIVersion,
+			)
 		}
 	}
 	chat.SessionMeta = cs.upsertSessionMetaLocked(chatId, aiOpts, uctypes.UIChatSessionMetaUpdate{})

@@ -710,7 +710,14 @@ export class TermWrap {
                 "atBottom:",
                 atBottom
             );
-            RpcApi.ControllerInputCommand(TabRpcClient, { blockid: this.blockId, termsize: termSize });
+            fireAndForget(async () => {
+                try {
+                    await RpcApi.ControllerInputCommand(TabRpcClient, { blockid: this.blockId, termsize: termSize });
+                } catch (e) {
+                    // During startup/reconnect, controller may not exist yet; resync path will recover.
+                    dlog("controller input skipped during resize", this.blockId, e);
+                }
+            });
         }
         dlog("resize", `${this.terminal.rows}x${this.terminal.cols}`, `${oldRows}x${oldCols}`, this.hasResized);
         if (!this.hasResized) {

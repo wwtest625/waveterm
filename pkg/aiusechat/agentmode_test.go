@@ -17,7 +17,6 @@ func TestAgentMode_AllowsToolsInPlanningMode(t *testing.T) {
 		"tsunami_getdata_deadbeef",
 		"tsunami_getconfig_deadbeef",
 		"term_command_output",
-		"wave_get_command_result",
 		"wave_run_command",
 	} {
 		if err := validateToolForAgentMode(AgentModePlanning, toolName); err != nil {

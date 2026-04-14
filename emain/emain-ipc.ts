@@ -543,6 +543,18 @@ export function initIpcHandlers() {
 
     electron.ipcMain.on("set-window-init-status", (event, status: "ready" | "wave-ready") => {
         const tabView = getWaveTabViewByWebContentsId(event.sender.id);
+        console.log(
+            "set-window-init-status recv",
+            status,
+            "wcid=",
+            event.sender.id,
+            "tab=",
+            tabView?.waveTabId ?? "<none>",
+            "isInit=",
+            tabView?.isInitialized ?? false,
+            "isWaveReady=",
+            tabView?.isWaveReady ?? false
+        );
         if (tabView != null && tabView.initResolve != null) {
             if (status === "ready") {
                 tabView.initResolve();

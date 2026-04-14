@@ -105,15 +105,43 @@ func TestParseWaveRunCommandToolInput_UsesShellForQuotedCommand(t *testing.T) {
 	}
 }
 
-func TestParseWaveGetCommandResultToolInput_AcceptsJobIdAlias(t *testing.T) {
-	parsed, err := parseWaveGetCommandResultToolInput(map[string]any{
-		"jobid": "job-123",
-	})
-	if err != nil {
-		t.Fatalf("parseWaveGetCommandResultToolInput returned error: %v", err)
+func TestExtractToolOutputText_WaveRunCommandUsesOutputField(t *testing.T) {
+	output := extractToolOutputText("wave_run_command", `{"jobid":"job-123","status":"done","output":"hello\n","durationms":5,"exitcode":0}`)
+	if output != "hello" {
+		t.Fatalf("expected wave_run_command output field, got %q", output)
 	}
-	if parsed.JobId != "job-123" {
-		t.Fatalf("expected job id alias to be accepted, got %q", parsed.JobId)
+}
+
+func TestExtractToolOutputText_WaveRunCommandUsesErrorWhenOutputMissing(t *testing.T) {
+	output := extractToolOutputText("wave_run_command", `{"jobid":"job-123","status":"error","error":"Process exited with status 2","durationms":5,"exitcode":2}`)
+	if output != "Process exited with status 2" {
+		t.Fatalf("expected wave_run_command error field, got %q", output)
+	}
+}
+
+func TestParseWaveCommandResultSnapshot_ParsesInlineWaveRunCommandResult(t *testing.T) {
+	snapshot, ok := parseWaveCommandResultSnapshot(`{"jobid":"job-123","status":"done","output":"ok","durationms":5,"exitcode":0}`)
+	if !ok {
+		t.Fatal("expected inline wave_run_command result to parse as command snapshot")
+	}
+	if snapshot.JobId != "job-123" || snapshot.Status != "done" || snapshot.Output != "ok" || snapshot.DurationMs != 5 {
+		t.Fatalf("unexpected parsed snapshot: %#v", snapshot)
+	}
+	if snapshot.ExitCode == nil || *snapshot.ExitCode != 0 {
+		t.Fatalf("expected exit code 0, got %#v", snapshot.ExitCode)
+	}
+}
+
+func TestParseWaveCommandResultSnapshot_PreservesNonZeroExitCode(t *testing.T) {
+	snapshot, ok := parseWaveCommandResultSnapshot(`{"jobid":"job-123","status":"error","output":"ls: cannot access '/missing': No such file or directory","error":"Process exited with status 2","durationms":200,"exitcode":2}`)
+	if !ok {
+		t.Fatal("expected non-zero command result to parse as command snapshot")
+	}
+	if snapshot.ExitCode == nil || *snapshot.ExitCode != 2 {
+		t.Fatalf("expected exit code 2, got %#v", snapshot.ExitCode)
+	}
+	if !strings.Contains(snapshot.Output, "No such file or directory") {
+		t.Fatalf("expected stderr output to be preserved, got %q", snapshot.Output)
 	}
 }
 

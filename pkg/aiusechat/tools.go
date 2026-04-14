@@ -194,10 +194,10 @@ func GenerateCurrentTabStatePrompt(blocks []*waveobj.Block, widgetAccess bool) s
 
 // Tool assembly helpers.
 func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bool, chatOpts *uctypes.WaveChatOpts) (string, []uctypes.ToolDefinition, error) {
-	if tabid == "" {
-		return "", nil, nil
-	}
 	var blocks []*waveobj.Block
+	if tabid == "" {
+		widgetAccess = false
+	}
 	if widgetAccess {
 		if _, err := uuid.Parse(tabid); err != nil {
 			return "", nil, fmt.Errorf("tabid must be a valid UUID")
@@ -220,6 +220,9 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 	// for debugging
 	// log.Printf("TABPROMPT %s\n", tabState)
 	var tools []uctypes.ToolDefinition
+	tools = append(tools, GetWriteTextFileToolDefinition())
+	tools = append(tools, GetEditTextFileToolDefinition())
+	tools = append(tools, GetDeleteTextFileToolDefinition())
 	if widgetAccess {
 		// Only add screenshot tool for:
 		// - openai-responses API type
@@ -228,9 +231,6 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 			(chatOpts.Config.APIType == uctypes.APIType_GoogleGemini && aiutil.GeminiSupportsImageToolResults(chatOpts.Config.Model))) {
 			tools = append(tools, GetCaptureScreenshotToolDefinition(tabid))
 		}
-		tools = append(tools, GetWriteTextFileToolDefinition())
-		tools = append(tools, GetEditTextFileToolDefinition())
-		tools = append(tools, GetDeleteTextFileToolDefinition())
 		viewTypes := make(map[string]bool)
 		for _, block := range blocks {
 			if block.Meta == nil {
@@ -250,8 +250,10 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 			tools = append(tools, GetTermGetScrollbackToolDefinition(tabid))
 			// tools = append(tools, GetTermCommandOutputToolDefinition(tabid))
 			tools = append(tools, GetWaveRunCommandToolDefinition())
-			tools = append(tools, GetWaveGetCommandResultToolDefinition())
 		}
+	}
+	if !widgetAccess {
+		tools = append(tools, GetWaveRunCommandToolDefinition())
 	}
 	logGeneratedTabTools(tabid, widgetAccess, len(blocks), tools)
 	return tabState, tools, nil

@@ -237,6 +237,12 @@ declare global {
     // wshrpc.CommandAgentRunCommandRtnData
     type CommandAgentRunCommandRtnData = {
         jobid: string;
+        status?: string;
+        output?: string;
+        durationms?: number;
+        exitcode?: number;
+        exitsignal?: string;
+        error?: string;
     };
 
     // wshrpc.CommandAgentTermScrollbackData

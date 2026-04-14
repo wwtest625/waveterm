@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"net/http"
 	"os"
 	"os/user"
@@ -48,21 +49,18 @@ var (
 	activeChats = ds.MakeSyncMap[bool]() // key is chatid
 )
 
-func getSystemPrompt(apiType string, model string, provider string, isBuilder bool, hasToolsCapability bool, widgetAccess bool, agentMode AgentMode, currentMessageText string) []string {
+func getSystemPrompt(model string, isBuilder bool, agentMode AgentMode) []string {
 	if isBuilder {
 		return []string{}
 	}
-	useNoToolsPrompt := !hasToolsCapability || (!widgetAccess && provider != uctypes.AIProvider_Wave)
-	basePrompt := SystemPromptText_OpenAI
-	if useNoToolsPrompt {
-		basePrompt = SystemPromptText_NoTools
-	} else {
-		basePrompt = strings.TrimSpace(basePrompt + " " + SystemPromptText_EditWorkflowAddOn)
-	}
-	basePrompt = strings.TrimSpace(basePrompt + " " + getModeAwareSystemPromptText(provider, agentMode))
 	modelLower := strings.ToLower(model)
 	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek)\b`, modelLower)
-	if needsStrictToolAddOn && !useNoToolsPrompt {
+	basePrompt := strings.TrimSpace(SystemPromptText_OpenAI + " " + SystemPromptText_EditWorkflowAddOn)
+	if !needsStrictToolAddOn {
+		basePrompt = strings.TrimSpace(basePrompt + " " + SystemPromptText_ExecutionPolicyAddOn)
+	}
+	basePrompt = strings.TrimSpace(basePrompt + " " + getModeAwareSystemPromptText(agentMode))
+	if needsStrictToolAddOn {
 		return []string{basePrompt, SystemPromptText_StrictToolAddOn}
 	}
 	return []string{basePrompt}
@@ -129,7 +127,7 @@ func getWaveAISettings(premium bool, builderMode bool, rtInfo waveobj.ObjRTInfo,
 
 	var baseUrl string
 	if config.Endpoint != "" {
-		baseUrl = config.Endpoint
+		baseUrl = normalizeOpenAIEndpointByAPIType(config.APIType, config.Endpoint)
 	} else {
 		return nil, fmt.Errorf("no ai:endpoint configured for AI mode %s", aiMode)
 	}
@@ -161,13 +159,54 @@ func getWaveAISettings(premium bool, builderMode bool, rtInfo waveobj.ObjRTInfo,
 	return opts, nil
 }
 
+func normalizeOpenAIEndpointByAPIType(apiType string, endpoint string) string {
+	trimmed := strings.TrimSpace(endpoint)
+	if trimmed == "" {
+		return endpoint
+	}
+	if apiType != uctypes.APIType_OpenAIChat && apiType != uctypes.APIType_OpenAIResponses {
+		return endpoint
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return endpoint
+	}
+	path := strings.TrimSuffix(parsed.Path, "/")
+	switch apiType {
+	case uctypes.APIType_OpenAIChat:
+		if strings.HasSuffix(path, "/chat/completions") {
+			return endpoint
+		}
+		if path == "" {
+			parsed.Path = "/v1/chat/completions"
+			return parsed.String()
+		}
+		if strings.HasSuffix(path, "/v1") {
+			parsed.Path = path + "/chat/completions"
+			return parsed.String()
+		}
+	case uctypes.APIType_OpenAIResponses:
+		if strings.HasSuffix(path, "/responses") {
+			return endpoint
+		}
+		if path == "" {
+			parsed.Path = "/v1/responses"
+			return parsed.String()
+		}
+		if strings.HasSuffix(path, "/v1") {
+			parsed.Path = path + "/responses"
+			return parsed.String()
+		}
+	}
+	return endpoint
+}
+
 func shouldUseChatCompletionsAPI(model string) bool {
 	m := strings.ToLower(model)
-	// Chat Completions API is required for older models: gpt-3.5-*, gpt-4, gpt-4-turbo, o1-*
+	// Chat Completions API is required for legacy models.
 	return strings.HasPrefix(m, "gpt-3.5") ||
 		strings.HasPrefix(m, "gpt-4-") ||
-		m == "gpt-4" ||
-		strings.HasPrefix(m, "o1-")
+		m == "gpt-4"
 }
 
 func shouldUsePremium() bool {
@@ -261,13 +300,16 @@ func extractToolOutputText(toolName string, resultText string) string {
 	if trimmedResult == "" {
 		return ""
 	}
-	if toolName == "wave_get_command_result" || toolName == "term_command_output" || toolName == "term_get_scrollback" {
+	if toolName == "wave_run_command" || toolName == "wave_get_command_result" || toolName == "term_command_output" || toolName == "term_get_scrollback" {
 		var outputMap map[string]any
 		if err := json.Unmarshal([]byte(trimmedResult), &outputMap); err == nil {
 			for _, key := range []string{"output", "text", "stdout", "content"} {
 				if rawText, ok := outputMap[key].(string); ok && strings.TrimSpace(rawText) != "" {
 					return truncateToolOutputText(rawText)
 				}
+			}
+			if rawText, ok := outputMap["error"].(string); ok && strings.TrimSpace(rawText) != "" {
+				return truncateToolOutputText(rawText)
 			}
 			if rawLines, ok := outputMap["lines"].([]any); ok && len(rawLines) > 0 {
 				lines := make([]string, 0, len(rawLines))
@@ -447,14 +489,7 @@ func tryStartWaveCommandResultPoller(
 	waveCommandResultPollers.jobs[pollerKey] = struct{}{}
 	waveCommandResultPollers.mu.Unlock()
 
-	initialToolUse := uctypes.UIMessageDataToolUse{
-		ToolCallId: toolCallID,
-		ToolName:   "wave_get_command_result",
-		Status:     uctypes.ToolUseStatusCompleted,
-		JobId:      snapshot.JobId,
-		DurationMs: snapshot.DurationMs,
-		OutputText: extractToolOutputText("wave_get_command_result", snapshot.Output),
-	}
+	initialToolUse := makeWaveCommandToolUseData("wave_run_command", toolCallID, snapshot)
 	commandText := lookupWaveCommandJob(snapshot.JobId)
 	applyWaveCommandInteractionState(&initialToolUse, detectCommandInteraction(commandText, snapshot))
 	if snapshot.Status == "running" {
@@ -506,13 +541,23 @@ func tryStartWaveCommandResultPoller(
 				return
 			}
 			current.DurationMs = result.DurationMs
-			current.OutputText = extractToolOutputText("wave_get_command_result", result.Output)
+			current.OutputText = getWaveCommandResultOutputText(current.ToolName, result.Output)
 			detectedInteraction := detectCommandInteraction(commandText, result)
 			detectedInteractionKey := ""
 			if detectedInteraction != nil {
 				detectedInteractionKey = detectedInteraction.DedupKey
 			}
 			applyWaveCommandInteractionState(&current, detectedInteraction)
+			if result.Status == "gone" {
+				current.Status = uctypes.ToolUseStatusError
+				current.ErrorMessage = strings.TrimSpace(result.Error)
+				if current.ErrorMessage == "" {
+					current.ErrorMessage = "command result is unavailable; rerun the command"
+				}
+				current.DurationMs = currentDuration
+				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
+				return
+			}
 			if result.Status == "error" {
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = result.Error
@@ -645,34 +690,36 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 		toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
 		toolCall.ToolUseData.ErrorMessage = result.ErrorText
 		toolCall.ToolUseData.OutputText = ""
-	} else if toolCall.Name == "wave_get_command_result" {
-		if snapshot, ok := parseWaveCommandResultSnapshot(result.Text); ok {
-			toolCall.ToolUseData.JobId = snapshot.JobId
-			toolCall.ToolUseData.DurationMs = snapshot.DurationMs
-			toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
-			applyWaveCommandInteractionState(toolCall.ToolUseData, detectCommandInteraction(lookupWaveCommandJob(snapshot.JobId), snapshot))
-			if snapshot.Status == "running" {
-				toolCall.ToolUseData.Status = "running"
-				toolCall.ToolUseData.ErrorMessage = ""
-				tryStartWaveCommandResultPoller(sseHandler.Context(), chatOpts, backend, toolCall.ID, snapshot)
-			} else if snapshot.Status == "error" || strings.TrimSpace(snapshot.Error) != "" {
-				toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
-				toolCall.ToolUseData.ErrorMessage = snapshot.Error
-			} else {
-				toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
-				toolCall.ToolUseData.ErrorMessage = ""
-			}
-		} else {
-			toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
-			toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
-			applyWaveCommandInteractionState(toolCall.ToolUseData, nil)
-		}
 	} else {
 		if toolCall.Name == "wave_run_command" {
 			jobID := parseWaveCommandJobID(result.Text)
 			toolCall.ToolUseData.JobId = jobID
 			if parsedCommandInput, parseErr := parseWaveRunCommandToolInput(toolCall.Input); parseErr == nil && parsedCommandInput != nil {
 				rememberWaveCommandJob(jobID, getWaveRunCommandDisplayText(parsedCommandInput))
+			}
+			if snapshot, ok := parseWaveCommandResultSnapshot(result.Text); ok {
+				toolCall.ToolUseData.DurationMs = snapshot.DurationMs
+				toolCall.ToolUseData.ExitCode = snapshot.ExitCode
+				toolCall.ToolUseData.ExitSignal = snapshot.ExitSignal
+				toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
+				applyWaveCommandInteractionState(toolCall.ToolUseData, detectCommandInteraction(lookupWaveCommandJob(snapshot.JobId), snapshot))
+				if snapshot.Status == "running" {
+					tryStartWaveCommandResultPoller(sseHandler.Context(), chatOpts, backend, toolCall.ID, snapshot)
+				}
+				if snapshot.Status == "gone" || (snapshot.ExitCode == nil && strings.TrimSpace(snapshot.Error) != "") {
+					toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
+					toolCall.ToolUseData.ErrorMessage = strings.TrimSpace(snapshot.Error)
+					if toolCall.ToolUseData.ErrorMessage == "" {
+						toolCall.ToolUseData.ErrorMessage = "command execution failed"
+					}
+				} else if snapshot.Status == "running" {
+					toolCall.ToolUseData.Status = "running"
+					toolCall.ToolUseData.ErrorMessage = ""
+				} else {
+					toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
+					toolCall.ToolUseData.ErrorMessage = ""
+				}
+				return result
 			}
 		}
 		toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
@@ -727,7 +774,7 @@ type toolExecutionGroup struct {
 }
 
 func isCommandChainTool(toolName string) bool {
-	return toolName == "wave_run_command" || toolName == "wave_get_command_result"
+	return toolName == "wave_run_command"
 }
 
 func buildToolCallDedupKey(toolName string, input any) (string, error) {
@@ -1020,6 +1067,24 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 				chatOpts.AppGoFile = appGoFile
 				chatOpts.AppStaticFiles = appStaticFiles
 				chatOpts.PlatformInfo = platformInfo
+			}
+		}
+		if chatOpts.BuilderId == "" {
+			allTools := make([]uctypes.ToolDefinition, 0, len(chatOpts.Tools)+len(chatOpts.TabTools))
+			if chatOpts.Config.HasCapability(uctypes.AICapabilityTools) {
+				for _, tool := range chatOpts.Tools {
+					if tool.HasRequiredCapabilities(chatOpts.Config.Capabilities) {
+						allTools = append(allTools, tool)
+					}
+				}
+				for _, tool := range chatOpts.TabTools {
+					if tool.HasRequiredCapabilities(chatOpts.Config.Capabilities) {
+						allTools = append(allTools, tool)
+					}
+				}
+			}
+			if toolCapabilityPrompt := getToolCapabilityPrompt(allTools); toolCapabilityPrompt != "" {
+				chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, toolCapabilityPrompt)
 			}
 		}
 		stopReason, rtnMessages, err := runAIChatStep(ctx, sseHandler, backend, chatOpts, cont)
@@ -1323,7 +1388,7 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		BuilderId:            req.BuilderId,
 		BuilderAppId:         req.BuilderAppId,
 	}
-	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.APIType, chatOpts.Config.Model, chatOpts.Config.Provider, chatOpts.BuilderId != "", chatOpts.Config.HasCapability(uctypes.AICapabilityTools), effectiveWidgetAccess, resolveAgentMode(req.AgentMode), req.Msg.GetContent())
+	chatOpts.SystemPrompt = getSystemPrompt(chatOpts.Config.Model, chatOpts.BuilderId != "", resolveAgentMode(req.AgentMode))
 	logWaveAIDebugRequest(chatOpts, effectiveWidgetAccess)
 
 	if req.TabId != "" {
