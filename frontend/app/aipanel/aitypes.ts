@@ -3,6 +3,43 @@
 
 import { ChatRequestOptions, FileUIPart, UIMessage, UIMessagePart } from "ai";
 
+export type AgentTaskItemStatus = "pending" | "in_progress" | "completed" | "blocked" | "skipped";
+
+export type AgentTaskProgressStatus = "idle" | "active" | "completed" | "blocked" | "aborted";
+
+export type AgentTaskItem = {
+    id: string;
+    title: string;
+    status: AgentTaskItemStatus;
+    order?: number;
+    kind?: string;
+    notes?: string;
+    toolcallids?: string[];
+    startedts?: number;
+    completedts?: number;
+};
+
+export type AgentTaskSummary = {
+    total?: number;
+    completed?: number;
+    inprogress?: number;
+    pending?: number;
+    blocked?: number;
+    percent?: number;
+};
+
+export type AgentTaskState = {
+    version?: number;
+    planid?: string;
+    source?: string;
+    status?: AgentTaskProgressStatus;
+    currenttaskid?: string;
+    tasks: AgentTaskItem[];
+    summary: AgentTaskSummary;
+    blockedreason?: string;
+    lastupdatedts?: number;
+};
+
 type WaveUIDataTypes = {
     // pkg/aiusechat/uctypes/uctypes.go UIMessageDataUserFile
     userfile: {
@@ -67,12 +104,35 @@ type WaveUIDataTypes = {
         }>;
     };
 
+    taskstate: AgentTaskState;
+
     session: UIChatSessionMeta;
 };
 
+export type UIChatSessionMeta = {
+    chatid: string;
+    tabid?: string;
+    title?: string;
+    summary?: string;
+    createdts?: number;
+    updatedts?: number;
+    favorite?: boolean;
+    lasttaskstate?: string;
+    archived?: boolean;
+    deleted?: boolean;
+    cheatsheet?: {
+        currentwork?: string;
+        completed?: string;
+        blockedby?: string;
+        nextstep?: string;
+    };
+    taskstate?: AgentTaskState;
+};
+
+export type WaveChatSessionMeta = UIChatSessionMeta;
+
 export type WaveUIMessage = UIMessage<unknown, WaveUIDataTypes, any>;
 export type WaveUIMessagePart = UIMessagePart<WaveUIDataTypes, any>;
-export type WaveChatSessionMeta = UIChatSessionMeta;
 
 export type CommandInteractionState = {
     jobId: string;
@@ -369,6 +429,11 @@ export function inferToolHostScope(part: WaveUIMessagePart): ToolHostScope {
         return { type: "local", hostId: blockId };
     }
     return { type: "local", hostId: "waveai" };
+}
+
+export function getLatestTaskStatePart(message?: WaveUIMessage): (WaveUIMessagePart & { type: "data-taskstate" }) | null {
+    const part = [...(message?.parts ?? [])].reverse().find((candidate) => candidate.type === "data-taskstate");
+    return part?.type === "data-taskstate" ? part : null;
 }
 
 export function getLatestToolUsePart(message?: WaveUIMessage): (WaveUIMessagePart & { type: "data-tooluse" }) | null {

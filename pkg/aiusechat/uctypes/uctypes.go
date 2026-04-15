@@ -107,18 +107,89 @@ const (
 	PendingActionCanceled            = "canceled"
 )
 
+type TaskProgressStatus string
+
+type TaskItemStatus string
+
+const (
+	TaskProgressStatusIdle      TaskProgressStatus = "idle"
+	TaskProgressStatusActive    TaskProgressStatus = "active"
+	TaskProgressStatusCompleted TaskProgressStatus = "completed"
+	TaskProgressStatusBlocked   TaskProgressStatus = "blocked"
+	TaskProgressStatusAborted   TaskProgressStatus = "aborted"
+)
+
+const (
+	TaskItemStatusPending    TaskItemStatus = "pending"
+	TaskItemStatusInProgress TaskItemStatus = "in_progress"
+	TaskItemStatusCompleted  TaskItemStatus = "completed"
+	TaskItemStatusBlocked    TaskItemStatus = "blocked"
+	TaskItemStatusSkipped    TaskItemStatus = "skipped"
+)
+
+type UITaskItem struct {
+	ID          string         `json:"id"`
+	Title       string         `json:"title"`
+	Status      TaskItemStatus `json:"status"`
+	Order       int            `json:"order,omitempty"`
+	Kind        string         `json:"kind,omitempty"`
+	Notes       string         `json:"notes,omitempty"`
+	ToolCallIds []string       `json:"toolcallids,omitempty"`
+	StartedTs   int64          `json:"startedts,omitempty"`
+	CompletedTs int64          `json:"completedts,omitempty"`
+}
+
+type UITaskProgressSummary struct {
+	Total      int `json:"total,omitempty"`
+	Completed  int `json:"completed,omitempty"`
+	InProgress int `json:"inprogress,omitempty"`
+	Pending    int `json:"pending,omitempty"`
+	Blocked    int `json:"blocked,omitempty"`
+	Percent    int `json:"percent,omitempty"`
+}
+
+type UITaskProgressState struct {
+	Version       int                   `json:"version,omitempty"`
+	PlanId        string                `json:"planid,omitempty"`
+	Source        string                `json:"source,omitempty"`
+	Status        TaskProgressStatus    `json:"status,omitempty"`
+	CurrentTaskId string                `json:"currenttaskid,omitempty"`
+	Tasks         []UITaskItem          `json:"tasks,omitempty"`
+	Summary       UITaskProgressSummary `json:"summary,omitempty"`
+	BlockedReason string                `json:"blockedreason,omitempty"`
+	LastUpdatedTs int64                 `json:"lastupdatedts,omitempty"`
+}
+
+func (s *UITaskProgressState) Clone() *UITaskProgressState {
+	if s == nil {
+		return nil
+	}
+	copied := *s
+	if len(s.Tasks) > 0 {
+		copied.Tasks = make([]UITaskItem, len(s.Tasks))
+		copy(copied.Tasks, s.Tasks)
+		for i := range copied.Tasks {
+			if len(s.Tasks[i].ToolCallIds) > 0 {
+				copied.Tasks[i].ToolCallIds = append([]string(nil), s.Tasks[i].ToolCallIds...)
+			}
+		}
+	}
+	return &copied
+}
+
 type UIChatSessionMeta struct {
-	ChatId        string             `json:"chatid"`
-	TabId         string             `json:"tabid,omitempty"`
-	Title         string             `json:"title,omitempty"`
-	Summary       string             `json:"summary,omitempty"`
-	Cheatsheet    *SessionCheatsheet `json:"cheatsheet,omitempty"`
-	CreatedTs     int64              `json:"createdts,omitempty"`
-	UpdatedTs     int64              `json:"updatedts,omitempty"`
-	Favorite      bool               `json:"favorite,omitempty"`
-	LastTaskState string             `json:"lasttaskstate,omitempty"`
-	Archived      bool               `json:"archived,omitempty"`
-	Deleted       bool               `json:"deleted,omitempty"`
+	ChatId        string               `json:"chatid"`
+	TabId         string               `json:"tabid,omitempty"`
+	Title         string               `json:"title,omitempty"`
+	Summary       string               `json:"summary,omitempty"`
+	Cheatsheet    *SessionCheatsheet   `json:"cheatsheet,omitempty"`
+	TaskState     *UITaskProgressState `json:"taskstate,omitempty"`
+	CreatedTs     int64                `json:"createdts,omitempty"`
+	UpdatedTs     int64                `json:"updatedts,omitempty"`
+	Favorite      bool                 `json:"favorite,omitempty"`
+	LastTaskState string               `json:"lasttaskstate,omitempty"`
+	Archived      bool                 `json:"archived,omitempty"`
+	Deleted       bool                 `json:"deleted,omitempty"`
 }
 
 func (m *UIChatSessionMeta) Clone() *UIChatSessionMeta {
@@ -129,6 +200,9 @@ func (m *UIChatSessionMeta) Clone() *UIChatSessionMeta {
 	if m.Cheatsheet != nil {
 		cheatsheetCopy := *m.Cheatsheet
 		copied.Cheatsheet = &cheatsheetCopy
+	}
+	if m.TaskState != nil {
+		copied.TaskState = m.TaskState.Clone()
 	}
 	return &copied
 }
@@ -141,15 +215,16 @@ type SessionCheatsheet struct {
 }
 
 type UIChatSessionMetaUpdate struct {
-	TabId      string             `json:"tabid,omitempty"`
-	Title      *string            `json:"title,omitempty"`
-	Summary    *string            `json:"summary,omitempty"`
-	Cheatsheet *SessionCheatsheet `json:"cheatsheet,omitempty"`
-	Favorite   *bool              `json:"favorite,omitempty"`
-	LastState  string             `json:"laststate,omitempty"`
-	Archived   *bool              `json:"archived,omitempty"`
-	Deleted    *bool              `json:"deleted,omitempty"`
-	UpdatedTs  int64              `json:"updatedts,omitempty"`
+	TabId      string               `json:"tabid,omitempty"`
+	Title      *string              `json:"title,omitempty"`
+	Summary    *string              `json:"summary,omitempty"`
+	Cheatsheet *SessionCheatsheet   `json:"cheatsheet,omitempty"`
+	TaskState  *UITaskProgressState `json:"taskstate,omitempty"`
+	Favorite   *bool                `json:"favorite,omitempty"`
+	LastState  string               `json:"laststate,omitempty"`
+	Archived   *bool                `json:"archived,omitempty"`
+	Deleted    *bool                `json:"deleted,omitempty"`
+	UpdatedTs  int64                `json:"updatedts,omitempty"`
 }
 
 type UIChatSessionListOpts struct {

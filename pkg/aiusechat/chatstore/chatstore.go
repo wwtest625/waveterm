@@ -279,6 +279,9 @@ func (cs *ChatStore) upsertSessionMetaLocked(chatId string, aiOpts *uctypes.AIOp
 		cheatsheetCopy := *update.Cheatsheet
 		meta.Cheatsheet = &cheatsheetCopy
 	}
+	if update.TaskState != nil {
+		meta.TaskState = update.TaskState.Clone()
+	}
 	if update.Favorite != nil {
 		meta.Favorite = *update.Favorite
 	}

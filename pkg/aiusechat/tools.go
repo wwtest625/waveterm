@@ -220,9 +220,14 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 	// for debugging
 	// log.Printf("TABPROMPT %s\n", tabState)
 	var tools []uctypes.ToolDefinition
+	tools = append(tools, GetReadTextFileToolDefinition())
 	tools = append(tools, GetWriteTextFileToolDefinition())
 	tools = append(tools, GetEditTextFileToolDefinition())
 	tools = append(tools, GetDeleteTextFileToolDefinition())
+	if chatOpts != nil {
+		tools = append(tools, GetCreatePlanToolDefinition(chatOpts.ChatId, &chatOpts.Config))
+		tools = append(tools, GetAdvancePlanToolDefinition(chatOpts.ChatId, &chatOpts.Config))
+	}
 	if widgetAccess {
 		// Only add screenshot tool for:
 		// - openai-responses API type

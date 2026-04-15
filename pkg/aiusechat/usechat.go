@@ -55,7 +55,7 @@ func getSystemPrompt(model string, isBuilder bool, agentMode AgentMode) []string
 	}
 	modelLower := strings.ToLower(model)
 	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek)\b`, modelLower)
-	basePrompt := strings.TrimSpace(SystemPromptText_OpenAI + " " + SystemPromptText_EditWorkflowAddOn)
+	basePrompt := strings.TrimSpace(SystemPromptText_OpenAI + " " + SystemPromptText_ReadFileWorkflowAddOn + " " + SystemPromptText_EditWorkflowAddOn)
 	if !needsStrictToolAddOn {
 		basePrompt = strings.TrimSpace(basePrompt + " " + SystemPromptText_ExecutionPolicyAddOn)
 	}
@@ -331,6 +331,9 @@ func extractToolOutputText(toolName string, resultText string) string {
 				if len(lines) > 0 {
 					return truncateToolOutputText(strings.Join(lines, "\n"))
 				}
+			}
+			if summary, ok := outputMap["summary"].(string); ok && strings.TrimSpace(summary) != "" {
+				return truncateToolOutputText(summary)
 			}
 		}
 	}
@@ -962,6 +965,19 @@ func processToolCallBatch(
 }
 
 func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopReason, chatOpts uctypes.WaveChatOpts, sseHandler *sse.SSEHandlerCh, metrics *uctypes.AIMetrics) {
+	existingTaskState := chatstore.DefaultChatStore.GetSession(chatOpts.ChatId)
+	var currentTaskState *uctypes.UITaskProgressState
+	if existingTaskState != nil {
+		currentTaskState = existingTaskState.TaskState
+	}
+	taskState := mergeTaskStateForToolCalls(currentTaskState, buildTaskStateFromToolCalls(stopReason.ToolCalls))
+	if taskState != nil {
+		chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
+			TaskState: taskState,
+			LastState: string(taskState.Status),
+		})
+		_ = sseHandler.AiMsgData("data-taskstate", taskState.PlanId, *taskState)
+	}
 	// Create and send all data-tooluse packets at the beginning
 	commandToolSeen := false
 	for i := range stopReason.ToolCalls {
@@ -1033,6 +1049,14 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 				origIndex := uniqueIndices[idx]
 				key := dedupKeys[origIndex]
 				seenResultsByKey[key] = result
+			if taskState != nil {
+				advanceTaskStateForToolResult(taskState, result)
+				chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
+					TaskState: taskState,
+					LastState: string(taskState.Status),
+				})
+				_ = sseHandler.AiMsgData("data-taskstate", taskState.PlanId, *taskState)
+			}
 				toolResults[origIndex] = result
 				processed[origIndex] = true
 				for dupIndex := group.Start; dupIndex < group.End; dupIndex++ {

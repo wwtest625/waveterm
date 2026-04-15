@@ -227,3 +227,100 @@ func TestChatStore_PersistenceRoundTrip(t *testing.T) {
 		t.Fatalf("expected persisted message id msg-1, got %q", got)
 	}
 }
+
+func TestChatStore_GetReturnsTaskStateCopy(t *testing.T) {
+	cs := newTestChatStore()
+	opts := newTestAIOpts()
+
+	cs.UpsertSessionMeta("chat-1", opts, uctypes.UIChatSessionMetaUpdate{
+		TabId: "tab-a",
+		TaskState: &uctypes.UITaskProgressState{
+			PlanId:        "plan-1",
+			Status:        uctypes.TaskProgressStatusActive,
+			CurrentTaskId: "task-1",
+			Summary: uctypes.UITaskProgressSummary{
+				Total:      2,
+				InProgress: 1,
+			},
+			Tasks: []uctypes.UITaskItem{{
+				ID:     "task-1",
+				Title:  "Inspect runtime flow",
+				Status: uctypes.TaskItemStatusInProgress,
+			}},
+		},
+	})
+
+	if err := cs.PostMessage("chat-1", opts, &testGenAIMessage{messageId: "msg-1", role: "user"}); err != nil {
+		t.Fatalf("PostMessage returned error: %v", err)
+	}
+
+	chat := cs.Get("chat-1")
+	if chat == nil || chat.SessionMeta == nil || chat.SessionMeta.TaskState == nil {
+		t.Fatalf("expected task state on returned chat, got %#v", chat)
+	}
+	chat.SessionMeta.TaskState.Tasks[0].Title = "Mutated"
+
+	reloaded := cs.Get("chat-1")
+	if got := reloaded.SessionMeta.TaskState.Tasks[0].Title; got != "Inspect runtime flow" {
+		t.Fatalf("expected task state to be copied defensively, got %q", got)
+	}
+}
+
+func TestChatStore_PersistenceRoundTripIncludesTaskState(t *testing.T) {
+	RegisterMessageCodec("test-api", func(message uctypes.GenAIMessage) ([]byte, error) {
+		return json.Marshal(message)
+	}, func(data []byte) (uctypes.GenAIMessage, error) {
+		var message testPersistedGenAIMessage
+		if err := json.Unmarshal(data, &message); err != nil {
+			return nil, err
+		}
+		return &message, nil
+	})
+
+	storePath := filepath.Join(t.TempDir(), "chatstore.json")
+	opts := &uctypes.AIOptsType{
+		APIType:    "test-api",
+		Model:      "model-a",
+		APIVersion: "2026-01-01",
+	}
+
+	firstStore := NewChatStore(storePath)
+	firstStore.UpsertSessionMeta("chat-1", opts, uctypes.UIChatSessionMetaUpdate{
+		TabId: "tab-a",
+		TaskState: &uctypes.UITaskProgressState{
+			PlanId:        "plan-1",
+			Status:        uctypes.TaskProgressStatusActive,
+			CurrentTaskId: "task-1",
+			Summary: uctypes.UITaskProgressSummary{
+				Total:      2,
+				Completed:  1,
+				InProgress: 1,
+				Percent:    50,
+			},
+			Tasks: []uctypes.UITaskItem{{
+				ID:     "task-1",
+				Title:  "Inspect runtime flow",
+				Status: uctypes.TaskItemStatusCompleted,
+			}, {
+				ID:     "task-2",
+				Title:  "Render task panel",
+				Status: uctypes.TaskItemStatusInProgress,
+			}},
+		},
+	})
+	if err := firstStore.PostMessage("chat-1", opts, &testPersistedGenAIMessage{MessageID: "msg-1", Role: "user"}); err != nil {
+		t.Fatalf("PostMessage returned error: %v", err)
+	}
+
+	secondStore := NewChatStore(storePath)
+	chat := secondStore.Get("chat-1")
+	if chat == nil || chat.SessionMeta == nil || chat.SessionMeta.TaskState == nil {
+		t.Fatalf("expected persisted task state to reload, got %#v", chat)
+	}
+	if got := chat.SessionMeta.TaskState.Summary.Percent; got != 50 {
+		t.Fatalf("expected persisted task progress percent 50, got %d", got)
+	}
+	if got := chat.SessionMeta.TaskState.Tasks[1].Title; got != "Render task panel" {
+		t.Fatalf("expected persisted task title, got %q", got)
+	}
+}

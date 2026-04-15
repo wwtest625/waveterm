@@ -27,11 +27,13 @@ import { shouldHideProgressStatusLines } from "./aitooluse";
 import {
     WaveChatSessionMeta,
     WaveUIMessage,
+    getLatestTaskStatePart,
     getLatestToolProgressPart,
     getLatestToolUsePart,
     toolCallFromPart,
     toolResultFromPart,
 } from "./aitypes";
+import { TaskProgressPanel } from "./taskprogresspanel";
 import { TelemetryRequiredMessage } from "./telemetryrequired";
 import { WaveAIModel } from "./waveai-model";
 
@@ -734,6 +736,7 @@ const AIPanelComponentInner = memo(() => {
     const isPanelVisible = jotai.useAtomValue(model.getPanelVisibleAtom());
     const errorMessage = jotai.useAtomValue(model.errorMessage);
     const agentRuntimeSnapshot = jotai.useAtomValue(model.agentRuntimeAtom);
+    const taskState = jotai.useAtomValue(model.taskStateAtom);
     const commandInteraction = jotai.useAtomValue(model.commandInteractionAtom);
     const agentMode = jotai.useAtomValue(model.agentModeAtom);
     const tabModel = maybeUseTabModel();
@@ -833,8 +836,12 @@ const AIPanelComponentInner = memo(() => {
     useEffect(() => {
         const taskId = globalStore.get(model.chatId) || "waveai";
         const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+        const latestTaskState = getLatestTaskStatePart(lastAssistantMessage);
         const latestToolUse = getLatestToolUsePart(lastAssistantMessage);
         const latestToolProgress = getLatestToolProgressPart(lastAssistantMessage);
+        if (latestTaskState?.data) {
+            globalStore.set(model.taskStateAtom, latestTaskState.data as any);
+        }
         const currentInteraction = globalStore.get(model.commandInteractionAtom);
         if (
             latestToolUse?.data?.toolname === "wave_run_command" &&
@@ -1308,6 +1315,7 @@ const AIPanelComponentInner = memo(() => {
                 ) : (
                     <>
                         <AISessionToolbar messages={messages} />
+                        <TaskProgressPanel taskState={taskState} />
                         {messages.length === 0 && initialLoadDone ? (
                             <div
                                 className="flex-1 overflow-y-auto p-2 relative"

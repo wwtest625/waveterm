@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { agentRuntimeSnapshotEquals, getDefaultAgentRuntimeSnapshot, reduceAgentRuntimeSnapshot } from "../aitypes";
+import {
+    AgentTaskState,
+    agentRuntimeSnapshotEquals,
+    getDefaultAgentRuntimeSnapshot,
+    reduceAgentRuntimeSnapshot,
+} from "../aitypes";
 
 describe("agent runtime reducer", () => {
     it("enters interacting state when command input is required", () => {
@@ -61,5 +66,35 @@ describe("agent runtime reducer", () => {
         };
 
         expect(agentRuntimeSnapshotEquals(left, right)).toBe(true);
+    });
+});
+
+describe("agent task state types", () => {
+    it("represents summary, current task and ordered items", () => {
+        const taskState: AgentTaskState = {
+            version: 1,
+            planid: "plan-1",
+            source: "model-generated",
+            status: "active",
+            currenttaskid: "task-2",
+            blockedreason: "",
+            lastupdatedts: 123,
+            summary: {
+                total: 3,
+                completed: 1,
+                inprogress: 1,
+                pending: 1,
+                blocked: 0,
+                percent: 33,
+            },
+            tasks: [
+                { id: "task-1", title: "Map runtime", status: "completed", order: 0 },
+                { id: "task-2", title: "Render panel", status: "in_progress", order: 1 },
+            ],
+        };
+
+        expect(taskState.summary.percent).toBe(33);
+        expect(taskState.currenttaskid).toBe("task-2");
+        expect(taskState.tasks[1].status).toBe("in_progress");
     });
 });

@@ -5,6 +5,7 @@ import {
     AgentRuntimeEvent,
     AgentRuntimeSnapshot,
     AgentRuntimeSnapshotPatch,
+    AgentTaskState,
     CommandInteractionState,
     ToolCallEnvelope,
     ToolResultEnvelope,
@@ -94,6 +95,7 @@ export class WaveAIModel {
     defaultModeAtom!: jotai.Atom<string>;
     errorMessage: jotai.PrimitiveAtom<string> = jotai.atom(null) as jotai.PrimitiveAtom<string>;
     agentRuntimeAtom: jotai.PrimitiveAtom<AgentRuntimeSnapshot> = jotai.atom(getDefaultAgentRuntimeSnapshot());
+    taskStateAtom: jotai.PrimitiveAtom<AgentTaskState | null> = jotai.atom(null) as jotai.PrimitiveAtom<AgentTaskState | null>;
     containerWidth: jotai.PrimitiveAtom<number> = jotai.atom(0);
     codeBlockMaxWidth!: jotai.Atom<number>;
     inputAtom: jotai.PrimitiveAtom<string> = jotai.atom("");
@@ -587,6 +589,7 @@ export class WaveAIModel {
         this.clearError();
         globalStore.set(this.isChatEmptyAtom, true);
         globalStore.set(this.agentRuntimeAtom, getDefaultAgentRuntimeSnapshot());
+        globalStore.set(this.taskStateAtom, null);
         globalStore.set(this.commandInteractionAtom, null);
         const currentChatId = globalStore.get(this.chatId);
         const currentSession = globalStore.get(this.sessionsAtom).find((session) => session.chatid === currentChatId);
@@ -731,6 +734,9 @@ export class WaveAIModel {
         const messages: UIMessage[] = chatData?.messages ?? [];
         if (chatData?.sessionmeta) {
             this.upsertLocalSession(chatData.sessionmeta);
+            globalStore.set(this.taskStateAtom, chatData.sessionmeta.taskstate ?? null);
+        } else {
+            globalStore.set(this.taskStateAtom, null);
         }
         globalStore.set(this.isChatEmptyAtom, messages.length === 0);
         return messages as WaveUIMessage[];
