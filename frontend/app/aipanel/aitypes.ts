@@ -7,16 +7,54 @@ export type AgentTaskItemStatus = "pending" | "in_progress" | "completed" | "blo
 
 export type AgentTaskProgressStatus = "idle" | "active" | "completed" | "blocked" | "aborted";
 
+export type ContextThresholdLevel = "normal" | "warning" | "critical" | "maximum";
+
+export type InteractionType = "confirm" | "select" | "password" | "pager" | "enter" | "freeform";
+
+export type TuiCategory = "always" | "conditional" | "non-blacklist";
+
+export type ConfirmValues = {
+    yes: string;
+    no: string;
+    default?: string;
+};
+
+export type InteractionResult = {
+    needsinteraction: boolean;
+    interactiontype: InteractionType;
+    prompthint: string;
+    options?: string[];
+    optionvalues?: string[];
+    confirmvalues?: ConfirmValues;
+    exitkey?: string;
+    exitappendnewline?: boolean;
+};
+
+export type AgentToolCall = {
+    id: string;
+    name: string;
+    parameters?: Record<string, unknown>;
+    timestamp: number;
+};
+
 export type AgentTaskItem = {
     id: string;
     title: string;
+    description?: string;
     status: AgentTaskItemStatus;
+    priority?: "high" | "medium" | "low";
     order?: number;
     kind?: string;
     notes?: string;
-    toolcallids?: string[];
+    subtasks?: { id: string; content: string; description?: string; toolcalls?: AgentToolCall[] }[];
+    toolcalls?: AgentToolCall[];
+    isfocused?: boolean;
     startedts?: number;
     completedts?: number;
+    focusedts?: number;
+    createdts?: number;
+    updatedts?: number;
+    contextusagepercent?: number;
 };
 
 export type AgentTaskSummary = {
@@ -28,6 +66,34 @@ export type AgentTaskSummary = {
     percent?: number;
 };
 
+export type AgentFocusChainState = {
+    taskid?: string;
+    focusedtodoid?: string;
+    chainprogress?: number;
+    totaltodos?: number;
+    completedtodos?: number;
+    currentcontextusage?: number;
+    contextlevel?: ContextThresholdLevel;
+    lastfocuschangets?: number;
+    autotransition?: boolean;
+};
+
+export type AgentFocusChainTransition = {
+    fromtodoid?: string;
+    totodoid?: string;
+    reason: "task_completed" | "context_threshold" | "user_request" | "auto_progress";
+    timestamp: number;
+    contextusageattransition?: number;
+};
+
+export type AgentFocusChainHandoff = {
+    completedwork: string;
+    currentstate: string;
+    nextsteps: string;
+    relevantfiles?: string[];
+    contextsnapshot?: Record<string, unknown>;
+};
+
 export type AgentTaskState = {
     version?: number;
     planid?: string;
@@ -37,7 +103,9 @@ export type AgentTaskState = {
     tasks: AgentTaskItem[];
     summary: AgentTaskSummary;
     blockedreason?: string;
+    securityblocked?: boolean;
     lastupdatedts?: number;
+    focuschain?: AgentFocusChainState;
 };
 
 type WaveUIDataTypes = {
@@ -66,6 +134,10 @@ type WaveUIDataTypes = {
         inputoptions?: string[];
         tuidetected?: boolean;
         tuisuppressed?: boolean;
+        tuicategory?: TuiCategory;
+        interactionresult?: InteractionResult;
+        exitkey?: string;
+        exitappendnewline?: boolean;
         approval?: "needs-approval" | "user-approved" | "user-denied" | "auto-approved" | "timeout";
         tabid?: string;
         blockid?: string;
@@ -622,5 +694,51 @@ export function reduceAgentRuntimeSnapshot(
             return getDefaultAgentRuntimeSnapshot();
         default:
             return current;
+    }
+}
+
+export function deriveContextLevel(usagePercent: number): ContextThresholdLevel {
+    if (usagePercent >= 95) return "maximum";
+    if (usagePercent >= 80) return "critical";
+    if (usagePercent >= 60) return "warning";
+    return "normal";
+}
+
+export function getContextLevelColor(level: ContextThresholdLevel): string {
+    switch (level) {
+        case "maximum":
+            return "text-red-500";
+        case "critical":
+            return "text-red-400";
+        case "warning":
+            return "text-amber-400";
+        default:
+            return "text-emerald-400";
+    }
+}
+
+export function getContextLevelBgColor(level: ContextThresholdLevel): string {
+    switch (level) {
+        case "maximum":
+            return "bg-red-500";
+        case "critical":
+            return "bg-red-400";
+        case "warning":
+            return "bg-amber-400";
+        default:
+            return "bg-emerald-400";
+    }
+}
+
+export function getContextLevelLabel(level: ContextThresholdLevel): string {
+    switch (level) {
+        case "maximum":
+            return "已满";
+        case "critical":
+            return "紧张";
+        case "warning":
+            return "偏高";
+        default:
+            return "正常";
     }
 }

@@ -25,6 +25,7 @@ import { AIPanelInput } from "./aipanelinput";
 import { AIPanelMessages } from "./aipanelmessages";
 import { shouldHideProgressStatusLines } from "./aitooluse";
 import {
+    AgentTaskState,
     WaveChatSessionMeta,
     WaveUIMessage,
     getLatestTaskStatePart,
@@ -840,7 +841,17 @@ const AIPanelComponentInner = memo(() => {
         const latestToolUse = getLatestToolUsePart(lastAssistantMessage);
         const latestToolProgress = getLatestToolProgressPart(lastAssistantMessage);
         if (latestTaskState?.data) {
-            globalStore.set(model.taskStateAtom, latestTaskState.data as any);
+            const taskStateData = latestTaskState.data as AgentTaskState;
+            globalStore.set(model.taskStateAtom, taskStateData);
+            if (taskStateData.focuschain) {
+                globalStore.set(model.focusChainAtom, taskStateData.focuschain);
+            }
+            if (taskStateData.focuschain?.currentcontextusage != null) {
+                globalStore.set(model.contextUsageAtom, taskStateData.focuschain.currentcontextusage);
+            }
+            if (taskStateData.securityblocked) {
+                globalStore.set(model.securityBlockedAtom, true);
+            }
         }
         const currentInteraction = globalStore.get(model.commandInteractionAtom);
         if (
@@ -914,6 +925,13 @@ const AIPanelComponentInner = memo(() => {
                     type: "APPROVAL_REQUIRED",
                     reason: latestToolUse.data.tooldesc || "Waiting for tool approval",
                 });
+            }
+            if (
+                latestToolUse.data.errormessage &&
+                (latestToolUse.data.errormessage.includes("命令被安全机制阻止") ||
+                    latestToolUse.data.errormessage.includes("command_blocked"))
+            ) {
+                globalStore.set(model.securityBlockedAtom, true);
             }
             return;
         }

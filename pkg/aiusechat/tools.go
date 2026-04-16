@@ -225,8 +225,8 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 	tools = append(tools, GetEditTextFileToolDefinition())
 	tools = append(tools, GetDeleteTextFileToolDefinition())
 	if chatOpts != nil {
-		tools = append(tools, GetCreatePlanToolDefinition(chatOpts.ChatId, &chatOpts.Config))
-		tools = append(tools, GetAdvancePlanToolDefinition(chatOpts.ChatId, &chatOpts.Config))
+		tools = append(tools, GetTodoWriteToolDefinition(chatOpts.ChatId, &chatOpts.Config))
+		tools = append(tools, GetTodoReadToolDefinition(chatOpts.ChatId, &chatOpts.Config))
 	}
 	if widgetAccess {
 		// Only add screenshot tool for:

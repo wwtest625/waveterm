@@ -127,16 +127,46 @@ const (
 	TaskItemStatusSkipped    TaskItemStatus = "skipped"
 )
 
+type TaskItemPriority string
+
+const (
+	TaskItemPriorityHigh   TaskItemPriority = "high"
+	TaskItemPriorityMedium TaskItemPriority = "medium"
+	TaskItemPriorityLow    TaskItemPriority = "low"
+)
+
+type UIToolCall struct {
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Parameters map[string]any `json:"parameters,omitempty"`
+	Timestamp  int64          `json:"timestamp"`
+}
+
+type UISubtask struct {
+	ID          string       `json:"id"`
+	Content     string       `json:"content"`
+	Description string       `json:"description,omitempty"`
+	ToolCalls   []UIToolCall `json:"toolcalls,omitempty"`
+}
+
 type UITaskItem struct {
-	ID          string         `json:"id"`
-	Title       string         `json:"title"`
-	Status      TaskItemStatus `json:"status"`
-	Order       int            `json:"order,omitempty"`
-	Kind        string         `json:"kind,omitempty"`
-	Notes       string         `json:"notes,omitempty"`
-	ToolCallIds []string       `json:"toolcallids,omitempty"`
-	StartedTs   int64          `json:"startedts,omitempty"`
-	CompletedTs int64          `json:"completedts,omitempty"`
+	ID          string            `json:"id"`
+	Title       string            `json:"title"`
+	Description string            `json:"description,omitempty"`
+	Status      TaskItemStatus    `json:"status"`
+	Priority    TaskItemPriority  `json:"priority,omitempty"`
+	Order       int               `json:"order,omitempty"`
+	Kind        string            `json:"kind,omitempty"`
+	Notes       string            `json:"notes,omitempty"`
+	Subtasks    []UISubtask       `json:"subtasks,omitempty"`
+	ToolCalls   []UIToolCall      `json:"toolcalls,omitempty"`
+	IsFocused   bool              `json:"isfocused,omitempty"`
+	StartedTs   int64             `json:"startedts,omitempty"`
+	CompletedTs int64             `json:"completedts,omitempty"`
+	FocusedTs   int64             `json:"focusedts,omitempty"`
+	CreatedTs   int64             `json:"createdts,omitempty"`
+	UpdatedTs   int64             `json:"updatedts,omitempty"`
+	ContextUsagePercent int       `json:"contextusagepercent,omitempty"`
 }
 
 type UITaskProgressSummary struct {
@@ -158,6 +188,51 @@ type UITaskProgressState struct {
 	Summary       UITaskProgressSummary `json:"summary,omitempty"`
 	BlockedReason string                `json:"blockedreason,omitempty"`
 	LastUpdatedTs int64                 `json:"lastupdatedts,omitempty"`
+	FocusChain    *UIFocusChainState    `json:"focuschain,omitempty"`
+}
+
+type UIFocusChainState struct {
+	TaskID              string `json:"taskid,omitempty"`
+	FocusedTodoId       string `json:"focusedtodoid,omitempty"`
+	ChainProgress       int    `json:"chainprogress,omitempty"`
+	TotalTodos          int    `json:"totaltodos,omitempty"`
+	CompletedTodos      int    `json:"completedtodos,omitempty"`
+	CurrentContextUsage int    `json:"currentcontextusage,omitempty"`
+	LastFocusChangeTs   int64  `json:"lastfocuschangets,omitempty"`
+	AutoTransition      bool   `json:"autotransition,omitempty"`
+}
+
+type FocusTransitionReason string
+
+const (
+	FocusTransitionTaskCompleted     FocusTransitionReason = "task_completed"
+	FocusTransitionContextThreshold  FocusTransitionReason = "context_threshold"
+	FocusTransitionUserRequest       FocusTransitionReason = "user_request"
+	FocusTransitionAutoProgress      FocusTransitionReason = "auto_progress"
+)
+
+type UIFocusChainTransition struct {
+	FromTodoId               string               `json:"fromtodoid,omitempty"`
+	ToTodoId                 string               `json:"totodoid,omitempty"`
+	Reason                   FocusTransitionReason `json:"reason"`
+	Timestamp                int64                `json:"timestamp"`
+	ContextUsageAtTransition int                  `json:"contextusageattransition,omitempty"`
+}
+
+type UIFocusChainHandoffContext struct {
+	TotalTodos          int    `json:"totaltodos"`
+	CompletedTodos      int    `json:"completedtodos"`
+	ProgressPercent     int    `json:"progresspercent"`
+	CurrentContextUsage int    `json:"currentcontextusage"`
+	ActiveTodoID        string `json:"activetodoid,omitempty"`
+}
+
+type UIFocusChainHandoff struct {
+	CompletedWork   string                  `json:"completedwork"`
+	CurrentState    string                  `json:"currentstate"`
+	NextSteps       string                  `json:"nextsteps"`
+	RelevantFiles   []string                `json:"relevantfiles,omitempty"`
+	ContextSnapshot UIFocusChainHandoffContext `json:"contextsnapshot,omitempty"`
 }
 
 func (s *UITaskProgressState) Clone() *UITaskProgressState {
@@ -169,10 +244,25 @@ func (s *UITaskProgressState) Clone() *UITaskProgressState {
 		copied.Tasks = make([]UITaskItem, len(s.Tasks))
 		copy(copied.Tasks, s.Tasks)
 		for i := range copied.Tasks {
-			if len(s.Tasks[i].ToolCallIds) > 0 {
-				copied.Tasks[i].ToolCallIds = append([]string(nil), s.Tasks[i].ToolCallIds...)
+			if len(s.Tasks[i].ToolCalls) > 0 {
+				copied.Tasks[i].ToolCalls = make([]UIToolCall, len(s.Tasks[i].ToolCalls))
+				copy(copied.Tasks[i].ToolCalls, s.Tasks[i].ToolCalls)
+			}
+			if len(s.Tasks[i].Subtasks) > 0 {
+				copied.Tasks[i].Subtasks = make([]UISubtask, len(s.Tasks[i].Subtasks))
+				copy(copied.Tasks[i].Subtasks, s.Tasks[i].Subtasks)
+				for j := range copied.Tasks[i].Subtasks {
+					if len(s.Tasks[i].Subtasks[j].ToolCalls) > 0 {
+						copied.Tasks[i].Subtasks[j].ToolCalls = make([]UIToolCall, len(s.Tasks[i].Subtasks[j].ToolCalls))
+						copy(copied.Tasks[i].Subtasks[j].ToolCalls, s.Tasks[i].Subtasks[j].ToolCalls)
+					}
+				}
 			}
 		}
+	}
+	if s.FocusChain != nil {
+		fc := *s.FocusChain
+		copied.FocusChain = &fc
 	}
 	return &copied
 }

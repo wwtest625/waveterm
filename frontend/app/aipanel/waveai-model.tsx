@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+    AgentFocusChainState,
     AgentRuntimeEvent,
     AgentRuntimeSnapshot,
     AgentRuntimeSnapshotPatch,
@@ -96,6 +97,9 @@ export class WaveAIModel {
     errorMessage: jotai.PrimitiveAtom<string> = jotai.atom(null) as jotai.PrimitiveAtom<string>;
     agentRuntimeAtom: jotai.PrimitiveAtom<AgentRuntimeSnapshot> = jotai.atom(getDefaultAgentRuntimeSnapshot());
     taskStateAtom: jotai.PrimitiveAtom<AgentTaskState | null> = jotai.atom(null) as jotai.PrimitiveAtom<AgentTaskState | null>;
+    focusChainAtom: jotai.PrimitiveAtom<AgentFocusChainState | null> = jotai.atom(null) as jotai.PrimitiveAtom<AgentFocusChainState | null>;
+    contextUsageAtom: jotai.PrimitiveAtom<number> = jotai.atom(0);
+    securityBlockedAtom: jotai.PrimitiveAtom<boolean> = jotai.atom(false);
     containerWidth: jotai.PrimitiveAtom<number> = jotai.atom(0);
     codeBlockMaxWidth!: jotai.Atom<number>;
     inputAtom: jotai.PrimitiveAtom<string> = jotai.atom("");
@@ -590,6 +594,9 @@ export class WaveAIModel {
         globalStore.set(this.isChatEmptyAtom, true);
         globalStore.set(this.agentRuntimeAtom, getDefaultAgentRuntimeSnapshot());
         globalStore.set(this.taskStateAtom, null);
+        globalStore.set(this.focusChainAtom, null);
+        globalStore.set(this.contextUsageAtom, 0);
+        globalStore.set(this.securityBlockedAtom, false);
         globalStore.set(this.commandInteractionAtom, null);
         const currentChatId = globalStore.get(this.chatId);
         const currentSession = globalStore.get(this.sessionsAtom).find((session) => session.chatid === currentChatId);
@@ -734,9 +741,28 @@ export class WaveAIModel {
         const messages: UIMessage[] = chatData?.messages ?? [];
         if (chatData?.sessionmeta) {
             this.upsertLocalSession(chatData.sessionmeta);
-            globalStore.set(this.taskStateAtom, chatData.sessionmeta.taskstate ?? null);
+            const taskState = ((chatData.sessionmeta as any).taskstate as AgentTaskState | undefined) ?? null;
+            globalStore.set(this.taskStateAtom, taskState);
+            if (taskState?.focuschain) {
+                globalStore.set(this.focusChainAtom, taskState.focuschain);
+            } else {
+                globalStore.set(this.focusChainAtom, null);
+            }
+            if (taskState?.focuschain?.currentcontextusage != null) {
+                globalStore.set(this.contextUsageAtom, taskState.focuschain.currentcontextusage);
+            } else {
+                globalStore.set(this.contextUsageAtom, 0);
+            }
+            if (taskState?.securityblocked) {
+                globalStore.set(this.securityBlockedAtom, true);
+            } else {
+                globalStore.set(this.securityBlockedAtom, false);
+            }
         } else {
             globalStore.set(this.taskStateAtom, null);
+            globalStore.set(this.focusChainAtom, null);
+            globalStore.set(this.contextUsageAtom, 0);
+            globalStore.set(this.securityBlockedAtom, false);
         }
         globalStore.set(this.isChatEmptyAtom, messages.length === 0);
         return messages as WaveUIMessage[];

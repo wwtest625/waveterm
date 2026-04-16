@@ -1009,6 +1009,16 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 	}
 	// At this point, all ToolCalls are guaranteed to have non-nil ToolUseData
 
+	for _, toolCall := range stopReason.ToolCalls {
+		var params map[string]any
+		if toolCall.Input != nil {
+			if m, ok := toolCall.Input.(map[string]any); ok {
+				params = m
+			}
+		}
+		RecordToolCall(chatOpts.ChatId, toolCall.Name, toolCall.ID, params)
+	}
+
 	toolResults := make([]uctypes.AIToolResult, len(stopReason.ToolCalls))
 	processed := make([]bool, len(stopReason.ToolCalls))
 	dedupKeys := buildToolCallDedupKeys(stopReason.ToolCalls)
@@ -1211,6 +1221,11 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 			if usage.Model != "" && metrics.Usage.Model != usage.Model {
 				metrics.Usage.Model = "mixed"
 			}
+			usageInfo := NewContextUsageInfo(metrics.Usage.InputTokens, metrics.Usage.OutputTokens, chatOpts.Config.MaxTokens)
+			contextLevel := UpdateContextTrackerFromUsage(chatOpts.ChatId, usageInfo)
+			if warningPrompt := BuildContextWarningPrompt(contextLevel, usageInfo); warningPrompt != "" {
+				chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, warningPrompt)
+			}
 		}
 		if firstStep && err != nil {
 			metrics.HadError = true
@@ -1342,6 +1357,12 @@ func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, me
 	chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
 		LastState: "executing",
 	})
+
+	userMessageText := message.GetContent()
+	existingSession := chatstore.DefaultChatStore.GetSession(chatOpts.ChatId)
+	if ShouldCreateTodo(userMessageText) && (existingSession == nil || existingSession.TaskState == nil || len(existingSession.TaskState.Tasks) == 0) {
+		chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, "⚠️ Detected a complex task. Use waveai_todo_write to create a task list to track execution progress.")
+	}
 
 	metrics, err := RunAIChat(ctx, sseHandler, backend, chatOpts)
 	sessionState := "completed"

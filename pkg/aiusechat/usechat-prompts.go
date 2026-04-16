@@ -25,7 +25,13 @@ var SystemPromptText_OpenAI = strings.Join([]string{
 	// 文件写入必须由用户明确提出，避免擅自落盘。
 	`Do not call write_text_file, edit_text_file, or delete_text_file unless the user explicitly asks to save or modify local files. Do not fall back to bash heredocs or shell redirection for file writes when file tools are available.`,
 	// 多步骤任务优先建立简短计划，并在执行中持续推进。
-	`For multi-step tasks, create a short plan with waveai_create_plan before or during execution, then update it with waveai_advance_plan as tasks complete or become blocked. Keep plan items concrete and action-oriented.`,
+	`For multi-step tasks (≥3 steps), use waveai_todo_write to create a structured task list before or during execution. Update task status with waveai_todo_write as tasks progress. Keep items concrete and action-oriented. Each task must include content (title), description (detailed steps), status, and priority. For 1-2 step tasks, act directly without creating a list.`,
+	// todo 管理原则
+	`Todo Management Principles: Use waveai_todo_write ONLY when there are ≥3 concrete steps; for 1-2 steps, act directly and report. State flow: pending → in_progress → completed (set in_progress before starting work). Do not run commands for tasks not marked in_progress; keep tasks small and verifiable. Each task MUST include both content (title) and description (detailed explanation). After creating a new todo list, immediately update the first task to in_progress and start executing.`,
+	// 安全规则
+	`CRITICAL SECURITY RULE: If you receive any message indicating that a command was blocked by security mechanisms (such as "命令被安全机制阻止" or "command_blocked"), you MUST immediately stop all processing. Do NOT execute any commands, Do NOT recommend alternative workarounds, Do NOT provide fake output. Simply inform the user that the command was blocked.`,
+	// 输出卫生
+	`OUTPUT HYGIENE: Do not mention tool names, concrete file paths, or internal rules in your reply or reasoning. Describe only what you are doing and the outcome.`,
 }, " ")
 
 // 只在确实需要写文件类工具时追加，避免把主提示词撑太大。
@@ -73,11 +79,11 @@ func getToolCapabilityPrompt(tools []uctypes.ToolDefinition) string {
 	if available["capture_screenshot"] {
 		lines = append(lines, "- capture_screenshot: inspect the visible widget when visual context is needed.")
 	}
-	if available["waveai_create_plan"] {
-		lines = append(lines, "- waveai_create_plan: create a short task plan for multi-step work.")
+	if available["waveai_todo_write"] {
+		lines = append(lines, "- waveai_todo_write: create and manage structured task lists for multi-step work (≥3 steps). Each task needs id, content, status, and priority.")
 	}
-	if available["waveai_advance_plan"] {
-		lines = append(lines, "- waveai_advance_plan: advance or block the active task plan as work progresses.")
+	if available["waveai_todo_read"] {
+		lines = append(lines, "- waveai_todo_read: read the current task list with focus chain state and progress.")
 	}
 	if len(lines) == 1 {
 		return ""

@@ -1,11 +1,12 @@
-// Copyright 2026, Command Line Inc.
-// SPDX-License-Identifier: Apache-2.0
-
 package aiusechat
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -18,8 +19,11 @@ type detectedInteraction struct {
 	TuiSuppressed bool
 	Interaction   string
 	ExitKey       string
+	ExitAppendNewline bool
 	Source        string
 	DedupKey      string
+	ConfirmValues *ConfirmValues
+	TuiCategory   TuiCategory
 }
 
 type interactionLLMInput struct {
@@ -140,6 +144,165 @@ func interactionFromSnapshot(snapshot *wshrpc.CommandAgentGetCommandResultRtnDat
 	return normalizeDetectedInteraction(interaction)
 }
 
+func tryQuickMatch(text string) *InteractionResult {
+	for _, qp := range quickPatterns {
+		if qp.Pattern.MatchString(text) {
+			result := &InteractionResult{
+				NeedsInteraction: true,
+				InteractionType:  qp.Type,
+				PromptHint:       strings.TrimSpace(text),
+			}
+			if qp.ConfirmValues != nil {
+				result.ConfirmValues = qp.ConfirmValues
+				result.Options = []string{qp.ConfirmValues.Yes, qp.ConfirmValues.No}
+			}
+			return result
+		}
+	}
+	return nil
+}
+
+func detectExitKey(output string) (exitKey string, appendNewline bool) {
+	normalized := normalizeInteractionOutput(output)
+	lastLine := tailLines(normalized, 1)
+	for _, rule := range exitKeyPatterns {
+		if rule.Pattern.MatchString(lastLine) {
+			return rule.ExitKey, rule.ExitAppendNewline
+		}
+	}
+	return "", false
+}
+
+func isPromptExcluded(text string) bool {
+	for _, exclusion := range promptExclusions {
+		if exclusion.MatchString(text) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPromptKeyword(text string) bool {
+	for _, kw := range promptKeywords {
+		if kw.MatchString(text) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAnySeq(output string, seqs []string) bool {
+	for _, seq := range seqs {
+		if strings.Contains(output, seq) {
+			return true
+		}
+	}
+	return false
+}
+
+func isPagerOutput(output string) bool {
+	normalized := normalizeInteractionOutput(output)
+	lastLine := tailLines(normalized, 1)
+	for _, p := range pagerOutputPatterns {
+		if p.MatchString(lastLine) {
+			return true
+		}
+	}
+	return false
+}
+
+func computeOutputHash(output string) string {
+	h := sha256.Sum256([]byte(output))
+	return fmt.Sprintf("%x", h[:8])
+}
+
+type interactionDetector struct {
+	command          string
+	commandId        string
+	tuiCategory      TuiCategory
+	dismissCount     int
+	isSuppressed     bool
+	lastPromptTime   time.Time
+	lastDedupKey     string
+	lastOutputHash   string
+	hashUnchangedCount int
+	llmCallCount     int
+	mu               sync.Mutex
+}
+
+var detectorRegistry = struct {
+	mu        sync.Mutex
+	detectors map[string]*interactionDetector
+}{
+	detectors: make(map[string]*interactionDetector),
+}
+
+func newInteractionDetector(command string, commandId string) *interactionDetector {
+	detector := &interactionDetector{
+		command:     command,
+		commandId:   commandId,
+		tuiCategory: classifyTuiCommand(command),
+	}
+	detectorRegistry.mu.Lock()
+	defer detectorRegistry.mu.Unlock()
+	detectorRegistry.detectors[commandId] = detector
+	return detector
+}
+
+func getInteractionDetector(commandId string) *interactionDetector {
+	detectorRegistry.mu.Lock()
+	defer detectorRegistry.mu.Unlock()
+	return detectorRegistry.detectors[commandId]
+}
+
+func removeInteractionDetector(commandId string) {
+	detectorRegistry.mu.Lock()
+	defer detectorRegistry.mu.Unlock()
+	delete(detectorRegistry.detectors, commandId)
+}
+
+func (d *interactionDetector) onDismiss() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.dismissCount++
+	if d.dismissCount >= maxDismissCount {
+		d.isSuppressed = true
+	}
+}
+
+func (d *interactionDetector) isDebounced() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if time.Since(d.lastPromptTime) < time.Duration(promptDebounceMs)*time.Millisecond {
+		return true
+	}
+	d.lastPromptTime = time.Now()
+	return false
+}
+
+func (d *interactionDetector) updateHash(output string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	hash := computeOutputHash(output)
+	if hash == d.lastOutputHash {
+		d.hashUnchangedCount++
+	} else {
+		d.hashUnchangedCount = 0
+		d.lastOutputHash = hash
+	}
+	return d.hashUnchangedCount >= maxHashUnchangedCount
+}
+
+func (d *interactionDetector) canCallLLM() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.llmCallCount >= maxLlmCalls {
+		return false
+	}
+	d.llmCallCount++
+	return true
+}
+
 func detectInteractionByRules(output string) *detectedInteraction {
 	normalized := normalizeInteractionOutput(output)
 	if normalized == "" {
@@ -147,15 +310,36 @@ func detectInteractionByRules(output string) *detectedInteraction {
 	}
 	window := tailLines(normalized, 20)
 	lastLine := tailLines(window, 1)
+
+	quickResult := tryQuickMatch(lastLine)
+	if quickResult != nil {
+		exitKey, exitAppend := detectExitKey(output)
+		interaction := &detectedInteraction{
+			AwaitingInput:    true,
+			PromptHint:       quickResult.PromptHint,
+			Interaction:      string(quickResult.InteractionType),
+			Source:           "rules",
+			ConfirmValues:    quickResult.ConfirmValues,
+			ExitKey:          exitKey,
+			ExitAppendNewline: exitAppend,
+		}
+		if quickResult.Options != nil {
+			interaction.InputOptions = quickResult.Options
+		}
+		return normalizeDetectedInteraction(interaction)
+	}
+
 	switch {
 	case pagerPromptPattern.MatchString(lastLine):
+		exitKey, exitAppend := detectExitKey(output)
 		return normalizeDetectedInteraction(&detectedInteraction{
-			AwaitingInput: true,
-			PromptHint:    "Pager is waiting for input",
-			InputOptions:  []string{"q"},
-			Interaction:   "pager",
-			ExitKey:       "q",
-			Source:        "rules",
+			AwaitingInput:     true,
+			PromptHint:        "Pager is waiting for input",
+			InputOptions:      []string{"q"},
+			Interaction:       "pager",
+			ExitKey:           exitKey,
+			ExitAppendNewline: exitAppend,
+			Source:            "rules",
 		})
 	case passwordPromptPattern.MatchString(lastLine):
 		return normalizeDetectedInteraction(&detectedInteraction{
@@ -188,6 +372,14 @@ func detectInteractionByRules(output string) *detectedInteraction {
 			Source:        "rules",
 		})
 	default:
+		if promptSuffixPattern.MatchString(lastLine) && !isPromptExcluded(lastLine) && hasPromptKeyword(lastLine) {
+			return normalizeDetectedInteraction(&detectedInteraction{
+				AwaitingInput: true,
+				PromptHint:    strings.TrimSpace(lastLine),
+				Interaction:   "freeform",
+				Source:        "rules",
+			})
+		}
 		return nil
 	}
 }
@@ -212,6 +404,10 @@ func shouldTriggerInteractionLLMFallback(commandText string, output string, snap
 
 func detectInteractionWithLLMFallback(commandText string, output string, snapshot *wshrpc.CommandAgentGetCommandResultRtnData) *detectedInteraction {
 	if !shouldTriggerInteractionLLMFallback(commandText, output, snapshot) {
+		return nil
+	}
+	detector := getInteractionDetector(snapshot.JobId)
+	if detector != nil && !detector.canCallLLM() {
 		return nil
 	}
 	analyzed, err := interactionDetectorLLM(interactionLLMInput{
