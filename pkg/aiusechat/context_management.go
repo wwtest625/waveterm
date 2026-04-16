@@ -341,6 +341,100 @@ func deriveSessionCheatsheet(messages []uctypes.UIMessage, lastState string) *uc
 	return cheatsheet
 }
 
+func deriveCheatsheetFromTaskState(taskState *uctypes.UITaskProgressState) *uctypes.SessionCheatsheet {
+	if taskState == nil || len(taskState.Tasks) == 0 {
+		return nil
+	}
+	cheatsheet := &uctypes.SessionCheatsheet{}
+
+	sortedTasks := make([]uctypes.UITaskItem, len(taskState.Tasks))
+	copy(sortedTasks, taskState.Tasks)
+	slices.SortFunc(sortedTasks, func(a, b uctypes.UITaskItem) int {
+		return a.Order - b.Order
+	})
+
+	var currentTask *uctypes.UITaskItem
+	if taskState.CurrentTaskId != "" {
+		for i := range sortedTasks {
+			if sortedTasks[i].ID == taskState.CurrentTaskId {
+				currentTask = &sortedTasks[i]
+				break
+			}
+		}
+	}
+	if currentTask == nil {
+		for i := range sortedTasks {
+			if sortedTasks[i].Status == uctypes.TaskItemStatusInProgress {
+				currentTask = &sortedTasks[i]
+				break
+			}
+		}
+	}
+
+	if currentTask != nil {
+		if currentTask.Description != "" {
+			cheatsheet.CurrentWork = currentTask.Title + " — " + currentTask.Description
+		} else {
+			cheatsheet.CurrentWork = currentTask.Title
+		}
+		cheatsheet.CurrentWork = summarizeCheatsheetText(cheatsheet.CurrentWork, 120)
+	}
+
+	var completedTitles []string
+	for _, task := range sortedTasks {
+		if task.Status == uctypes.TaskItemStatusCompleted {
+			completedTitles = append(completedTitles, task.Title)
+		}
+	}
+	if len(completedTitles) > 0 {
+		cheatsheet.Completed = summarizeCheatsheetText(strings.Join(completedTitles, "、"), 120)
+	}
+
+	if taskState.BlockedReason != "" {
+		cheatsheet.BlockedBy = summarizeCheatsheetText(taskState.BlockedReason, 120)
+	} else {
+		for _, task := range sortedTasks {
+			if task.Status == uctypes.TaskItemStatusBlocked {
+				reason := task.Title
+				if task.Notes != "" {
+					reason += "：" + task.Notes
+				}
+				cheatsheet.BlockedBy = summarizeCheatsheetText(reason, 120)
+				break
+			}
+		}
+	}
+
+	var nextPending *uctypes.UITaskItem
+	for i := range sortedTasks {
+		if sortedTasks[i].Status == uctypes.TaskItemStatusPending {
+			nextPending = &sortedTasks[i]
+			break
+		}
+	}
+	if nextPending != nil {
+		cheatsheet.NextStep = summarizeCheatsheetText(nextPending.Title, 120)
+	} else if currentTask != nil {
+		cheatsheet.NextStep = "继续推进当前任务"
+	} else {
+		allCompleted := true
+		for _, task := range sortedTasks {
+			if task.Status != uctypes.TaskItemStatusCompleted && task.Status != uctypes.TaskItemStatusSkipped {
+				allCompleted = false
+				break
+			}
+		}
+		if allCompleted {
+			cheatsheet.NextStep = "所有任务已完成"
+		}
+	}
+
+	if cheatsheet.CurrentWork == "" && cheatsheet.Completed == "" && cheatsheet.BlockedBy == "" && cheatsheet.NextStep == "" {
+		return nil
+	}
+	return cheatsheet
+}
+
 func refreshSessionCheatsheet(backend UseChatBackend, chatOpts uctypes.WaveChatOpts) SessionCheatsheetRefreshStats {
 	if backend == nil || strings.TrimSpace(chatOpts.ChatId) == "" {
 		return SessionCheatsheetRefreshStats{}
@@ -355,21 +449,27 @@ func refreshSessionCheatsheet(backend UseChatBackend, chatOpts uctypes.WaveChatO
 	}
 	lastState := ""
 	var existing *uctypes.SessionCheatsheet
+	var taskState *uctypes.UITaskProgressState
 	if chat.SessionMeta != nil {
 		lastState = chat.SessionMeta.LastTaskState
 		existing = chat.SessionMeta.Cheatsheet
+		taskState = chat.SessionMeta.TaskState
 	}
 	signature := buildCheatsheetSignature(uiChat.Messages)
 	userTurns := countUserTurns(uiChat.Messages)
-	useModel := shouldUseModelCheatsheet(chatOpts.ChatId, signature, userTurns, lastState)
 	var cheatsheet *uctypes.SessionCheatsheet
 	modelUsed := false
-	if useModel {
-		cheatsheet = summarizeSessionCheatsheetWithModel(context.Background(), chatOpts, uiChat.Messages, lastState, existing)
-		modelUsed = cheatsheet != nil
-	}
-	if cheatsheet == nil {
-		cheatsheet = deriveSessionCheatsheet(uiChat.Messages, lastState)
+	if taskState != nil && len(taskState.Tasks) > 0 {
+		cheatsheet = deriveCheatsheetFromTaskState(taskState)
+	} else {
+		useModel := shouldUseModelCheatsheet(chatOpts.ChatId, signature, userTurns, lastState)
+		if useModel {
+			cheatsheet = summarizeSessionCheatsheetWithModel(context.Background(), chatOpts, uiChat.Messages, lastState, existing)
+			modelUsed = cheatsheet != nil
+		}
+		if cheatsheet == nil {
+			cheatsheet = deriveSessionCheatsheet(uiChat.Messages, lastState)
+		}
 	}
 	markCheatsheetRefresh(chatOpts.ChatId, signature, lastState, modelUsed, userTurns)
 	chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{

@@ -368,3 +368,151 @@ func makeTestMessages(turns int) []uctypes.UIMessage {
 	}
 	return messages
 }
+
+func TestDeriveCheatsheetFromTaskState_Nil(t *testing.T) {
+	if result := deriveCheatsheetFromTaskState(nil); result != nil {
+		t.Fatalf("expected nil for nil task state, got %#v", result)
+	}
+}
+
+func TestDeriveCheatsheetFromTaskState_EmptyTasks(t *testing.T) {
+	taskState := &uctypes.UITaskProgressState{Tasks: []uctypes.UITaskItem{}}
+	if result := deriveCheatsheetFromTaskState(taskState); result != nil {
+		t.Fatalf("expected nil for empty tasks, got %#v", result)
+	}
+}
+
+func TestDeriveCheatsheetFromTaskState_ActivePlan(t *testing.T) {
+	taskState := &uctypes.UITaskProgressState{
+		CurrentTaskId: "task-2",
+		Tasks: []uctypes.UITaskItem{
+			{ID: "task-1", Title: "安装 MySQL 8.0", Status: uctypes.TaskItemStatusCompleted, Order: 1},
+			{ID: "task-2", Title: "配置主库", Description: "调整 binlog 和 server-id", Status: uctypes.TaskItemStatusInProgress, Order: 2},
+			{ID: "task-3", Title: "配置从库连接", Status: uctypes.TaskItemStatusPending, Order: 3},
+			{ID: "task-4", Title: "验证数据同步", Status: uctypes.TaskItemStatusPending, Order: 4},
+		},
+	}
+	cheatsheet := deriveCheatsheetFromTaskState(taskState)
+	if cheatsheet == nil {
+		t.Fatal("expected cheatsheet")
+	}
+	if cheatsheet.CurrentWork != "配置主库 — 调整 binlog 和 server-id" {
+		t.Fatalf("unexpected current work: %q", cheatsheet.CurrentWork)
+	}
+	if cheatsheet.Completed != "安装 MySQL 8.0" {
+		t.Fatalf("unexpected completed: %q", cheatsheet.Completed)
+	}
+	if cheatsheet.NextStep != "配置从库连接" {
+		t.Fatalf("unexpected next step: %q", cheatsheet.NextStep)
+	}
+	if cheatsheet.BlockedBy != "" {
+		t.Fatalf("expected no blocked by, got %q", cheatsheet.BlockedBy)
+	}
+}
+
+func TestDeriveCheatsheetFromTaskState_BlockedPlan(t *testing.T) {
+	taskState := &uctypes.UITaskProgressState{
+		BlockedReason: "权限不足，无法写入 /etc/my.cnf",
+		Tasks: []uctypes.UITaskItem{
+			{ID: "task-1", Title: "安装 MySQL", Status: uctypes.TaskItemStatusCompleted, Order: 1},
+			{ID: "task-2", Title: "配置主库", Status: uctypes.TaskItemStatusBlocked, Notes: "需要 root 权限", Order: 2},
+		},
+	}
+	cheatsheet := deriveCheatsheetFromTaskState(taskState)
+	if cheatsheet == nil {
+		t.Fatal("expected cheatsheet")
+	}
+	if cheatsheet.BlockedBy != "权限不足，无法写入 /etc/my.cnf" {
+		t.Fatalf("expected blocked reason from BlockedReason, got %q", cheatsheet.BlockedBy)
+	}
+}
+
+func TestDeriveCheatsheetFromTaskState_BlockedTaskWithoutReason(t *testing.T) {
+	taskState := &uctypes.UITaskProgressState{
+		Tasks: []uctypes.UITaskItem{
+			{ID: "task-1", Title: "安装 MySQL", Status: uctypes.TaskItemStatusCompleted, Order: 1},
+			{ID: "task-2", Title: "配置主库", Status: uctypes.TaskItemStatusBlocked, Notes: "需要 root 权限", Order: 2},
+		},
+	}
+	cheatsheet := deriveCheatsheetFromTaskState(taskState)
+	if cheatsheet == nil {
+		t.Fatal("expected cheatsheet")
+	}
+	if cheatsheet.BlockedBy != "配置主库：需要 root 权限" {
+		t.Fatalf("expected blocked reason from task notes, got %q", cheatsheet.BlockedBy)
+	}
+}
+
+func TestDeriveCheatsheetFromTaskState_AllCompleted(t *testing.T) {
+	taskState := &uctypes.UITaskProgressState{
+		Tasks: []uctypes.UITaskItem{
+			{ID: "task-1", Title: "安装 MySQL", Status: uctypes.TaskItemStatusCompleted, Order: 1},
+			{ID: "task-2", Title: "配置主库", Status: uctypes.TaskItemStatusCompleted, Order: 2},
+		},
+	}
+	cheatsheet := deriveCheatsheetFromTaskState(taskState)
+	if cheatsheet == nil {
+		t.Fatal("expected cheatsheet")
+	}
+	if cheatsheet.Completed != "安装 MySQL、配置主库" {
+		t.Fatalf("unexpected completed: %q", cheatsheet.Completed)
+	}
+	if cheatsheet.NextStep != "所有任务已完成" {
+		t.Fatalf("unexpected next step: %q", cheatsheet.NextStep)
+	}
+}
+
+func TestDeriveCheatsheetFromTaskState_NoCurrentTaskId(t *testing.T) {
+	taskState := &uctypes.UITaskProgressState{
+		Tasks: []uctypes.UITaskItem{
+			{ID: "task-1", Title: "安装 MySQL", Status: uctypes.TaskItemStatusCompleted, Order: 1},
+			{ID: "task-2", Title: "配置主库", Status: uctypes.TaskItemStatusInProgress, Order: 2},
+		},
+	}
+	cheatsheet := deriveCheatsheetFromTaskState(taskState)
+	if cheatsheet == nil {
+		t.Fatal("expected cheatsheet")
+	}
+	if cheatsheet.CurrentWork != "配置主库" {
+		t.Fatalf("expected current work from in_progress task, got %q", cheatsheet.CurrentWork)
+	}
+}
+
+func TestDeriveCheatsheetFromTaskState_SkippedTasks(t *testing.T) {
+	taskState := &uctypes.UITaskProgressState{
+		Tasks: []uctypes.UITaskItem{
+			{ID: "task-1", Title: "安装 MySQL", Status: uctypes.TaskItemStatusCompleted, Order: 1},
+			{ID: "task-2", Title: "可选配置", Status: uctypes.TaskItemStatusSkipped, Order: 2},
+		},
+	}
+	cheatsheet := deriveCheatsheetFromTaskState(taskState)
+	if cheatsheet == nil {
+		t.Fatal("expected cheatsheet")
+	}
+	if cheatsheet.Completed != "安装 MySQL" {
+		t.Fatalf("skipped tasks should not appear in completed, got %q", cheatsheet.Completed)
+	}
+	if cheatsheet.NextStep != "所有任务已完成" {
+		t.Fatalf("all completed+skipped should show all done, got %q", cheatsheet.NextStep)
+	}
+}
+
+func TestDeriveCheatsheetFromTaskState_TitleTruncation(t *testing.T) {
+	longTitle := ""
+	for i := 0; i < 50; i++ {
+		longTitle += "非常长的标题"
+	}
+	taskState := &uctypes.UITaskProgressState{
+		CurrentTaskId: "task-1",
+		Tasks: []uctypes.UITaskItem{
+			{ID: "task-1", Title: longTitle, Status: uctypes.TaskItemStatusInProgress, Order: 1},
+		},
+	}
+	cheatsheet := deriveCheatsheetFromTaskState(taskState)
+	if cheatsheet == nil {
+		t.Fatal("expected cheatsheet")
+	}
+	if len(cheatsheet.CurrentWork) > 123 {
+		t.Fatalf("expected current work to be truncated to ~120 chars, got %d chars", len(cheatsheet.CurrentWork))
+	}
+}

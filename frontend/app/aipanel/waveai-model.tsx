@@ -155,7 +155,12 @@ export class WaveAIModel {
             if (value === "planning" || value === "auto-approve" || value === "default") {
                 return value;
             }
-            return "auto-approve";
+            // When skip-approval is enabled in settings, default to auto-approve
+            const skipApproval = get(getSettingsKeyAtom("waveai:skipapproval"));
+            if (skipApproval === true) {
+                return "auto-approve";
+            }
+            return "default";
         });
 
         this.codeBlockMaxWidth = jotai.atom((get) => {

@@ -2201,6 +2201,22 @@ Expected:
 | 前端 tsc --noEmit | ✅ | 0 新增错误（修改文件无错误） |
 | 前端 vitest | ✅ | 7 文件 74 测试通过 |
 
+### Cheatsheet 智能降级 ✅ 已完成
+
+> 当 task state 存在时，cheatsheet 从 task state 推导，跳过 LLM 调用；当 task state 不存在时，保持原有行为（规则推导 + LLM 刷新）。
+
+| 变更 | 说明 |
+|------|------|
+| 新增 `deriveCheatsheetFromTaskState` | 从 task state 推导 cheatsheet 四项：currentwork=当前任务、completed=已完成列表、blockedby=阻塞原因、nextstep=下一个 pending 任务 |
+| 修改 `refreshSessionCheatsheet` | task state 存在时走推导路径，不调 LLM；task state 不存在时走原路径 |
+| 测试 | 9 个测试覆盖 nil/empty/active/blocked/allcompleted/nocurrenttaskid/skipped/truncation 场景 |
+
+**降级逻辑：**
+- `currentwork` = 当前 in_progress 任务的 title + description（如有）
+- `completed` = 所有 completed 任务的 title，顿号分隔
+- `blockedby` = BlockedReason 优先，否则取 blocked 任务的 title + notes
+- `nextstep` = 下一个 pending 任务，否则"继续推进当前任务"或"所有任务已完成"
+
 ### 修改文件汇总
 
 **后端 Go 文件：**
@@ -2214,7 +2230,7 @@ Expected:
 - `pkg/aiusechat/todo_prompts.go` — SmartTaskDetector+ShouldCreateTodo
 - `pkg/aiusechat/interaction_detector.go` — LLM fallback+TUI 检测扩展
 - `pkg/aiusechat/interaction_detector_types.go` — InteractionResult 等类型
-- `pkg/aiusechat/context_management.go` — token 追踪扩展
+- `pkg/aiusechat/context_management.go` — token 追踪扩展+cheatsheet 智能降级（deriveCheatsheetFromTaskState）
 - `pkg/aiusechat/chatstore/chatstore.go` — todo 存储+安全配置持久化
 
 **后端测试文件：**
@@ -2228,6 +2244,7 @@ Expected:
 - `pkg/aiusechat/interaction_detector_test.go`
 - `pkg/aiusechat/interaction_detector_types_test.go`
 - `pkg/aiusechat/usechat-prompts_test.go`
+- `pkg/aiusechat/context_management_test.go` — cheatsheet 智能降级测试（9 个）
 
 **前端文件：**
 - `frontend/app/aipanel/aitypes.ts` — 新增 ContextThresholdLevel/InteractionResult/TuiCategory/ConfirmValues+辅助函数

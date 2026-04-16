@@ -31,6 +31,12 @@ type WaveRunCommandToolInput struct {
 type waveRunCommandArgs []string
 
 var dangerousWaveCommandPattern = regexp.MustCompile(`(?i)(\|\s*(bash|sh|zsh|pwsh|powershell|cmd)(\s|$)|(^|\s)sudo(\s|$)|(^|\s)(rm|format|shutdown|reboot|halt|poweroff|init|killall|pkill|fuser|dd|mkfs|fdisk|parted|iptables|ufw|firewall-cmd|chmod|chown|mount|umount|truncate|drop|delete)(\s|$))`)
+
+// criticalDangerousCommandPattern matches commands that should be blocked outright
+// (no approval flow) rather than merely requiring user approval.
+// Covers: rm -rf /, rm -rf /*, dd of=/dev/..., mkfs on device, format on root,
+// and any destructive command targeting the root filesystem.
+var criticalDangerousCommandPattern = regexp.MustCompile(`(?i)(^|\s|&&|\|\||;|` + "`" + `)rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+/(\s|$|/\*)|dd\s+.*of=/dev/(sd[a-z]|nvme|vd[a-z]|hd[a-z])|mkfs\.\w+\s+/dev/(sd[a-z]|nvme|vd[a-z]|hd[a-z])|format\s+[a-zA-Z]:\s*$|(:>|\bcat\s+/dev/zero\s*>)\s*/dev/(sd[a-z]|nvme|vd[a-z]|hd[a-z]))`)
 var streamPreferredWaveCommandPattern = regexp.MustCompile(`(?i)\b(apt|apt-get|yum|dnf|pacman|zypper|apk|brew)\s+(install|upgrade|update|dist-upgrade|full-upgrade|remove|autoremove)\b|\b(curl|wget|aria2c|rsync|scp|sftp)\b|\b(tail|journalctl|docker|kubectl)\b[^\n]*\s-f(\s|$)|\bwatch\b`)
 var waveAgentGetCommandResult = wshclient.AgentGetCommandResultCommand
 
@@ -170,6 +176,18 @@ func isDangerousWaveRunCommandInput(input any) bool {
 		return true
 	}
 	return isDangerousWaveRunCommandText(getWaveRunCommandDisplayText(parsed))
+}
+
+func isCriticalDangerousCommandText(command string) bool {
+	return criticalDangerousCommandPattern.MatchString(strings.TrimSpace(command))
+}
+
+func isCriticalDangerousCommandInput(input any) bool {
+	parsed, err := parseWaveRunCommandToolInput(input)
+	if err != nil || parsed == nil {
+		return true
+	}
+	return isCriticalDangerousCommandText(getWaveRunCommandDisplayText(parsed))
 }
 
 func getWaveRunCommandDisplayText(parsed *WaveRunCommandToolInput) string {
@@ -488,6 +506,9 @@ func GetWaveRunCommandToolDefinition() uctypes.ToolDefinition {
 			return resultPayload, nil
 		},
 		ToolApproval: func(input any) string {
+			if isCriticalDangerousCommandInput(input) {
+				return uctypes.ApprovalBlocked
+			}
 			if isDangerousWaveRunCommandInput(input) {
 				return uctypes.ApprovalNeedsApproval
 			}

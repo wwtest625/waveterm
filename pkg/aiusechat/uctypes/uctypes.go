@@ -412,6 +412,7 @@ const (
 	ApprovalTimeout       = "timeout"
 	ApprovalAutoApproved  = "auto-approved"
 	ApprovalCanceled      = "canceled"
+	ApprovalBlocked       = "blocked"
 )
 
 // when updating this struct, also modify frontend/app/aipanel/aitypes.ts WaveUIDataTypes.tooluse

@@ -138,7 +138,7 @@ type WaveUIDataTypes = {
         interactionresult?: InteractionResult;
         exitkey?: string;
         exitappendnewline?: boolean;
-        approval?: "needs-approval" | "user-approved" | "user-denied" | "auto-approved" | "timeout";
+        approval?: "needs-approval" | "user-approved" | "user-denied" | "auto-approved" | "timeout" | "blocked";
         tabid?: string;
         blockid?: string;
         writebackupfilename?: string;

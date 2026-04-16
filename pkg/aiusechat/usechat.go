@@ -731,6 +731,17 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 	}
 	toolCall.ToolUseData.Approval = applyAgentModeApprovalPolicy(agentMode, toolCall.Name, toolCall.ToolUseData.Approval)
 
+	if toolCall.ToolUseData.Approval == uctypes.ApprovalBlocked {
+		errorMsg := "Command blocked by security policy: this command is too dangerous to execute"
+		toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
+		toolCall.ToolUseData.ErrorMessage = errorMsg
+		return uctypes.AIToolResult{
+			ToolName:  toolCall.Name,
+			ToolUseID: toolCall.ID,
+			ErrorText: errorMsg,
+		}
+	}
+
 	if toolCall.ToolUseData.Approval == uctypes.ApprovalNeedsApproval {
 		log.Printf("  waiting for approval...\n")
 		approval, err := WaitForToolApproval(sseHandler.Context(), toolCall.ID)

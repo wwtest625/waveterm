@@ -613,6 +613,15 @@ export const SettingsVisualContent = memo(({ model }: SettingsContentProps) => {
                             ]}
                         />
                     </SettingItem>
+                    <SettingItem
+                        label="跳过命令审批"
+                        description="AI 生成的常规命令（查询、创建、编辑、写入等）无需手动审批即可执行，危险命令仍会被阻止"
+                    >
+                        <ToggleSwitch
+                            checked={settings["waveai:skipapproval"] === true}
+                            onChange={(v) => updateSetting("waveai:skipapproval", v)}
+                        />
+                    </SettingItem>
                 </SettingSection>
 
                 <SettingSection title="网页" icon="fa-globe">

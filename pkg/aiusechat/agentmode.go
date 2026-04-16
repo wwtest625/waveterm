@@ -105,7 +105,9 @@ func applyAgentModeApprovalPolicy(mode AgentMode, toolName string, approval stri
 	if approval != uctypes.ApprovalNeedsApproval {
 		return approval
 	}
-	if isReadOnlyAgentTool(toolName) || isMediumRiskAgentTool(toolName) {
+	// In auto-approve mode, all tools except term_inject_command are auto-approved.
+	// Commands blocked by security (ApprovalBlocked) are already handled upstream.
+	if toolName != "term_inject_command" {
 		return uctypes.ApprovalAutoApproved
 	}
 	return approval
