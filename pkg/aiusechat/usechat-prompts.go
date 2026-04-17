@@ -86,7 +86,7 @@ func getToolCapabilityPrompt(tools []uctypes.ToolDefinition) string {
 		lines = append(lines, "- waveai_todo_read: read the current task list with focus chain state and progress.")
 	}
 	if available["waveai_ask_user"] {
-		lines = append(lines, "- waveai_ask_user: ask the user a clarification question when critical parameters are missing. Always use this tool instead of plain text questions.")
+		lines = append(lines, "- waveai_ask_user: ask the user a clarification question when critical parameters are missing. Always use this tool instead of plain text questions. For select/multiselect, mark the best option with recommended=true.")
 	}
 	if available["waveai_use_skill"] {
 		lines = append(lines, "- waveai_use_skill: activate a skill to get its full instructions and resources. Use when the user's request matches an available skill's purpose.")

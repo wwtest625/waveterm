@@ -233,7 +233,7 @@ describe("AskUserData types", () => {
 
     it("represents a select ask with options", () => {
         const options: AskUserOption[] = [
-            { id: "dev", label: "开发环境", value: "development" },
+            { id: "dev", label: "开发环境", value: "development", recommended: true },
             { id: "prod", label: "生产环境", value: "production" },
         ];
         const data: AskUserData = {
@@ -247,6 +247,8 @@ describe("AskUserData types", () => {
         expect(data.kind).toBe("select");
         expect(data.options).toHaveLength(2);
         expect(data.options![0].id).toBe("dev");
+        expect(data.options![0].recommended).toBe(true);
+        expect(data.options![1].recommended).toBeUndefined();
     });
 
     it("represents a confirm ask with default value", () => {

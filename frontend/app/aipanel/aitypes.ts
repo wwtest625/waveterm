@@ -36,6 +36,7 @@ export type AskUserOption = {
     id: string;
     label: string;
     value?: string;
+    recommended?: boolean;
 };
 
 export type AskUserData = {

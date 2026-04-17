@@ -118,9 +118,10 @@ const (
 )
 
 type AskUserOption struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Value string `json:"value,omitempty"`
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Value       string `json:"value,omitempty"`
+	Recommended bool   `json:"recommended,omitempty"`
 }
 
 type UIMessageDataAsk struct {

@@ -88,6 +88,27 @@ func TestParseAskUserInput_Select(t *testing.T) {
 	}
 }
 
+func TestParseAskUserInput_SelectWithRecommended(t *testing.T) {
+	m := map[string]any{
+		"kind":   "select",
+		"prompt": "选择部署环境",
+		"options": []any{
+			map[string]any{"id": "dev", "label": "开发环境", "value": "development", "recommended": true},
+			map[string]any{"id": "prod", "label": "生产环境", "value": "production"},
+		},
+	}
+	input, err := parseAskUserInput(m)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !input.Options[0].Recommended {
+		t.Fatal("expected first option to be recommended")
+	}
+	if input.Options[1].Recommended {
+		t.Fatal("expected second option to NOT be recommended")
+	}
+}
+
 func TestParseAskUserInput_SelectWithoutOptions(t *testing.T) {
 	m := map[string]any{
 		"kind":   "select",

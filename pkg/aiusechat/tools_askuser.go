@@ -33,14 +33,15 @@ func GetAskUserToolDefinition() uctypes.ToolDefinition {
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"id":    map[string]any{"type": "string"},
-							"label": map[string]any{"type": "string"},
-							"value": map[string]any{"type": "string"},
+							"id":          map[string]any{"type": "string"},
+							"label":       map[string]any{"type": "string"},
+							"value":       map[string]any{"type": "string"},
+							"recommended": map[string]any{"type": "boolean", "description": "Mark this option as the recommended choice. Use for the option you believe is best."},
 						},
 						"required":             []string{"id", "label"},
 						"additionalProperties": false,
 					},
-					"description": "Options for select/multiselect questions. Each option needs id and label.",
+					"description": "Options for select/multiselect questions. Each option needs id and label. Mark the best option with recommended=true.",
 				},
 				"default": map[string]any{
 					"type":        "string",
@@ -100,6 +101,9 @@ func parseAskUserInput(m map[string]any) (askUserInput, error) {
 				}
 				if value, ok := optMap["value"].(string); ok {
 					opt.Value = value
+				}
+				if recommended, ok := optMap["recommended"].(bool); ok {
+					opt.Recommended = recommended
 				}
 				input.Options = append(input.Options, opt)
 			}

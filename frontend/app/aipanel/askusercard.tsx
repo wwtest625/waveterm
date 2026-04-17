@@ -123,8 +123,16 @@ export const AskUserCard = memo(() => {
                             key={opt.id}
                             type="button"
                             onClick={() => handleSubmit(opt.value || opt.id)}
-                            className="rounded-lg border border-blue-300/20 bg-blue-300/10 px-3 py-1.5 text-sm text-blue-100 hover:bg-blue-300/20"
+                            className={cn(
+                                "relative rounded-lg border px-3 py-1.5 text-sm",
+                                opt.recommended
+                                    ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-100 hover:bg-emerald-400/25"
+                                    : "border-blue-300/20 bg-blue-300/10 text-blue-100 hover:bg-blue-300/20"
+                            )}
                         >
+                            {opt.recommended && (
+                                <span className="mr-1.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">推荐</span>
+                            )}
                             {opt.label}
                         </button>
                     ))}
@@ -142,11 +150,16 @@ export const AskUserCard = memo(() => {
                                 className={cn(
                                     "rounded-lg border px-3 py-1.5 text-sm",
                                     selectedIds.has(opt.id)
-                                        ? "border-blue-400/40 bg-blue-400/20 text-blue-100"
-                                        : "border-white/8 bg-white/6 text-zinc-300"
+                                        ? opt.recommended
+                                            ? "border-emerald-400/40 bg-emerald-400/20 text-emerald-100"
+                                            : "border-blue-400/40 bg-blue-400/20 text-blue-100"
+                                        : opt.recommended
+                                            ? "border-emerald-400/25 bg-emerald-400/8 text-emerald-200"
+                                            : "border-white/8 bg-white/6 text-zinc-300"
                                 )}
                             >
                                 {selectedIds.has(opt.id) ? "✓ " : "○ "}
+                                {opt.recommended && <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-emerald-300">推荐</span>}
                                 {opt.label}
                             </button>
                         ))}
