@@ -3,7 +3,7 @@
 
 import { cn } from "@/util/util";
 import { shouldHideProgressStatusLines } from "./aitooluse";
-import { AgentRuntimeSnapshot, AgentRuntimeState, WaveUIMessage } from "./aitypes";
+import { AgentRuntimeSnapshot, AgentRuntimeState, WaveUIMessage, isTextPart } from "./aitypes";
 import { getFirstExecutableCommandFromMessage } from "./autoexecute-util";
 import { AgentMode } from "./waveai-model";
 
@@ -23,7 +23,7 @@ function formatProviderLabel(provider: string): string {
     return provider || "Wave AI";
 }
 
-function formatModeLabel(mode: AgentMode): string {
+export function formatModeLabel(mode: AgentMode): string {
     switch (mode) {
         case "planning":
             return "Planning";
@@ -34,7 +34,7 @@ function formatModeLabel(mode: AgentMode): string {
     }
 }
 
-function isThinkingPhaseLabel(phaseLabel?: string): boolean {
+export function isThinkingPhaseLabel(phaseLabel?: string): boolean {
     return typeof phaseLabel === "string" && phaseLabel.trim().toLowerCase() === "thinking";
 }
 
@@ -84,12 +84,6 @@ function isObservedTerminalToolName(toolName: unknown): boolean {
         return false;
     }
     return toolName === "wave_run_command" || toolName === "term_command_output";
-}
-
-function isTextPart(
-    part: WaveUIMessage["parts"][number]
-): part is Extract<WaveUIMessage["parts"][number], { type: "text" }> {
-    return part.type === "text" && typeof part.text === "string";
 }
 
 function messageTextIncludesCapabilityDenial(message: WaveUIMessage | undefined): boolean {

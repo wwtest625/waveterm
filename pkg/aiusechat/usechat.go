@@ -909,12 +909,7 @@ func canProcessToolCallInParallel(toolCall uctypes.WaveToolCall) bool {
 	if toolCall.ToolUseData.Approval == uctypes.ApprovalNeedsApproval {
 		return false
 	}
-	switch toolCall.Name {
-	case "capture_screenshot", "term_command_output", "builder_list_files":
-		return true
-	default:
-		return false
-	}
+	return readOnlyAgentTools[toolCall.Name]
 }
 
 func buildToolExecutionPlan(toolCalls []uctypes.WaveToolCall) []toolExecutionGroup {
@@ -1060,9 +1055,6 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 				if prior, ok := seenResultsByKey[key]; ok {
 					toolResults[idx] = prior
 					processed[idx] = true
-					if stopReason.ToolCalls[idx].ToolUseData != nil {
-						stopReason.ToolCalls[idx].ToolUseData.Status = stopReason.ToolCalls[idx].ToolUseData.Status
-					}
 					continue
 				}
 				alreadyQueued := false

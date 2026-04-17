@@ -6,16 +6,15 @@ import { atoms } from "@/app/store/global";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { memo, startTransition, useEffect, useRef, useState } from "react";
+import { formatModeLabel, isThinkingPhaseLabel } from "./agentstatus";
 import { AIModeDropdown } from "./aimode";
-import { AIToolUseGroup } from "./aitooluse";
-import { type AgentRuntimeSnapshot, type WaveUIMessage, type WaveUIMessagePart } from "./aitypes";
+import { AIToolUseGroup, getToolDisplayName } from "./aitooluse";
+import { type AgentRuntimeSnapshot, type WaveUIMessage, type WaveUIMessagePart, AI_CODE_FONT_FAMILY, isTextPart, isToolDetailPart } from "./aitypes";
 import { getFirstExecutableCommandFromMessage, isSafeToAutoExecute } from "./autoexecute-util";
 import { formatCommandDuration } from "./command-duration";
-import { AgentMode, WaveAIModel } from "./waveai-model";
+import { WaveAIModel } from "./waveai-model";
 
 export { formatCommandDuration } from "./command-duration";
-
-const AI_CODE_FONT_FAMILY = '"JetBrains Mono", monospace';
 
 interface AIPanelMessagesProps {
     messages: WaveUIMessage[];
@@ -58,18 +57,6 @@ type TaskChainDisplayState = {
 const RAW_OUTPUT_COLLAPSE_LINES = 5;
 const TASK_CHAIN_OUTPUT_COLLAPSE_LINES = 3;
 const THINKING_OUTPUT_COLLAPSE_LINES = 4;
-
-const ToolDetailTypes = new Set(["data-tooluse", "data-toolprogress"]);
-
-function isTextPart(part: WaveUIMessagePart): part is WaveUIMessagePart & { type: "text"; text: string } {
-    return part.type === "text" && typeof part.text === "string";
-}
-
-function isToolDetailPart(
-    part: WaveUIMessagePart
-): part is WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" } {
-    return ToolDetailTypes.has(part.type);
-}
 
 function normalizeAssistantText(text: string): string {
     const trimmed = text.trim();
@@ -235,22 +222,7 @@ export function formatExitCodeLabel(exitCode?: number): string | undefined {
 }
 
 function getToolStepTitle(toolName: string): string {
-    switch (toolName) {
-        case "wave_run_command":
-            return "执行命令";
-        case "term_command_output":
-            return "读取终端输出";
-        case "read_text_file":
-            return "读取文件";
-        case "read_dir":
-            return "读取目录";
-        case "write_text_file":
-            return "写入文件";
-        case "edit_text_file":
-            return "精准编辑";
-        default:
-            return toolName.replace(/_/g, " ");
-    }
+    return getToolDisplayName(toolName);
 }
 
 function normalizeToolDetail(desc?: string): string | undefined {
@@ -626,10 +598,6 @@ function getTaskChainToneClass(state?: AgentRuntimeSnapshot["state"] | TaskChain
         default:
             return "border-emerald-900/50 bg-emerald-950/20 text-emerald-100";
     }
-}
-
-function isThinkingPhaseLabel(label?: string): boolean {
-    return typeof label === "string" && label.trim().toLowerCase() === "thinking";
 }
 
 export function shouldAnimateTaskStep(
@@ -1210,17 +1178,6 @@ const CompletionHeader = memo(() => {
 
 CompletionHeader.displayName = "CompletionHeader";
 
-function getModeLabel(mode: AgentMode): string {
-    switch (mode) {
-        case "planning":
-            return "Planning";
-        case "auto-approve":
-            return "Auto approve";
-        default:
-            return "Default";
-    }
-}
-
 const CompactRateLimit = memo(() => {
     const rateLimitInfo = useAtomValue(atoms.waveAIRateLimitInfoAtom);
 
@@ -1254,7 +1211,7 @@ const PanelHero = memo(() => {
     const agentMode = useAtomValue(model.agentModeAtom);
     const runtime = useAtomValue(model.agentRuntimeAtom);
     const providerLabel = "Wave AI";
-    const modeLabel = getModeLabel(agentMode);
+    const modeLabel = formatModeLabel(agentMode);
     const stateLabel = runtime.phaseLabel || "Ready";
 
     return (

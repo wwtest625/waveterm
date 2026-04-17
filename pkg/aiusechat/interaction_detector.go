@@ -36,11 +36,6 @@ type interactionLLMAnalyzer func(interactionLLMInput) (*detectedInteraction, err
 var interactionDetectorLLM interactionLLMAnalyzer
 
 var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
-var passwordPromptPattern = regexp.MustCompile(`(?i)(password|passphrase|验证码|密码)\s*[:：]\s*$`)
-var confirmPromptPattern = regexp.MustCompile(`(?i)(\[y/n\]|\[y/N\]|\[Y/n\]|\(yes/no\)|\bconfirm\b|\bcontinue\?\b|是否继续|确认继续)`)
-var selectPromptPattern = regexp.MustCompile(`(?i)(select|choose|choice|enter\s+number|请输入编号|请选择|输入序号)`)
-var enterPromptPattern = regexp.MustCompile(`(?i)(press\s+enter|press\s+any\s+key|hit\s+enter|按回车|按任意键)`)
-var pagerPromptPattern = regexp.MustCompile(`(?i)(--more--|\(END\)|^:\s*$|press\s+q\s+to\s+quit|按\s*q\s*退出)`)
 var llmFallbackCandidatePattern = regexp.MustCompile(`(?i)([:：]\s*$|\?\s*$|input|enter|choose|select|token|otp|verification|login|username|password|passphrase)`)
 
 func normalizeInteractionOutput(output string) string {
@@ -329,59 +324,15 @@ func detectInteractionByRules(output string) *detectedInteraction {
 		return normalizeDetectedInteraction(interaction)
 	}
 
-	switch {
-	case pagerPromptPattern.MatchString(lastLine):
-		exitKey, exitAppend := detectExitKey(output)
-		return normalizeDetectedInteraction(&detectedInteraction{
-			AwaitingInput:     true,
-			PromptHint:        "Pager is waiting for input",
-			InputOptions:      []string{"q"},
-			Interaction:       "pager",
-			ExitKey:           exitKey,
-			ExitAppendNewline: exitAppend,
-			Source:            "rules",
-		})
-	case passwordPromptPattern.MatchString(lastLine):
-		return normalizeDetectedInteraction(&detectedInteraction{
-			AwaitingInput: true,
-			PromptHint:    "Password or passphrase required",
-			Interaction:   "password",
-			Source:        "rules",
-		})
-	case confirmPromptPattern.MatchString(lastLine):
+	if promptSuffixPattern.MatchString(lastLine) && !isPromptExcluded(lastLine) && hasPromptKeyword(lastLine) {
 		return normalizeDetectedInteraction(&detectedInteraction{
 			AwaitingInput: true,
 			PromptHint:    strings.TrimSpace(lastLine),
-			InputOptions:  []string{"y", "n"},
-			Interaction:   "confirm",
+			Interaction:   "freeform",
 			Source:        "rules",
 		})
-	case enterPromptPattern.MatchString(lastLine):
-		return normalizeDetectedInteraction(&detectedInteraction{
-			AwaitingInput: true,
-			PromptHint:    strings.TrimSpace(lastLine),
-			InputOptions:  []string{""},
-			Interaction:   "enter",
-			Source:        "rules",
-		})
-	case selectPromptPattern.MatchString(lastLine):
-		return normalizeDetectedInteraction(&detectedInteraction{
-			AwaitingInput: true,
-			PromptHint:    strings.TrimSpace(lastLine),
-			Interaction:   "select",
-			Source:        "rules",
-		})
-	default:
-		if promptSuffixPattern.MatchString(lastLine) && !isPromptExcluded(lastLine) && hasPromptKeyword(lastLine) {
-			return normalizeDetectedInteraction(&detectedInteraction{
-				AwaitingInput: true,
-				PromptHint:    strings.TrimSpace(lastLine),
-				Interaction:   "freeform",
-				Source:        "rules",
-			})
-		}
-		return nil
 	}
+	return nil
 }
 
 func shouldTriggerInteractionLLMFallback(commandText string, output string, snapshot *wshrpc.CommandAgentGetCommandResultRtnData) bool {

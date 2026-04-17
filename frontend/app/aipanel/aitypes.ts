@@ -783,3 +783,17 @@ export function getContextLevelLabel(level: ContextThresholdLevel): string {
             return "正常";
     }
 }
+
+export const AI_CODE_FONT_FAMILY = '"JetBrains Mono", monospace';
+
+export function isToolDetailPart(
+    part: WaveUIMessagePart
+): part is WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" } {
+    return part.type === "data-tooluse" || part.type === "data-toolprogress";
+}
+
+export function isTextPart(
+    part: WaveUIMessagePart
+): part is WaveUIMessagePart & { type: "text"; text: string } {
+    return part.type === "text" && typeof part.text === "string";
+}

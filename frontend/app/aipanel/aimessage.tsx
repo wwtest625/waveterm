@@ -7,10 +7,8 @@ import { memo, useCallback, useEffect, useRef } from "react";
 import { getFileIcon } from "./ai-utils";
 import { AIFeedbackButtons } from "./aifeedbackbuttons";
 import { AIToolUseGroup } from "./aitooluse";
-import { WaveUIMessage, WaveUIMessagePart } from "./aitypes";
+import { WaveUIMessage, WaveUIMessagePart, AI_CODE_FONT_FAMILY, isToolDetailPart } from "./aitypes";
 import { WaveAIModel } from "./waveai-model";
-
-const AI_CODE_FONT_FAMILY = '"JetBrains Mono", monospace';
 
 const AIThinking = memo(
     ({
@@ -158,12 +156,6 @@ const isDisplayPart = (part: WaveUIMessagePart): boolean => {
         part.type === "data-toolprogress" ||
         (part.type.startsWith("tool-") && "state" in part && part.state === "input-available")
     );
-};
-
-const isToolDetailPart = (
-    part: WaveUIMessagePart
-): part is WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" } => {
-    return part.type === "data-tooluse" || part.type === "data-toolprogress";
 };
 
 const isTextLikeDisplayPart = (part: WaveUIMessagePart): boolean => {
