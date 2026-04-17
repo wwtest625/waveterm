@@ -125,11 +125,14 @@ tasks:
         desc: Package the application for the current platform.
         cmds:
             - npm run build:prod && npm exec electron-builder -- -c electron-builder.config.cjs -p never {{.CLI_ARGS}}
+            - node scripts/finalize-package-output.cjs make/.package-output make
         deps:
             - clean
             - npm:install
             - build:backend
             - build:tsunamiscaffold
+        env:
+            WAVETERM_ELECTRON_BUILDER_OUTPUT_DIR: make/.package-output
 
     build:frontend:dev:
         desc: Build the frontend in development mode.

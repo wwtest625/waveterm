@@ -775,6 +775,19 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 	}
 
 	toolCall.ToolUseData.RunTs = time.Now().UnixMilli()
+
+	if toolCall.Name == "waveai_ask_user" {
+		askResult := processAskUserToolCall(toolCall, chatOpts, sseHandler)
+		if askResult.ErrorText != "" {
+			toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
+			toolCall.ToolUseData.ErrorMessage = askResult.ErrorText
+		} else {
+			toolCall.ToolUseData.Status = uctypes.ToolUseStatusCompleted
+			toolCall.ToolUseData.OutputText = askResult.Text
+		}
+		return askResult
+	}
+
 	result := ResolveToolCall(toolDef, toolCall, chatOpts)
 
 	if result.ErrorText != "" {

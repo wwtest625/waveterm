@@ -72,13 +72,13 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	if !strings.Contains(basePrompt, "For file edits, prefer the latest file content") {
 		t.Fatalf("expected base prompt to keep the edit workflow hint, got %q", basePrompt)
 	}
-	if !strings.Contains(basePrompt, "Execution policy: ask questions only when critical execution parameters are missing") {
-		t.Fatalf("expected base prompt to include execution policy guidance, got %q", basePrompt)
+	if !strings.Contains(basePrompt, "use the waveai_ask_user tool to ask the user") {
+		t.Fatalf("expected base prompt to include clarification policy with waveai_ask_user, got %q", basePrompt)
 	}
 	if !strings.Contains(basePrompt, "execute immediately using available tools") {
 		t.Fatalf("expected base prompt to prioritize direct execution when parameters are sufficient, got %q", basePrompt)
 	}
-	if !strings.Contains(basePrompt, "Ask at most 3 concrete questions") {
+	if !strings.Contains(basePrompt, "Ask at most 3 questions per turn") {
 		t.Fatalf("expected base prompt to bound clarification question count, got %q", basePrompt)
 	}
 	if strings.Contains(basePrompt, "minimize the number of separate commands") {
@@ -95,8 +95,8 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	if strings.Contains(noToolsStylePrompt, "cannot access the terminal") {
 		t.Fatalf("expected prompt generation to avoid a separate no-tools prompt, got %q", noToolsStylePrompt)
 	}
-	if !strings.Contains(noToolsStylePrompt, "Execution policy: ask questions only when critical execution parameters are missing") {
-		t.Fatalf("expected unified prompt to keep execution policy even when tools are unavailable in the request, got %q", noToolsStylePrompt)
+	if !strings.Contains(noToolsStylePrompt, "use the waveai_ask_user tool to ask the user") {
+		t.Fatalf("expected unified prompt to keep clarification policy even when tools are unavailable in the request, got %q", noToolsStylePrompt)
 	}
 
 	strictPromptParts := getSystemPrompt("mixtral-8x7b", false, AgentModeDefault)
@@ -107,8 +107,8 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	if !strings.Contains(strictCombined, SystemPromptText_StrictToolAddOn) {
 		t.Fatalf("expected strict-tool addon to be present for strict models, got %q", strictCombined)
 	}
-	if strings.Contains(strictCombined, "Execution policy: ask questions only when critical execution parameters are missing") {
-		t.Fatalf("expected strict-tool prompt to avoid execution-policy clarification text, got %q", strictCombined)
+	if strings.Contains(strictCombined, "use the waveai_ask_user tool to ask the user") {
+		t.Fatalf("expected strict-tool prompt to avoid clarification policy text, got %q", strictCombined)
 	}
 
 	builderPrompt := getSystemPrompt("gpt-5", true, AgentModeDefault)

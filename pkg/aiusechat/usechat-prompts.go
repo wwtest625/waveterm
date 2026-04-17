@@ -44,7 +44,7 @@ var SystemPromptText_EditWorkflowAddOn = `For file edits, prefer the latest file
 var SystemPromptText_ReadFileWorkflowAddOn = `For reading files, use read_text_file instead of shell commands like "cat". When reading large files, use offset and limit parameters to read specific portions. For logs or command output, reading from the tail (offset = total_lines - limit) is often more useful than reading from the beginning.`
 
 // 单一澄清策略：只在缺关键执行参数时提问，信息足够就直接执行。
-var SystemPromptText_ExecutionPolicyAddOn = `Execution policy: ask questions only when critical execution parameters are missing and the implementation outcome would change. Ask at most 3 concrete questions. If the user explicitly requests a modification and required parameters are already provided, execute immediately using available tools. Do not ask about reversible minor preferences or ask whether to continue required next steps.`
+var SystemPromptText_ExecutionPolicyAddOn = `Clarification policy: when critical execution parameters are missing and the implementation outcome would change, use the waveai_ask_user tool to ask the user. Do NOT ask questions in plain text — always use the tool. Ask at most 3 questions per turn. If the user explicitly requests a modification and required parameters are already provided, execute immediately using available tools. Do not ask about reversible minor preferences or ask whether to continue required next steps.`
 
 func getModeAwareSystemPromptText(mode AgentMode) string {
 	mode = resolveAgentMode(string(mode))
@@ -84,6 +84,23 @@ func getToolCapabilityPrompt(tools []uctypes.ToolDefinition) string {
 	}
 	if available["waveai_todo_read"] {
 		lines = append(lines, "- waveai_todo_read: read the current task list with focus chain state and progress.")
+	}
+	if available["waveai_ask_user"] {
+		lines = append(lines, "- waveai_ask_user: ask the user a clarification question when critical parameters are missing. Always use this tool instead of plain text questions.")
+	}
+	if available["waveai_use_skill"] {
+		lines = append(lines, "- waveai_use_skill: activate a skill to get its full instructions and resources. Use when the user's request matches an available skill's purpose.")
+	}
+	if available["waveai_create_skill"] {
+		lines = append(lines, "- waveai_create_skill: create a new reusable skill from instructions. Use when the user asks to save a workflow or define a reusable procedure.")
+	}
+	if available["waveai_use_skill"] {
+		mgr := getSkillsManager()
+		if mgr != nil {
+			if skillsPrompt := mgr.BuildSkillsPrompt(); skillsPrompt != "" {
+				lines = append(lines, skillsPrompt)
+			}
+		}
 	}
 	if len(lines) == 1 {
 		return ""

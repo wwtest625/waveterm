@@ -227,6 +227,11 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 	if chatOpts != nil {
 		tools = append(tools, GetTodoWriteToolDefinition(chatOpts.ChatId, &chatOpts.Config))
 		tools = append(tools, GetTodoReadToolDefinition(chatOpts.ChatId, &chatOpts.Config))
+		tools = append(tools, GetAskUserToolDefinition())
+	}
+	if hasEnabledSkills() {
+		tools = append(tools, GetUseSkillToolDefinition())
+		tools = append(tools, GetCreateSkillToolDefinition())
 	}
 	if widgetAccess {
 		// Only add screenshot tool for:

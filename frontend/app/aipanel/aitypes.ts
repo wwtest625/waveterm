@@ -30,6 +30,27 @@ export type InteractionResult = {
     exitappendnewline?: boolean;
 };
 
+export type AskUserKind = "freeform" | "select" | "multiselect" | "confirm";
+
+export type AskUserOption = {
+    id: string;
+    label: string;
+    value?: string;
+};
+
+export type AskUserData = {
+    actionid: string;
+    kind: AskUserKind;
+    prompt: string;
+    options?: AskUserOption[];
+    default?: string;
+    required?: boolean;
+    taskid?: string;
+    status?: string;
+    answer?: string;
+    answers?: string[];
+};
+
 export type AgentToolCall = {
     id: string;
     name: string;
@@ -153,10 +174,15 @@ type WaveUIDataTypes = {
 
     ask: {
         actionid: string;
-        kind: string;
+        kind: AskUserKind;
         prompt: string;
+        options?: AskUserOption[];
+        default?: string;
+        required?: boolean;
+        taskid?: string;
         status?: string;
-        options?: string[];
+        answer?: string;
+        answers?: string[];
     };
 
     interaction: {
@@ -331,6 +357,7 @@ export type AgentRuntimeEvent =
     | { type: "TOOL_CALL_FAILED"; result: ToolResultEnvelope; retryable?: boolean }
     | { type: "APPROVAL_REQUIRED"; reason?: string }
     | { type: "INTERACTION_REQUIRED"; reason?: string }
+    | { type: "ASK_USER"; reason?: string }
     | { type: "APPROVAL_TIMEOUT"; reason?: string }
     | { type: "APPROVAL_RESOLVED"; approved: boolean; reason?: string }
     | { type: "VERIFY_STARTED"; phaseLabel?: string }
@@ -520,6 +547,11 @@ export function getLatestToolProgressPart(
     return part?.type === "data-toolprogress" ? part : null;
 }
 
+export function getLatestAskPart(message?: WaveUIMessage): (WaveUIMessagePart & { type: "data-ask" }) | null {
+    const part = [...(message?.parts ?? [])].reverse().find((candidate) => candidate.type === "data-ask");
+    return part?.type === "data-ask" ? part : null;
+}
+
 export function toolCallFromPart(part: WaveUIMessagePart & { type: "data-tooluse" }, taskId: string): ToolCallEnvelope {
     return {
         requestId: part.data.toolcallid,
@@ -624,6 +656,14 @@ export function reduceAgentRuntimeSnapshot(
                 state: "interacting",
                 phaseLabel: "Waiting Input",
                 blockedReason: event.reason ?? "Waiting for command input",
+            };
+        case "ASK_USER":
+            return {
+                ...current,
+                visible: true,
+                state: "interacting",
+                phaseLabel: "Waiting for Answer",
+                blockedReason: event.reason ?? "Waiting for user input",
             };
         case "APPROVAL_TIMEOUT":
             return {

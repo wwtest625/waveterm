@@ -7,6 +7,7 @@ import {
     AgentRuntimeSnapshot,
     AgentRuntimeSnapshotPatch,
     AgentTaskState,
+    AskUserData,
     CommandInteractionState,
     ToolCallEnvelope,
     ToolResultEnvelope,
@@ -100,6 +101,7 @@ export class WaveAIModel {
     focusChainAtom: jotai.PrimitiveAtom<AgentFocusChainState | null> = jotai.atom(null) as jotai.PrimitiveAtom<AgentFocusChainState | null>;
     contextUsageAtom: jotai.PrimitiveAtom<number> = jotai.atom(0);
     securityBlockedAtom: jotai.PrimitiveAtom<boolean> = jotai.atom(false);
+    askUserAtom: jotai.PrimitiveAtom<AskUserData | null> = jotai.atom(null) as jotai.PrimitiveAtom<AskUserData | null>;
     containerWidth: jotai.PrimitiveAtom<number> = jotai.atom(0);
     codeBlockMaxWidth!: jotai.Atom<number>;
     inputAtom: jotai.PrimitiveAtom<string> = jotai.atom("");
@@ -603,6 +605,7 @@ export class WaveAIModel {
         globalStore.set(this.contextUsageAtom, 0);
         globalStore.set(this.securityBlockedAtom, false);
         globalStore.set(this.commandInteractionAtom, null);
+        globalStore.set(this.askUserAtom, null);
         const currentChatId = globalStore.get(this.chatId);
         const currentSession = globalStore.get(this.sessionsAtom).find((session) => session.chatid === currentChatId);
         const reusableSession = this.isReusableNewChatSession(currentSession)
@@ -1126,6 +1129,19 @@ export class WaveAIModel {
         } else {
             this.dispatchAgentEvent({ type: "TOOL_CALL_FAILED", result: polled.result, retryable: true });
         }
+    }
+
+    async submitAskUserAnswer(actionId: string, answer: string): Promise<void> {
+        await RpcApi.WaveAIToolApproveCommand(
+            TabRpcClient,
+            {
+                toolcallid: "",
+                actionid: actionId,
+                approval: "answered",
+                value: answer,
+            }
+        );
+        globalStore.set(this.askUserAtom, null);
     }
 
     executeCommandInTerminal(command: string, opts?: { source?: "manual" | "auto" }): boolean {

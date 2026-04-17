@@ -26,14 +26,17 @@ import { AIPanelMessages } from "./aipanelmessages";
 import { shouldHideProgressStatusLines } from "./aitooluse";
 import {
     AgentTaskState,
+    AskUserData,
     WaveChatSessionMeta,
     WaveUIMessage,
+    getLatestAskPart,
     getLatestTaskStatePart,
     getLatestToolProgressPart,
     getLatestToolUsePart,
     toolCallFromPart,
     toolResultFromPart,
 } from "./aitypes";
+import { AskUserCard } from "./askusercard";
 import { TaskProgressPanel } from "./taskprogresspanel";
 import { TelemetryRequiredMessage } from "./telemetryrequired";
 import { WaveAIModel } from "./waveai-model";
@@ -897,6 +900,20 @@ const AIPanelComponentInner = memo(() => {
             globalStore.set(model.commandInteractionAtom, null);
         }
 
+        const latestAsk = getLatestAskPart(lastAssistantMessage);
+        if (latestAsk?.data) {
+            const askData = latestAsk.data as AskUserData;
+            if (askData.status === "pending") {
+                const currentAsk = globalStore.get(model.askUserAtom);
+                if (currentAsk?.actionid !== askData.actionid) {
+                    globalStore.set(model.askUserAtom, askData);
+                    model.dispatchAgentEvent({ type: "ASK_USER", reason: askData.prompt });
+                }
+            } else if (askData.status === "answered" || askData.status === "canceled") {
+                globalStore.set(model.askUserAtom, null);
+            }
+        }
+
         if (latestToolUse) {
             const lastToolCall = toolCallFromPart(latestToolUse, taskId);
             const lastToolResult = toolResultFromPart(latestToolUse, taskId) ?? undefined;
@@ -1351,6 +1368,7 @@ const AIPanelComponentInner = memo(() => {
                         <AIErrorMessage />
                         <AIDroppedFiles model={model} />
                         <CommandInteractionInput />
+                        <AskUserCard />
                         <AIPanelInput onSubmit={handleSubmit} status={status} model={model} />
                     </>
                 )}

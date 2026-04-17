@@ -7,8 +7,10 @@ import {
     getContextLevelColor,
     getContextLevelLabel,
     getDefaultAgentRuntimeSnapshot,
+    getLatestAskPart,
     reduceAgentRuntimeSnapshot,
 } from "../aitypes";
+import type { AskUserData, AskUserKind, AskUserOption } from "../aitypes";
 
 describe("agent runtime reducer", () => {
     it("enters interacting state when command input is required", () => {
@@ -173,5 +175,128 @@ describe("context level UI helpers", () => {
         expect(getContextLevelLabel("warning")).toBe("偏高");
         expect(getContextLevelLabel("critical")).toBe("紧张");
         expect(getContextLevelLabel("maximum")).toBe("已满");
+    });
+});
+
+describe("ASK_USER runtime event", () => {
+    it("enters interacting state when ask user event is dispatched", () => {
+        const next = reduceAgentRuntimeSnapshot(getDefaultAgentRuntimeSnapshot(), {
+            type: "ASK_USER",
+            reason: "请选择部署环境",
+        });
+        expect(next.state).toBe("interacting");
+        expect(next.phaseLabel).toBe("Waiting for Answer");
+        expect(next.blockedReason).toBe("请选择部署环境");
+    });
+
+    it("uses default reason when none provided", () => {
+        const next = reduceAgentRuntimeSnapshot(getDefaultAgentRuntimeSnapshot(), {
+            type: "ASK_USER",
+        });
+        expect(next.state).toBe("interacting");
+        expect(next.blockedReason).toBe("Waiting for user input");
+    });
+});
+
+describe("getLatestAskPart", () => {
+    it("returns null for message without data-ask parts", () => {
+        expect(getLatestAskPart(undefined)).toBeNull();
+        expect(getLatestAskPart({ parts: [] } as any)).toBeNull();
+    });
+
+    it("returns the latest data-ask part", () => {
+        const message = {
+            parts: [
+                { type: "text", text: "hello" },
+                { type: "data-ask", data: { actionid: "ask-1", kind: "freeform", prompt: "test", status: "pending" } },
+                { type: "data-ask", data: { actionid: "ask-2", kind: "select", prompt: "choose", status: "pending" } },
+            ],
+        } as any;
+        const result = getLatestAskPart(message);
+        expect(result).not.toBeNull();
+        expect(result.data.actionid).toBe("ask-2");
+    });
+});
+
+describe("AskUserData types", () => {
+    it("represents a freeform ask with required fields", () => {
+        const data: AskUserData = {
+            actionid: "ask-abc-123",
+            kind: "freeform",
+            prompt: "请提供数据库连接字符串",
+            status: "pending",
+        };
+        expect(data.kind).toBe("freeform");
+        expect(data.prompt).toBeTruthy();
+        expect(data.actionid).toBeTruthy();
+    });
+
+    it("represents a select ask with options", () => {
+        const options: AskUserOption[] = [
+            { id: "dev", label: "开发环境", value: "development" },
+            { id: "prod", label: "生产环境", value: "production" },
+        ];
+        const data: AskUserData = {
+            actionid: "ask-select-1",
+            kind: "select",
+            prompt: "选择部署环境",
+            options,
+            required: true,
+            status: "pending",
+        };
+        expect(data.kind).toBe("select");
+        expect(data.options).toHaveLength(2);
+        expect(data.options![0].id).toBe("dev");
+    });
+
+    it("represents a confirm ask with default value", () => {
+        const data: AskUserData = {
+            actionid: "ask-confirm-1",
+            kind: "confirm",
+            prompt: "确认要删除吗？",
+            default: "no",
+            required: true,
+            status: "pending",
+        };
+        expect(data.kind).toBe("confirm");
+        expect(data.default).toBe("no");
+    });
+
+    it("tracks answered status with answer field", () => {
+        const data: AskUserData = {
+            actionid: "ask-answered-1",
+            kind: "freeform",
+            prompt: "请提供名称",
+            status: "answered",
+            answer: "my-project",
+        };
+        expect(data.status).toBe("answered");
+        expect(data.answer).toBe("my-project");
+    });
+
+    it("associates with a task via taskid", () => {
+        const data: AskUserData = {
+            actionid: "ask-task-1",
+            kind: "select",
+            prompt: "选择框架",
+            options: [{ id: "react", label: "React" }],
+            taskid: "task-123",
+            status: "pending",
+        };
+        expect(data.taskid).toBe("task-123");
+    });
+
+    it("supports all valid AskUserKind values", () => {
+        const kinds: AskUserKind[] = ["freeform", "select", "multiselect", "confirm"];
+        expect(kinds).toHaveLength(4);
+        for (const kind of kinds) {
+            const data: AskUserData = {
+                actionid: `ask-${kind}`,
+                kind,
+                prompt: `test ${kind}`,
+                status: "pending",
+            };
+            expect(data.kind).toBe(kind);
+        }
     });
 });

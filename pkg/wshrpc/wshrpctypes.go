@@ -232,6 +232,18 @@ type WshRpcInterface interface {
 	JobControllerDetachJobCommand(ctx context.Context, jobId string) error
 	JobControllerGetAllJobManagerStatusCommand(ctx context.Context) ([]*JobManagerStatusUpdate, error)
 	BlockJobStatusCommand(ctx context.Context, blockId string) (*BlockJobStatusData, error)
+
+	// skills
+	GetSkillsCommand(ctx context.Context) ([]SkillInfo, error)
+	SetSkillEnabledCommand(ctx context.Context, data CommandSetSkillEnabledData) error
+	CreateSkillCommand(ctx context.Context, data CommandCreateSkillData) (*SkillInfo, error)
+	DeleteSkillCommand(ctx context.Context, data CommandDeleteSkillData) error
+	UpdateSkillCommand(ctx context.Context, data CommandUpdateSkillData) (*SkillInfo, error)
+	ImportSkillZipCommand(ctx context.Context, data CommandImportSkillZipData) (*SkillImportResult, error)
+	OpenSkillsFolderCommand(ctx context.Context) error
+	ReloadSkillsCommand(ctx context.Context) error
+	GetSkillsUserPathCommand(ctx context.Context) (string, error)
+	ReadSkillContentCommand(ctx context.Context, data CommandReadSkillContentData) (*SkillContent, error)
 }
 
 // for frontend
@@ -1219,4 +1231,56 @@ type CommandAgentTermScrollbackData struct {
 	LineStart   int    `json:"linestart,omitempty"`
 	LineEnd     int    `json:"lineend,omitempty"`
 	LastCommand bool   `json:"lastcommand,omitempty"`
+}
+
+type SkillInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Path        string `json:"path"`
+	Directory   string `json:"directory"`
+	Enabled     bool   `json:"enabled"`
+	IsBuiltin   bool   `json:"isbuiltin"`
+	IsUser      bool   `json:"isuser"`
+}
+
+type SkillContent struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
+}
+
+type SkillImportResult struct {
+	Success   bool   `json:"success"`
+	SkillName string `json:"skillname,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+type CommandSetSkillEnabledData struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
+type CommandCreateSkillData struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
+}
+
+type CommandDeleteSkillData struct {
+	Name string `json:"name"`
+}
+
+type CommandUpdateSkillData struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
+}
+
+type CommandImportSkillZipData struct {
+	ZipPath   string `json:"zippath"`
+	Overwrite bool   `json:"overwrite,omitempty"`
+}
+
+type CommandReadSkillContentData struct {
+	Name string `json:"name"`
 }

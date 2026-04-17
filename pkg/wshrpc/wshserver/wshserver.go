@@ -26,6 +26,7 @@ import (
 	"github.com/skratchdot/open-golang/open"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/skills"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
@@ -1907,4 +1908,174 @@ func (ws *WshServer) JobControllerDetachJobCommand(ctx context.Context, jobId st
 
 func (ws *WshServer) BlockJobStatusCommand(ctx context.Context, blockId string) (*wshrpc.BlockJobStatusData, error) {
 	return jobcontroller.GetBlockJobStatus(ctx, blockId)
+}
+
+func (ws *WshServer) GetSkillsCommand(ctx context.Context) ([]wshrpc.SkillInfo, error) {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("skills manager not initialized")
+	}
+	allSkills := mgr.GetAllSkills()
+	dirs := mgr.GetSkillDirectories()
+	builtinDir := ""
+	userDir := ""
+	if len(dirs) > 0 {
+		builtinDir = dirs[0].Path
+	}
+	if len(dirs) > 1 {
+		userDir = dirs[1].Path
+	}
+	var result []wshrpc.SkillInfo
+	for _, skill := range allSkills {
+		isBuiltin := strings.HasPrefix(skill.Directory, builtinDir) && builtinDir != ""
+		isUser := strings.HasPrefix(skill.Directory, userDir) && userDir != ""
+		result = append(result, wshrpc.SkillInfo{
+			Name:        skill.Metadata.Name,
+			Description: skill.Metadata.Description,
+			Path:        skill.Path,
+			Directory:   skill.Directory,
+			Enabled:     skill.Enabled,
+			IsBuiltin:   isBuiltin,
+			IsUser:      isUser,
+		})
+	}
+	return result, nil
+}
+
+func (ws *WshServer) SetSkillEnabledCommand(ctx context.Context, data wshrpc.CommandSetSkillEnabledData) error {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return fmt.Errorf("skills manager not initialized")
+	}
+	return mgr.SetSkillEnabled(data.Name, data.Enabled)
+}
+
+func (ws *WshServer) CreateSkillCommand(ctx context.Context, data wshrpc.CommandCreateSkillData) (*wshrpc.SkillInfo, error) {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("skills manager not initialized")
+	}
+	metadata := skills.SkillMetadata{
+		Name:        data.Name,
+		Description: data.Description,
+	}
+	skill, err := mgr.CreateUserSkill(metadata, data.Content)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.SkillInfo{
+		Name:        skill.Metadata.Name,
+		Description: skill.Metadata.Description,
+		Path:        skill.Path,
+		Directory:   skill.Directory,
+		Enabled:     skill.Enabled,
+		IsUser:      true,
+	}, nil
+}
+
+func (ws *WshServer) DeleteSkillCommand(ctx context.Context, data wshrpc.CommandDeleteSkillData) error {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return fmt.Errorf("skills manager not initialized")
+	}
+	return mgr.DeleteUserSkill(data.Name)
+}
+
+func (ws *WshServer) UpdateSkillCommand(ctx context.Context, data wshrpc.CommandUpdateSkillData) (*wshrpc.SkillInfo, error) {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("skills manager not initialized")
+	}
+	metadata := skills.SkillMetadata{
+		Name:        data.Name,
+		Description: data.Description,
+	}
+	err := mgr.UpdateUserSkill(data.Name, metadata, data.Content)
+	if err != nil {
+		return nil, err
+	}
+	skill := mgr.GetSkill(data.Name)
+	if skill == nil {
+		return nil, fmt.Errorf("skill %q not found after update", data.Name)
+	}
+	return &wshrpc.SkillInfo{
+		Name:        skill.Metadata.Name,
+		Description: skill.Metadata.Description,
+		Path:        skill.Path,
+		Directory:   skill.Directory,
+		Enabled:     skill.Enabled,
+		IsUser:      true,
+	}, nil
+}
+
+func (ws *WshServer) ImportSkillZipCommand(ctx context.Context, data wshrpc.CommandImportSkillZipData) (*wshrpc.SkillImportResult, error) {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("skills manager not initialized")
+	}
+	result := mgr.ImportSkillZip(data.ZipPath, data.Overwrite)
+	rtn := &wshrpc.SkillImportResult{
+		Success:   result.Success,
+		SkillName: result.SkillName,
+		Error:     result.Error,
+	}
+	return rtn, nil
+}
+
+func (ws *WshServer) OpenSkillsFolderCommand(ctx context.Context) error {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return fmt.Errorf("skills manager not initialized")
+	}
+	dirs := mgr.GetSkillDirectories()
+	userPath := ""
+	for _, dir := range dirs {
+		if !strings.HasPrefix(dir.Path, "builtin:") && dir.Path != "" {
+			userPath = dir.Path
+			break
+		}
+	}
+	if userPath == "" {
+		return fmt.Errorf("no user skills directory found")
+	}
+	os.MkdirAll(userPath, 0755)
+	return open.Run(userPath)
+}
+
+func (ws *WshServer) ReloadSkillsCommand(ctx context.Context) error {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return fmt.Errorf("skills manager not initialized")
+	}
+	return mgr.LoadAllSkills()
+}
+
+func (ws *WshServer) GetSkillsUserPathCommand(ctx context.Context) (string, error) {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return "", fmt.Errorf("skills manager not initialized")
+	}
+	dirs := mgr.GetSkillDirectories()
+	for _, dir := range dirs {
+		if !strings.HasPrefix(dir.Path, "builtin:") && dir.Path != "" {
+			return dir.Path, nil
+		}
+	}
+	return "", fmt.Errorf("no user skills directory found")
+}
+
+func (ws *WshServer) ReadSkillContentCommand(ctx context.Context, data wshrpc.CommandReadSkillContentData) (*wshrpc.SkillContent, error) {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("skills manager not initialized")
+	}
+	skill := mgr.GetSkill(data.Name)
+	if skill == nil {
+		return nil, fmt.Errorf("skill %q not found", data.Name)
+	}
+	return &wshrpc.SkillContent{
+		Name:        skill.Metadata.Name,
+		Description: skill.Metadata.Description,
+		Content:     skill.Content,
+	}, nil
 }

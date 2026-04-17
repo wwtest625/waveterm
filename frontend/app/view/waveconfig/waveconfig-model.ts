@@ -8,6 +8,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { SecretsContent } from "@/app/view/waveconfig/secretscontent";
+import { SkillsVisualContent } from "@/app/view/waveconfig/skillsvisualcontent";
 import { SettingsVisualContent } from "@/app/view/waveconfig/settingsvisualcontent";
 import { ConnectionsVisualContent } from "@/app/view/waveconfig/connectionsvisualcontent";
 import { WidgetsVisualContent } from "@/app/view/waveconfig/widgetsvisualcontent";
@@ -106,6 +107,14 @@ const configFiles: ConfigFile[] = [
         validator: validateWaveAiJson,
         hasJsonView: true,
         visualComponent: WaveAIVisualContent,
+    },
+    {
+        name: "AI Skills",
+        path: "skills_state.json",
+        language: "json",
+        description: "Manage AI skill modules",
+        hasJsonView: false,
+        visualComponent: SkillsVisualContent,
     },
     {
         name: "Tab Backgrounds",

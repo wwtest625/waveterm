@@ -341,6 +341,13 @@ declare global {
         targetaction?: string;
     };
 
+    // wshrpc.CommandCreateSkillData
+    type CommandCreateSkillData = {
+        name: string;
+        description: string;
+        content: string;
+    };
+
     // wshrpc.CommandCreateSubBlockData
     type CommandCreateSubBlockData = {
         parentblockid: string;
@@ -374,6 +381,11 @@ declare global {
     type CommandDeleteFileData = {
         path: string;
         recursive: boolean;
+    };
+
+    // wshrpc.CommandDeleteSkillData
+    type CommandDeleteSkillData = {
+        name: string;
     };
 
     // wshrpc.CommandDeleteWaveAISessionData
@@ -446,6 +458,12 @@ declare global {
     // wshrpc.CommandGetWaveAIChatData
     type CommandGetWaveAIChatData = {
         chatid: string;
+    };
+
+    // wshrpc.CommandImportSkillZipData
+    type CommandImportSkillZipData = {
+        zippath: string;
+        overwrite?: boolean;
     };
 
     // wshrpc.CommandJobCmdExitedData
@@ -565,6 +583,11 @@ declare global {
         modts?: number;
     };
 
+    // wshrpc.CommandReadSkillContentData
+    type CommandReadSkillContentData = {
+        name: string;
+    };
+
     // wshrpc.CommandRemoteDisconnectFromJobManagerData
     type CommandRemoteDisconnectFromJobManagerData = {
         jobid: string;
@@ -666,6 +689,12 @@ declare global {
         delete?: boolean;
     };
 
+    // wshrpc.CommandSetSkillEnabledData
+    type CommandSetSkillEnabledData = {
+        name: string;
+        enabled: boolean;
+    };
+
     // wshrpc.CommandStartBuilderData
     type CommandStartBuilderData = {
         builderid: string;
@@ -721,6 +750,13 @@ declare global {
         linestart: number;
         lines: string[];
         lastupdated: number;
+    };
+
+    // wshrpc.CommandUpdateSkillData
+    type CommandUpdateSkillData = {
+        name: string;
+        description: string;
+        content: string;
     };
 
     // wshrpc.CommandUpdateWaveAISessionData
@@ -1562,7 +1598,6 @@ declare global {
         "ai:fixedfontsize"?: number;
         "waveai:showcloudmodes"?: boolean;
         "waveai:defaultmode"?: string;
-        "waveai:skipapproval"?: boolean;
         "term:*"?: boolean;
         "term:fontsize"?: number;
         "term:fontfamily"?: string;
@@ -1637,6 +1672,33 @@ declare global {
         "tsunami:sdkreplacepath"?: string;
         "tsunami:sdkversion"?: string;
         "tsunami:gopath"?: string;
+        "skills:enabled"?: boolean;
+        "skills:dir"?: string;
+    };
+
+    // wshrpc.SkillContent
+    type SkillContent = {
+        name: string;
+        description: string;
+        content: string;
+    };
+
+    // wshrpc.SkillImportResult
+    type SkillImportResult = {
+        success: boolean;
+        skillname?: string;
+        error?: string;
+    };
+
+    // wshrpc.SkillInfo
+    type SkillInfo = {
+        name: string;
+        description: string;
+        path: string;
+        directory: string;
+        enabled: boolean;
+        isbuiltin: boolean;
+        isuser: boolean;
     };
 
     // waveobj.StickerClickOptsType
@@ -1779,6 +1841,9 @@ declare global {
         "waveai:requestcount"?: number;
         "waveai:toolusecount"?: number;
         "waveai:tooluseerrorcount"?: number;
+        "waveai:cheatsheetrefreshcount"?: number;
+        "waveai:cheatsheetmodelcallcount"?: number;
+        "waveai:tabstaterefreshcount"?: number;
         "waveai:tooldetail"?: {[key: string]: number};
         "waveai:premiumreq"?: number;
         "waveai:proxyreq"?: number;
@@ -2071,6 +2136,7 @@ declare global {
         title?: string;
         summary?: string;
         cheatsheet?: SessionCheatsheet;
+        taskstate?: UITaskProgressState;
         createdts?: number;
         updatedts?: number;
         favorite?: boolean;
@@ -2083,6 +2149,18 @@ declare global {
     type UIContext = {
         windowid: string;
         activetabid: string;
+    };
+
+    // uctypes.UIFocusChainState
+    type UIFocusChainState = {
+        taskid?: string;
+        focusedtodoid?: string;
+        chainprogress?: number;
+        totaltodos?: number;
+        completedtodos?: number;
+        currentcontextusage?: number;
+        lastfocuschangets?: number;
+        autotransition?: boolean;
     };
 
     // uctypes.UIMessage
@@ -2111,6 +2189,67 @@ declare global {
         id?: string;
         data?: any;
         providerMetadata?: {[key: string]: any};
+    };
+
+    // uctypes.UISubtask
+    type UISubtask = {
+        id: string;
+        content: string;
+        description?: string;
+        toolcalls?: UIToolCall[];
+    };
+
+    // uctypes.UITaskItem
+    type UITaskItem = {
+        id: string;
+        title: string;
+        description?: string;
+        status: string;
+        priority?: string;
+        order?: number;
+        kind?: string;
+        notes?: string;
+        subtasks?: UISubtask[];
+        toolcalls?: UIToolCall[];
+        isfocused?: boolean;
+        startedts?: number;
+        completedts?: number;
+        focusedts?: number;
+        createdts?: number;
+        updatedts?: number;
+        contextusagepercent?: number;
+    };
+
+    // uctypes.UITaskProgressState
+    type UITaskProgressState = {
+        version?: number;
+        planid?: string;
+        source?: string;
+        status?: string;
+        currenttaskid?: string;
+        tasks?: UITaskItem[];
+        summary?: UITaskProgressSummary;
+        blockedreason?: string;
+        lastupdatedts?: number;
+        focuschain?: UIFocusChainState;
+    };
+
+    // uctypes.UITaskProgressSummary
+    type UITaskProgressSummary = {
+        total?: number;
+        completed?: number;
+        inprogress?: number;
+        pending?: number;
+        blocked?: number;
+        percent?: number;
+    };
+
+    // uctypes.UIToolCall
+    type UIToolCall = {
+        id: string;
+        name: string;
+        parameters?: {[key: string]: any};
+        timestamp: number;
     };
 
     // wshrpc.UpdateKnownHostKeyData

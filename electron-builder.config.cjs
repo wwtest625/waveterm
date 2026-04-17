@@ -38,7 +38,7 @@ const config = {
         },
     ],
     directories: {
-        output: "make",
+        output: process.env.WAVETERM_ELECTRON_BUILDER_OUTPUT_DIR || "make",
     },
     asarUnpack: [
         "dist/bin/**/*", // wavesrv and wsh binaries

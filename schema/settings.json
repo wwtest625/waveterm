@@ -318,6 +318,14 @@
         },
         "tsunami:gopath": {
           "type": "string"
+        },
+        "skills:enabled": {
+          "type": "boolean",
+          "description": "Enable or disable the AI skills system"
+        },
+        "skills:dir": {
+          "type": "string",
+          "description": "Custom directory for user skills (default: ~/.config/waveterm/skills)"
         }
       },
       "additionalProperties": false,

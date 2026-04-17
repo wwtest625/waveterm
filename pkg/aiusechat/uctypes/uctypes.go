@@ -104,8 +104,37 @@ const (
 	PendingActionOptionSelect        = "option-select"
 	PendingActionInteractionInput    = "interaction-input"
 	PendingActionCompletionConfirm   = "completion-confirm"
+	PendingActionAskUser             = "ask-user"
 	PendingActionCanceled            = "canceled"
 )
+
+type AskUserKind string
+
+const (
+	AskUserFreeform    AskUserKind = "freeform"
+	AskUserSelect      AskUserKind = "select"
+	AskUserMultiSelect AskUserKind = "multiselect"
+	AskUserConfirm     AskUserKind = "confirm"
+)
+
+type AskUserOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Value string `json:"value,omitempty"`
+}
+
+type UIMessageDataAsk struct {
+	ActionId string         `json:"actionid"`
+	Kind     AskUserKind    `json:"kind"`
+	Prompt   string         `json:"prompt"`
+	Options  []AskUserOption `json:"options,omitempty"`
+	Default  string         `json:"default,omitempty"`
+	Required bool           `json:"required,omitempty"`
+	TaskId   string         `json:"taskid,omitempty"`
+	Status   string         `json:"status,omitempty"`
+	Answer   string         `json:"answer,omitempty"`
+	Answers  []string       `json:"answers,omitempty"`
+}
 
 type TaskProgressStatus string
 

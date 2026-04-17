@@ -172,6 +172,11 @@ class RpcApiType {
         return client.wshRpcCall("createblock", data, opts);
     }
 
+    // command "createskill" [call]
+    CreateSkillCommand(client: WshClient, data: CommandCreateSkillData, opts?: RpcOpts): Promise<SkillInfo> {
+        return client.wshRpcCall("createskill", data, opts);
+    }
+
     // command "createsubblock" [call]
     CreateSubBlockCommand(client: WshClient, data: CommandCreateSubBlockData, opts?: RpcOpts): Promise<ORef> {
         return client.wshRpcCall("createsubblock", data, opts);
@@ -195,6 +200,11 @@ class RpcApiType {
     // command "deletebuilder" [call]
     DeleteBuilderCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("deletebuilder", data, opts);
+    }
+
+    // command "deleteskill" [call]
+    DeleteSkillCommand(client: WshClient, data: CommandDeleteSkillData, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("deleteskill", data, opts);
     }
 
     // command "deletesubblock" [call]
@@ -432,6 +442,16 @@ class RpcApiType {
         return client.wshRpcCall("getsecretsnames", null, opts);
     }
 
+    // command "getskills" [call]
+    GetSkillsCommand(client: WshClient, opts?: RpcOpts): Promise<SkillInfo[]> {
+        return client.wshRpcCall("getskills", null, opts);
+    }
+
+    // command "getskillsuserpath" [call]
+    GetSkillsUserPathCommand(client: WshClient, opts?: RpcOpts): Promise<string> {
+        return client.wshRpcCall("getskillsuserpath", null, opts);
+    }
+
     // command "gettab" [call]
     GetTabCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<Tab> {
         return client.wshRpcCall("gettab", data, opts);
@@ -465,6 +485,11 @@ class RpcApiType {
     // command "getwaveairatelimit" [call]
     GetWaveAIRateLimitCommand(client: WshClient, opts?: RpcOpts): Promise<RateLimitInfo> {
         return client.wshRpcCall("getwaveairatelimit", null, opts);
+    }
+
+    // command "importskillzip" [call]
+    ImportSkillZipCommand(client: WshClient, data: CommandImportSkillZipData, opts?: RpcOpts): Promise<SkillImportResult> {
+        return client.wshRpcCall("importskillzip", data, opts);
     }
 
     // command "jobcmdexited" [call]
@@ -602,6 +627,11 @@ class RpcApiType {
         return client.wshRpcCall("notifysystemresume", null, opts);
     }
 
+    // command "openskillsfolder" [call]
+    OpenSkillsFolderCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("openskillsfolder", null, opts);
+    }
+
     // command "path" [call]
     PathCommand(client: WshClient, data: PathCommandData, opts?: RpcOpts): Promise<string> {
         return client.wshRpcCall("path", data, opts);
@@ -617,9 +647,19 @@ class RpcApiType {
         return client.wshRpcCall("readappfile", data, opts);
     }
 
+    // command "readskillcontent" [call]
+    ReadSkillContentCommand(client: WshClient, data: CommandReadSkillContentData, opts?: RpcOpts): Promise<SkillContent> {
+        return client.wshRpcCall("readskillcontent", data, opts);
+    }
+
     // command "recordtevent" [call]
     RecordTEventCommand(client: WshClient, data: TEvent, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("recordtevent", data, opts);
+    }
+
+    // command "reloadskills" [call]
+    ReloadSkillsCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("reloadskills", null, opts);
     }
 
     // command "remotedisconnectfromjobmanager" [call]
@@ -777,6 +817,11 @@ class RpcApiType {
         return client.wshRpcCall("setsecrets", data, opts);
     }
 
+    // command "setskillenabled" [call]
+    SetSkillEnabledCommand(client: WshClient, data: CommandSetSkillEnabledData, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("setskillenabled", data, opts);
+    }
+
     // command "setvar" [call]
     SetVarCommand(client: WshClient, data: CommandVarData, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("setvar", data, opts);
@@ -860,6 +905,11 @@ class RpcApiType {
     // command "updateknownhostkey" [call]
     UpdateKnownHostKeyCommand(client: WshClient, data: UpdateKnownHostKeyData, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("updateknownhostkey", data, opts);
+    }
+
+    // command "updateskill" [call]
+    UpdateSkillCommand(client: WshClient, data: CommandUpdateSkillData, opts?: RpcOpts): Promise<SkillInfo> {
+        return client.wshRpcCall("updateskill", data, opts);
     }
 
     // command "updatewaveaisession" [call]

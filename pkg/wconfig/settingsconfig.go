@@ -175,6 +175,9 @@ type SettingsType struct {
 	TsunamiSdkReplacePath string `json:"tsunami:sdkreplacepath,omitempty"`
 	TsunamiSdkVersion     string `json:"tsunami:sdkversion,omitempty"`
 	TsunamiGoPath         string `json:"tsunami:gopath,omitempty"`
+
+	SkillsEnabled bool   `json:"skills:enabled,omitempty"`
+	SkillsDir     string `json:"skills:dir,omitempty"`
 }
 
 func (s *SettingsType) GetAiSettings() *AiSettingsType {
