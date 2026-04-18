@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/tsunamiutil"
 	"github.com/wavetermdev/waveterm/pkg/utilds"
@@ -108,7 +109,8 @@ func isBuildCacheUpToDate(appPath string) (bool, error) {
 	}
 
 	cacheModTime := cacheInfo.ModTime()
-	return !cacheModTime.Before(appModTime), nil
+	parsedModTime, _ := time.Parse(time.RFC3339, appModTime)
+	return !cacheModTime.Before(parsedModTime), nil
 }
 
 func (c *TsunamiController) Start(ctx context.Context, blockMeta waveobj.MetaMapType, rtOpts *waveobj.RuntimeOpts, force bool) error {

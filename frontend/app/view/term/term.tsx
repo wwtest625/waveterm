@@ -1,16 +1,11 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { SubBlock } from "@/app/block/block";
-import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { Button } from "@/app/element/button";
 import { NullErrorBoundary } from "@/app/element/errorboundary";
 import { Search, useSearch } from "@/app/element/search";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { useTabModel } from "@/app/store/tab-model";
-import { waveEventSubscribeSingle } from "@/app/store/wps";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TermViewModel } from "@/app/view/term/term-model";
 import { atoms, getOverrideConfigAtom, getSettingsPrefixAtom, globalStore, WOS } from "@/store/global";
 import { fireAndForget, useAtomValueSafe } from "@/util/util";
@@ -55,123 +50,6 @@ const TermResyncHandler = React.memo(({ model }: TerminalViewProps) => {
     return null;
 });
 
-const TermVDomToolbarNode = ({ vdomBlockId, blockId, model }: TerminalViewProps & { vdomBlockId: string }) => {
-    React.useEffect(() => {
-        const unsub = waveEventSubscribeSingle({
-            eventType: "blockclose",
-            scope: WOS.makeORef("block", vdomBlockId),
-            handler: () => {
-                RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("block", blockId),
-                    meta: {
-                        "term:vdomtoolbarblockid": null,
-                    },
-                });
-            },
-        });
-        return () => {
-            unsub();
-        };
-    }, []);
-    const vdomNodeModel: BlockNodeModel = React.useMemo(
-        () => ({
-            blockId: vdomBlockId,
-            isFocused: jotai.atom(false),
-            isMagnified: jotai.atom(false),
-            focusNode: () => {},
-            toggleMagnify: () => {},
-            onClose: () => {
-                if (vdomBlockId != null) {
-                    RpcApi.DeleteSubBlockCommand(TabRpcClient, { blockid: vdomBlockId });
-                }
-            },
-        }),
-        [vdomBlockId]
-    );
-    const toolbarTarget = jotai.useAtomValue(model.vdomToolbarTarget);
-    const heightStr = toolbarTarget?.height ?? "1.5em";
-    return (
-        <div key="vdomToolbar" className="term-toolbar" style={{ height: heightStr }}>
-            <SubBlock key="vdom" nodeModel={vdomNodeModel} />
-        </div>
-    );
-};
-
-const TermVDomNodeSingleId = ({ vdomBlockId, blockId, model }: TerminalViewProps & { vdomBlockId: string }) => {
-    React.useEffect(() => {
-        const unsub = waveEventSubscribeSingle({
-            eventType: "blockclose",
-            scope: WOS.makeORef("block", vdomBlockId),
-            handler: () => {
-                const blockData = globalStore.get(model.blockAtom);
-                const curMode = blockData?.meta?.["term:mode"];
-                const pre = blockData?.meta?.["term:pre_vdom_mode"] === "cards" ? "cards" : "term";
-                const meta: Record<string, any> = {
-                    "term:vdomblockid": null,
-                    "term:pre_vdom_mode": null,
-                };
-                if (curMode === "vdom") {
-                    meta["term:mode"] = pre;
-                }
-                RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("block", blockId),
-                    meta,
-                });
-            },
-        });
-        return () => {
-            unsub();
-        };
-    }, []);
-    const vdomNodeModel: BlockNodeModel = React.useMemo(() => {
-        const isFocusedAtom = jotai.atom((get) => {
-            return get(model.nodeModel.isFocused) && get(model.termMode) == "vdom";
-        });
-        return {
-            blockId: vdomBlockId,
-            isFocused: isFocusedAtom,
-            isMagnified: jotai.atom(false),
-            focusNode: () => {
-                model.nodeModel.focusNode();
-            },
-            toggleMagnify: () => {},
-            onClose: () => {
-                if (vdomBlockId != null) {
-                    RpcApi.DeleteSubBlockCommand(TabRpcClient, { blockid: vdomBlockId });
-                }
-            },
-        };
-    }, [vdomBlockId, model]);
-    return (
-        <div key="htmlElem" className="term-htmlelem">
-            <SubBlock key="vdom" nodeModel={vdomNodeModel} />
-        </div>
-    );
-};
-
-const TermVDomNode = ({ blockId, model }: TerminalViewProps) => {
-    const vdomBlockId = jotai.useAtomValue(model.vdomBlockId);
-    if (vdomBlockId == null) {
-        return null;
-    }
-    return <TermVDomNodeSingleId key={vdomBlockId} vdomBlockId={vdomBlockId} blockId={blockId} model={model} />;
-};
-
-const TermToolbarVDomNode = ({ blockId, model }: TerminalViewProps) => {
-    const vdomToolbarBlockId = jotai.useAtomValue(model.vdomToolbarBlockId);
-    if (vdomToolbarBlockId == null) {
-        return null;
-    }
-    return (
-        <TermVDomToolbarNode
-            key={vdomToolbarBlockId}
-            vdomBlockId={vdomToolbarBlockId}
-            blockId={blockId}
-            model={model}
-        />
-    );
-};
-
 const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => {
     const viewRef = React.useRef<HTMLDivElement>(null);
     const connectElemRef = React.useRef<HTMLDivElement>(null);
@@ -188,7 +66,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const connFontFamily = fullConfig.connections?.[blockData?.meta?.connection]?.["term:fontfamily"];
     const isFocused = jotai.useAtomValue(model.nodeModel.isFocused);
     const isMI = jotai.useAtomValue(tabModel.isTermMultiInput);
-    const isBasicTerm = termMode != "vdom" && blockData?.meta?.controller != "cmd"; // needs to match isBasicTerm
+    const isBasicTerm = blockData?.meta?.controller != "cmd"; // needs to match isBasicTerm
     const quickInputValue = jotai.useAtomValue(model.quickInputValueAtom);
     const [quickInputNotifyEnabled, setQuickInputNotifyEnabled] = jotai.useAtom(model.quickInputNotifyEnabledAtom);
     const quickInputNotifyAvailable = jotai.useAtomValue(model.shellIntegrationAvailableAtom);
@@ -352,10 +230,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     }, [blockId, termSettings, termFontSize, connFontFamily]);
 
     React.useEffect(() => {
-        if (termModeRef.current == "vdom" && termMode == "term") {
-            // focus the terminal
-            model.giveFocus();
-        }
         termModeRef.current = termMode;
     }, [termMode]);
 
@@ -412,8 +286,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
             <TermResyncHandler blockId={blockId} model={model} />
             <TermThemeUpdater blockId={blockId} model={model} termRef={model.termRef} />
             <TermStickers config={stickerConfig} />
-            <TermToolbarVDomNode key="vdom-toolbar" blockId={blockId} model={model} />
-            <TermVDomNode key="vdom" blockId={blockId} model={model} />
             <div key="connect-elem" className="term-connectelem" ref={connectElemRef} />
             {isBasicTerm && termMode === "cards" ? (
                 <TermCardsView blockId={blockId} model={model} termWrap={termWrapInst} />

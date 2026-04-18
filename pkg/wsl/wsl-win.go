@@ -1,8 +1,5 @@
 //go:build windows
 
-// Copyright 2025, Command Line Inc.
-// SPDX-License-Identifier: Apache-2.0
-
 package wsl
 
 import (
@@ -11,131 +8,81 @@ import (
 	"io"
 	"os"
 	"sync"
-
-	"github.com/ubuntu/gowsl"
 )
-
-var RegisteredDistros = gowsl.RegisteredDistros
-var DefaultDistro = gowsl.DefaultDistro
 
 type WslName struct {
 	Distro string `json:"distro"`
 }
 
 type Distro struct {
-	gowsl.Distro
+	Name_ string
 }
 
 type WslCmd struct {
-	c       *gowsl.Cmd
 	wg      *sync.WaitGroup
-	once    *sync.Once
-	lock    *sync.Mutex
 	waitErr error
 }
 
+func (d *Distro) Name() string {
+	return d.Name_
+}
+
 func (d *Distro) WslCommand(ctx context.Context, cmd string) *WslCmd {
-	if ctx == nil {
-		panic("nil Context")
-	}
-	innerCmd := d.Command(ctx, cmd)
-	var wg sync.WaitGroup
-	var lock *sync.Mutex
-	return &WslCmd{innerCmd, &wg, new(sync.Once), lock, nil}
+	return &WslCmd{wg: &sync.WaitGroup{}, waitErr: fmt.Errorf("wsl stub: not available")}
 }
 
 func (c *WslCmd) CombinedOutput() (out []byte, err error) {
-	return c.c.CombinedOutput()
+	return nil, fmt.Errorf("wsl stub: not available")
 }
 func (c *WslCmd) Output() (out []byte, err error) {
-	return c.c.Output()
+	return nil, fmt.Errorf("wsl stub: not available")
 }
 func (c *WslCmd) Run() error {
-	return c.c.Run()
+	return fmt.Errorf("wsl stub: not available")
 }
 func (c *WslCmd) Start() (err error) {
-	return c.c.Start()
+	return fmt.Errorf("wsl stub: not available")
 }
 func (c *WslCmd) StderrPipe() (r io.ReadCloser, err error) {
-	return c.c.StderrPipe()
+	return nil, fmt.Errorf("wsl stub: not available")
 }
 func (c *WslCmd) StdinPipe() (w io.WriteCloser, err error) {
-	return c.c.StdinPipe()
+	return nil, fmt.Errorf("wsl stub: not available")
 }
 func (c *WslCmd) StdoutPipe() (r io.ReadCloser, err error) {
-	return c.c.StdoutPipe()
+	return nil, fmt.Errorf("wsl stub: not available")
 }
 func (c *WslCmd) Wait() (err error) {
-	c.wg.Add(1)
-	c.once.Do(func() {
-		c.waitErr = c.c.Wait()
-	})
-	c.wg.Done()
-	c.wg.Wait()
-	if c.waitErr != nil && c.waitErr.Error() == "not started" {
-		c.once = new(sync.Once)
-		return c.waitErr
-	}
 	return c.waitErr
 }
 func (c *WslCmd) ExitCode() int {
-	state := c.c.ProcessState
-	if state == nil {
-		return -1
-	}
-	return state.ExitCode()
+	return -1
 }
-
 func (c *WslCmd) ExitSignal() string {
 	return ""
 }
-
 func (c *WslCmd) GetProcess() *os.Process {
-	return c.c.Process
+	return nil
 }
-
 func (c *WslCmd) GetProcessState() *os.ProcessState {
-	return c.c.ProcessState
+	return nil
+}
+func (c *WslCmd) SetStdin(stdin io.Reader) {}
+func (c *WslCmd) SetStdout(stdout io.Writer) {}
+func (c *WslCmd) SetStderr(stderr io.Writer) {}
+
+func RegisteredDistros(ctx context.Context) ([]Distro, error) {
+	return nil, fmt.Errorf("wsl stub: not available")
 }
 
-func (c *WslCmd) SetStdin(stdin io.Reader) {
-	c.c.Stdin = stdin
-}
-
-func (c *WslCmd) SetStdout(stdout io.Writer) {
-	c.c.Stdout = stdout
-}
-
-func (c *WslCmd) SetStderr(stderr io.Writer) {
-	c.c.Stderr = stderr
+func DefaultDistro(ctx context.Context) (Distro, bool, error) {
+	return Distro{}, false, fmt.Errorf("wsl stub: not available")
 }
 
 func GetDistroCmd(ctx context.Context, wslDistroName string, cmd string) (*WslCmd, error) {
-	distros, err := RegisteredDistros(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, distro := range distros {
-		if distro.Name() != wslDistroName {
-			continue
-		}
-		wrappedDistro := Distro{distro}
-		return wrappedDistro.WslCommand(ctx, cmd), nil
-	}
-	return nil, fmt.Errorf("wsl distro %s not found", wslDistroName)
+	return nil, fmt.Errorf("wsl stub: not available")
 }
 
 func GetDistro(ctx context.Context, wslDistroName WslName) (*Distro, error) {
-	distros, err := RegisteredDistros(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, distro := range distros {
-		if distro.Name() != wslDistroName.Distro {
-			continue
-		}
-		wrappedDistro := Distro{distro}
-		return &wrappedDistro, nil
-	}
-	return nil, fmt.Errorf("wsl distro %s not found", wslDistroName)
+	return nil, fmt.Errorf("wsl stub: not available")
 }

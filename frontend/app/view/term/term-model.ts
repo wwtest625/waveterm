@@ -12,7 +12,6 @@ import { makeFeBlockRouteId } from "@/app/store/wshrouter";
 import { DefaultRouter, TabRpcClient } from "@/app/store/wshrpcutil";
 import { TerminalView } from "@/app/view/term/term";
 import { TermWshClient } from "@/app/view/term/term-wsh";
-import { VDomModel } from "@/app/view/vdom/vdom-model";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import {
     atoms,
@@ -21,7 +20,6 @@ import {
     createBlockSplitVertically,
     getAllBlockComponentModels,
     getApi,
-    getBlockComponentModel,
     getBlockMetaKeyAtom,
     getBlockTermDurableAtom,
     getConnStatusAtom,
@@ -216,9 +214,6 @@ export class TermViewModel implements ViewModel {
     connStatus: jotai.Atom<ConnStatus>;
     useTermHeader: jotai.Atom<boolean>;
     termWshClient: TermWshClient;
-    vdomBlockId: jotai.Atom<string>;
-    vdomToolbarBlockId: jotai.Atom<string>;
-    vdomToolbarTarget: jotai.PrimitiveAtom<VDomTargetToolbar>;
     fontSizeAtom: jotai.Atom<number>;
     quickInputValueAtom: jotai.PrimitiveAtom<string>;
     quickInputHistoryAtom: jotai.PrimitiveAtom<string[]>;
@@ -258,12 +253,6 @@ export class TermViewModel implements ViewModel {
     private cardFallbackFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
     private cardFallbackNoOutputTimer: ReturnType<typeof setTimeout> | null = null;
     private lastCardOutputTs = 0;
-
-    private getPreVdomModeFromMeta(): "term" | "cards" {
-        const blockData = globalStore.get(this.blockAtom);
-        const pre = blockData?.meta?.["term:pre_vdom_mode"];
-        return pre === "cards" ? "cards" : "term";
-    }
 
     private getCurrentWorkingDir(): string {
         const blockData = globalStore.get(this.blockAtom);
@@ -635,15 +624,6 @@ export class TermViewModel implements ViewModel {
         DefaultRouter.registerRoute(makeFeBlockRouteId(blockId), this.termWshClient);
         this.nodeModel = nodeModel;
         this.blockAtom = WOS.getWaveObjectAtom<Block>(`block:${blockId}`);
-        this.vdomBlockId = jotai.atom((get) => {
-            const blockData = get(this.blockAtom);
-            return blockData?.meta?.["term:vdomblockid"];
-        });
-        this.vdomToolbarBlockId = jotai.atom((get) => {
-            const blockData = get(this.blockAtom);
-            return blockData?.meta?.["term:vdomtoolbarblockid"];
-        });
-        this.vdomToolbarTarget = jotai.atom<VDomTargetToolbar>(null) as jotai.PrimitiveAtom<VDomTargetToolbar>;
         this.autoTermModeAtom = useBlockAtom(blockId, "termautomode", () =>
             jotai.atom<"term" | "cards">("term")
         ) as jotai.PrimitiveAtom<"term" | "cards">;
@@ -654,7 +634,7 @@ export class TermViewModel implements ViewModel {
             const blockData = get(this.blockAtom);
             const configured = blockData?.meta?.["term:mode"];
             if (configured != null) {
-                if (configured === "term" || configured === "vdom" || configured === "cards") {
+                if (configured === "term" || configured === "cards") {
                     // Auto-downgrade: cards mode requires shell integration.
                     // If integration isn't available, show the normal terminal.
                     if (configured === "cards" && !get(this.shellIntegrationAvailableAtom)) {
@@ -672,9 +652,6 @@ export class TermViewModel implements ViewModel {
         this.isRestarting = jotai.atom(false);
         this.viewIcon = jotai.atom((get) => {
             const termMode = get(this.termMode);
-            if (termMode == "vdom") {
-                return { elemtype: "iconbutton", icon: "bolt" };
-            }
             if (termMode == "cards") {
                 return { elemtype: "iconbutton", icon: "comment-dots" };
             }
@@ -682,10 +659,6 @@ export class TermViewModel implements ViewModel {
         });
         this.viewName = jotai.atom((get) => {
             const blockData = get(this.blockAtom);
-            const termMode = get(this.termMode);
-            if (termMode == "vdom") {
-                return "Wave App";
-            }
             if (blockData?.meta?.controller == "cmd") {
                 return "";
             }
@@ -693,39 +666,7 @@ export class TermViewModel implements ViewModel {
         });
         this.viewText = jotai.atom((get) => {
             const termMode = get(this.termMode);
-            if (termMode == "vdom") {
-                return [
-                    {
-                        elemtype: "iconbutton",
-                        icon: "square-terminal",
-                        title: "Switch back to Terminal",
-                        click: () => {
-                            const pre = this.getPreVdomModeFromMeta();
-                            RpcApi.SetMetaCommand(TabRpcClient, {
-                                oref: WOS.makeORef("block", this.blockId),
-                                meta: { "term:mode": pre, "term:pre_vdom_mode": null },
-                            });
-                        },
-                    },
-                ];
-            }
-            const vdomBlockId = get(this.vdomBlockId);
             const rtn: HeaderElem[] = [];
-            if (vdomBlockId) {
-                rtn.push({
-                    elemtype: "iconbutton",
-                    icon: "bolt",
-                    title: "Switch to Wave App",
-                    click: () => {
-                        const configuredTermMode = get(this.termMode);
-                        const pre = configuredTermMode === "cards" ? "cards" : "term";
-                        RpcApi.SetMetaCommand(TabRpcClient, {
-                            oref: WOS.makeORef("block", this.blockId),
-                            meta: { "term:pre_vdom_mode": pre, "term:mode": "vdom" },
-                        });
-                    },
-                });
-            }
             const isCmd = get(this.isCmdController);
             if (!isCmd) {
                 if (termMode === "cards") {
@@ -804,10 +745,6 @@ export class TermViewModel implements ViewModel {
             return rtn;
         });
         this.manageConnection = jotai.atom((get) => {
-            const termMode = get(this.termMode);
-            if (termMode == "vdom") {
-                return false;
-            }
             const isCmd = get(this.isCmdController);
             if (isCmd) {
                 return false;
@@ -815,10 +752,6 @@ export class TermViewModel implements ViewModel {
             return true;
         });
         this.useTermHeader = jotai.atom((get) => {
-            const termMode = get(this.termMode);
-            if (termMode == "vdom") {
-                return false;
-            }
             const isCmd = get(this.isCmdController);
             if (isCmd) {
                 return false;
@@ -1063,10 +996,6 @@ export class TermViewModel implements ViewModel {
     }
 
     isBasicTerm(getFn: jotai.Getter): boolean {
-        const termMode = getFn(this.termMode);
-        if (termMode == "vdom") {
-            return false;
-        }
         const blockData = getFn(this.blockAtom);
         if (blockData?.meta?.controller == "cmd") {
             return false;
@@ -1422,7 +1351,7 @@ export class TermViewModel implements ViewModel {
     supportsQuickInput(): boolean {
         const termMode = globalStore.get(this.termMode);
         const blockData = globalStore.get(this.blockAtom);
-        return termMode != "vdom" && blockData?.meta?.controller != "cmd";
+        return blockData?.meta?.controller != "cmd";
     }
 
     private setQuickInputValueInternal(value: string, historyIndex: number | null) {
@@ -1500,7 +1429,7 @@ export class TermViewModel implements ViewModel {
         return true;
     }
 
-    setTermMode(mode: "term" | "vdom" | "cards") {
+    setTermMode(mode: "term" | "cards") {
         RpcApi.SetMetaCommand(TabRpcClient, {
             oref: WOS.makeORef("block", this.blockId),
             meta: { "term:mode": mode },
@@ -1596,30 +1525,6 @@ export class TermViewModel implements ViewModel {
         }
     }
 
-    getVDomModel(): VDomModel {
-        const vdomBlockId = globalStore.get(this.vdomBlockId);
-        if (!vdomBlockId) {
-            return null;
-        }
-        const bcm = getBlockComponentModel(vdomBlockId);
-        if (!bcm) {
-            return null;
-        }
-        return bcm.viewModel as VDomModel;
-    }
-
-    getVDomToolbarModel(): VDomModel {
-        const vdomToolbarBlockId = globalStore.get(this.vdomToolbarBlockId);
-        if (!vdomToolbarBlockId) {
-            return null;
-        }
-        const bcm = getBlockComponentModel(vdomToolbarBlockId);
-        if (!bcm) {
-            return null;
-        }
-        return bcm.viewModel as VDomModel;
-    }
-
     dispose() {
         DefaultRouter.unregisterRoute(makeFeBlockRouteId(this.blockId));
         this.cardsUnsubFns.forEach((fn) => fn());
@@ -1655,27 +1560,9 @@ export class TermViewModel implements ViewModel {
             return false;
         }
         if (keyutil.checkKeyPressed(waveEvent, "Cmd:Escape")) {
-            const blockAtom = WOS.getWaveObjectAtom<Block>(`block:${this.blockId}`);
-            const blockData = globalStore.get(blockAtom);
-            const curMode = blockData?.meta?.["term:mode"];
-            const newTermMode = curMode == "vdom" ? this.getPreVdomModeFromMeta() : "vdom";
-            const vdomBlockId = globalStore.get(this.vdomBlockId);
-            if (newTermMode == "vdom" && !vdomBlockId) {
-                return;
-            }
-            if (newTermMode === "vdom") {
-                const termMode = globalStore.get(this.termMode);
-                const pre = termMode === "cards" ? "cards" : "term";
-                RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("block", this.blockId),
-                    meta: { "term:pre_vdom_mode": pre, "term:mode": "vdom" },
-                });
-            } else {
-                RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("block", this.blockId),
-                    meta: { "term:mode": newTermMode, "term:pre_vdom_mode": null },
-                });
-            }
+            const termMode = globalStore.get(this.termMode);
+            const newMode = termMode === "cards" ? "term" : "cards";
+            this.setTermMode(newMode);
             return true;
         }
         if (keyutil.checkKeyPressed(waveEvent, "Shift:End")) {
@@ -1713,11 +1600,6 @@ export class TermViewModel implements ViewModel {
                 this.termRef.current.terminal.scrollPages(-1);
             }
             return true;
-        }
-        const blockData = globalStore.get(this.blockAtom);
-        if (blockData.meta?.["term:mode"] == "vdom") {
-            const vdomModel = this.getVDomModel();
-            return vdomModel?.keyDownHandler(waveEvent);
         }
         return false;
     }
@@ -2441,15 +2323,6 @@ export class TermViewModel implements ViewModel {
             label: "高级",
             submenu: advancedSubmenu,
         });
-        if (blockData?.meta?.["term:vdomtoolbarblockid"]) {
-            fullMenu.push({ type: "separator" });
-            fullMenu.push({
-                label: "关闭工具栏",
-                click: () => {
-                    RpcApi.DeleteSubBlockCommand(TabRpcClient, { blockid: blockData.meta["term:vdomtoolbarblockid"] });
-                },
-            });
-        }
         return fullMenu;
     }
 }
