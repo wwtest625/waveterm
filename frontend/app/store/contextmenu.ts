@@ -80,7 +80,7 @@ class ContextMenuModel {
         if (workspace != null) {
             oid = workspace.oid;
         } else {
-            oid = globalStore.get(atoms.builderId);
+            oid = "";
         }
         
         getApi().showContextMenu(oid, electronMenuItems);

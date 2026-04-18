@@ -546,15 +546,11 @@ export interface FilteredAIModeConfigs {
 export const getFilteredAIModeConfigs = (
     aiModeConfigs: Record<string, AIModeConfigType>,
     showCloudModes: boolean,
-    inBuilder: boolean,
     hasPremium: boolean,
     currentMode?: string
 ): FilteredAIModeConfigs => {
-    const hideQuick = inBuilder && hasPremium;
-
     const allConfigs = Object.entries(aiModeConfigs)
-        .map(([mode, config]) => ({ mode, ...config }))
-        .filter((config) => !(hideQuick && config.mode === "waveai@quick"));
+        .map(([mode, config]) => ({ mode, ...config }));
 
     const otherProviderConfigs = allConfigs
         .filter((config) => config["ai:provider"] !== "wave")

@@ -76,7 +76,6 @@ export class WaveAIModel {
     realMessage: AIMessage | null = null;
     lastSubmittedMessage: AIMessage | null = null;
     orefContext: ORef;
-    inBuilder: boolean = false;
     isAIStreaming = jotai.atom(false);
 
     widgetAccessAtom!: jotai.Atom<boolean>;
@@ -115,9 +114,8 @@ export class WaveAIModel {
     private lastExecutingRuntimeUpdateAt = 0;
     private readonly executingRuntimeThrottleMs = 250;
 
-    private constructor(orefContext: ORef, inBuilder: boolean) {
+    private constructor(orefContext: ORef) {
         this.orefContext = orefContext;
-        this.inBuilder = inBuilder;
         this.chatId = jotai.atom(null) as jotai.PrimitiveAtom<string>;
         this.aiModeConfigs = atoms.waveaiModeConfigAtom;
 
@@ -127,35 +125,23 @@ export class WaveAIModel {
         });
 
         this.widgetAccessAtom = jotai.atom((get) => {
-            if (this.inBuilder) {
-                return true;
-            }
             const widgetAccessMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:widgetcontext" as keyof MetaType);
             const value = get(widgetAccessMetaAtom) as boolean | undefined;
-            // 默认为 true，如果用户没有明确设置过
             return value ?? true;
         });
 
         this.autoExecuteAtom = jotai.atom((get) => {
-            if (this.inBuilder) {
-                return true;
-            }
             const autoExecuteMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:autoexecute" as keyof MetaType);
             const value = get(autoExecuteMetaAtom) as boolean | undefined;
-            // 默认为 true，让 AI 可以直接执行命令
             return value ?? true;
         });
 
         this.agentModeAtom = jotai.atom((get) => {
-            if (this.inBuilder) {
-                return "default";
-            }
             const modeMetaAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:agentmode");
             const value = get(modeMetaAtom);
             if (value === "planning" || value === "auto-approve" || value === "default") {
                 return value;
             }
-            // When skip-approval is enabled in settings, default to auto-approve
             const skipApproval = get(getSettingsKeyAtom("waveai:skipapproval"));
             if (skipApproval === true) {
                 return "auto-approve";
@@ -173,25 +159,11 @@ export class WaveAIModel {
         });
 
         this.panelVisibleAtom = jotai.atom((get) => {
-            if (this.inBuilder) {
-                return true;
-            }
             return get(WorkspaceLayoutModel.getInstance().panelVisibleAtom);
         });
 
         this.defaultModeAtom = jotai.atom((get) => {
-            const telemetryEnabled = get(getSettingsKeyAtom("telemetry:enabled")) ?? false;
-            if (this.inBuilder) {
-                return telemetryEnabled ? "waveai@balanced" : "invalid";
-            }
             const aiModeConfigs = get(this.aiModeConfigs);
-            if (!telemetryEnabled) {
-                const mode = get(getSettingsKeyAtom("waveai:defaultmode"));
-                if (mode == null || mode.startsWith("waveai@")) {
-                    return "unknown";
-                }
-                return mode;
-            }
             const hasPremium = get(this.hasPremiumAtom);
             const waveFallback = hasPremium ? "waveai@balanced" : "waveai@quick";
             let mode = get(getSettingsKeyAtom("waveai:defaultmode")) ?? waveFallback;
@@ -218,7 +190,7 @@ export class WaveAIModel {
             let orefContext: ORef;
             const tabId = globalStore.get(atoms.staticTabId);
             orefContext = WOS.makeORef("tab", tabId);
-            WaveAIModel.instance = new WaveAIModel(orefContext, false);
+            WaveAIModel.instance = new WaveAIModel(orefContext);
             (window as any).WaveAIModel = WaveAIModel.instance;
         }
         return WaveAIModel.instance;
@@ -233,9 +205,6 @@ export class WaveAIModel {
     }
 
     private getSessionTabId(): string {
-        if (this.inBuilder) {
-            return "";
-        }
         return globalStore.get(atoms.staticTabId);
     }
 
@@ -414,10 +383,6 @@ export class WaveAIModel {
     }
 
     async loadSessions(opts?: { includeArchived?: boolean; includeDeleted?: boolean }): Promise<WaveChatSessionMeta[]> {
-        if (this.inBuilder) {
-            globalStore.set(this.sessionsAtom, []);
-            return [];
-        }
         const sessions = await RpcApi.ListWaveAISessionsCommand(
             TabRpcClient,
             {
@@ -726,7 +691,7 @@ export class WaveAIModel {
     }
 
     focusInput() {
-        if (!this.inBuilder && !WorkspaceLayoutModel.getInstance().getAIPanelVisible()) {
+        if (!WorkspaceLayoutModel.getInstance().getAIPanelVisible()) {
             WorkspaceLayoutModel.getInstance().setAIPanelVisible(true);
         }
         if (this.inputRef?.current) {
@@ -1375,11 +1340,6 @@ export class WaveAIModel {
     }
 
     isValidMode(mode: string): boolean {
-        const telemetryEnabled = globalStore.get(getSettingsKeyAtom("telemetry:enabled")) ?? false;
-        if (mode.startsWith("waveai@") && !telemetryEnabled) {
-            return false;
-        }
-
         const aiModeConfigs = globalStore.get(this.aiModeConfigs);
         if (aiModeConfigs == null || !(mode in aiModeConfigs)) {
             return false;
@@ -1689,16 +1649,10 @@ export class WaveAIModel {
     }
 
     canCloseWaveAIPanel(): boolean {
-        if (this.inBuilder) {
-            return false;
-        }
         return true;
     }
 
     closeWaveAIPanel() {
-        if (this.inBuilder) {
-            return;
-        }
         WorkspaceLayoutModel.getInstance().setAIPanelVisible(false);
     }
 }

@@ -732,18 +732,6 @@ export const SettingsVisualContent = memo(({ model }: SettingsContentProps) => {
                     </SettingItem>
                 </SettingSection>
 
-                <SettingSection title="遥测" icon="fa-chart-line">
-                    <SettingItem
-                        label="启用"
-                        description="启用遥测以帮助改进 Wave"
-                    >
-                        <ToggleSwitch
-                            checked={settings["telemetry:enabled"] !== false}
-                            onChange={(v) => updateSetting("telemetry:enabled", v)}
-                        />
-                    </SettingItem>
-                </SettingSection>
-
                 <SettingSection title="标签页" icon="fa-folder">
                     <SettingItem
                         label="标签预设"

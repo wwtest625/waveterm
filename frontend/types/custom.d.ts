@@ -8,8 +8,6 @@ import type * as rxjs from "rxjs";
 
 declare global {
     type GlobalAtomsType = {
-        builderId: jotai.Atom<string>; // readonly (for builder mode)
-        builderAppId: jotai.PrimitiveAtom<string>; // app being edited in builder mode
         uiContext: jotai.Atom<UIContext>; // driven from windowId, tabId
         workspace: jotai.Atom<Workspace>; // driven from WOS
         fullConfigAtom: jotai.PrimitiveAtom<FullConfigType>; // driven from WOS, settings -- updated via WebSocket
@@ -59,7 +57,6 @@ declare global {
         clientId: string;
         environment: "electron" | "renderer";
         primaryTabStartup?: boolean;
-        builderId?: string;
     };
 
     type WaveInitOpts = {
@@ -68,12 +65,6 @@ declare global {
         windowId: string;
         activate: boolean;
         primaryTabStartup?: boolean;
-    };
-
-    type BuilderInitOpts = {
-        builderId: string;
-        clientId: string;
-        windowId: string;
     };
 
     type ElectronApi = {
@@ -91,7 +82,6 @@ declare global {
         getAboutModalDetails: () => AboutModalDetails; // get-about-modal-details
         getZoomFactor: () => number; // get-zoom-factor
         showWorkspaceAppMenu: (workspaceId: string) => void; // workspace-appmenu-show
-        showBuilderAppMenu: (builderId: string) => void; // builder-appmenu-show
         showContextMenu: (workspaceId: string, menu: ElectronContextMenuItem[]) => void; // contextmenu-show
         onContextMenuClick: (callback: (id: string | null) => void) => void; // contextmenu-click
         onNavigate: (callback: (url: string) => void) => void;
@@ -120,7 +110,6 @@ declare global {
         closeTab: (workspaceId: string, tabId: string, confirmClose: boolean) => Promise<boolean>; // close-tab
         setWindowInitStatus: (status: "ready" | "wave-ready") => void; // set-window-init-status
         onWaveInit: (callback: (initOpts: WaveInitOpts) => void) => void; // wave-init
-        onBuilderInit: (callback: (initOpts: BuilderInitOpts) => void) => void; // builder-init
         sendLog: (log: string) => void; // fe-log
         onQuicklook: (filePath: string) => void; // quicklook
         openNativePath(filePath: string): void; // open-native-path
@@ -128,11 +117,8 @@ declare global {
         setKeyboardChordMode: () => void; // set-keyboard-chord-mode
         clearWebviewStorage: (webContentsId: number) => Promise<void>; // clear-webview-storage
         setWaveAIOpen: (isOpen: boolean) => void; // set-waveai-open
-        closeBuilderWindow: () => void; // close-builder-window
         incrementTermCommands: (opts?: { isRemote?: boolean; isWsl?: boolean; isDurable?: boolean }) => void; // increment-term-commands
         nativePaste: () => void; // native-paste
-        openBuilder: (appId?: string) => void; // open-builder
-        setBuilderWindowAppId: (appId: string) => void; // set-builder-window-appid
         doRefresh: () => void; // do-refresh
         saveTextFile: (fileName: string, content: string) => Promise<boolean>; // save-text-file
     };

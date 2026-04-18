@@ -7,7 +7,6 @@ import { ErrorBoundary } from "@/app/element/errorboundary";
 import { atoms, getFocusedBlockId, getSettingsKeyAtom, recordTEvent } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { maybeUseTabModel } from "@/app/store/tab-model";
-import { isBuilderWindow } from "@/app/store/windowtype";
 import { checkKeyPressed, keydownWrapper } from "@/util/keyutil";
 import { cn } from "@/util/util";
 import { useChat } from "@ai-sdk/react";
@@ -38,7 +37,6 @@ import {
 } from "./aitypes";
 import { AskUserCard } from "./askusercard";
 import { TaskProgressPanel } from "./taskprogresspanel";
-import { TelemetryRequiredMessage } from "./telemetryrequired";
 import { WaveAIModel } from "./waveai-model";
 
 const AIBlockMask = memo(() => {
@@ -99,24 +97,6 @@ const AIWelcomeMessage = memo(() => {
 });
 
 AIWelcomeMessage.displayName = "AIWelcomeMessage";
-
-const AIBuilderWelcomeMessage = memo(() => {
-    return (
-        <div className="text-secondary py-8">
-            <div className="text-center">
-                <i className="fa fa-sparkles text-4xl text-accent mb-4 block"></i>
-                <p className="text-lg font-bold text-primary">WaveApp Builder</p>
-            </div>
-            <div className="mt-4 text-left max-w-md mx-auto">
-                <p className="text-sm mb-6">
-                    The WaveApp builder helps create wave widgets that integrate seamlessly into Wave Terminal.
-                </p>
-            </div>
-        </div>
-    );
-});
-
-AIBuilderWelcomeMessage.displayName = "AIBuilderWelcomeMessage";
 
 type ContextUsageStats = {
     usedTokens: number;
@@ -258,12 +238,11 @@ AIErrorMessage.displayName = "AIErrorMessage";
 
 const ConfigChangeModeFixer = memo(() => {
     const model = WaveAIModel.getInstance();
-    const telemetryEnabled = jotai.useAtomValue(getSettingsKeyAtom("telemetry:enabled")) ?? false;
     const aiModeConfigs = jotai.useAtomValue(model.aiModeConfigs);
 
     useEffect(() => {
         model.fixModeAfterConfigChange();
-    }, [telemetryEnabled, aiModeConfigs, model]);
+    }, [aiModeConfigs, model]);
 
     return null;
 });
@@ -362,13 +341,6 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
         });
     }, [activeSession?.chatid, activeSession?.cheatsheet?.blockedby, activeSession?.cheatsheet?.completed, activeSession?.cheatsheet?.currentwork, activeSession?.cheatsheet?.nextstep]);
 
-    if (model.inBuilder) {
-        return (
-            <div className="border-b border-white/8 bg-black/15 px-2 py-2">
-                <AIModeDropdown />
-            </div>
-        );
-    }
     const filteredSessions = sessions.filter((session) => {
         if (hiddenSessionIds.includes(session.chatid)) {
             return false;
@@ -736,7 +708,6 @@ const AIPanelComponentInner = memo(() => {
     const showOverlayBlockNums = jotai.useAtomValue(getSettingsKeyAtom("app:showoverlayblocknums")) ?? true;
     const isFocused = jotai.useAtomValue(model.isWaveAIFocusedAtom);
     const focusFollowsCursorMode = jotai.useAtomValue(getSettingsKeyAtom("app:focusfollowscursor")) ?? "off";
-    const telemetryEnabled = jotai.useAtomValue(getSettingsKeyAtom("telemetry:enabled")) ?? false;
     const isPanelVisible = jotai.useAtomValue(model.getPanelVisibleAtom());
     const errorMessage = jotai.useAtomValue(model.errorMessage);
     const agentRuntimeSnapshot = jotai.useAtomValue(model.agentRuntimeAtom);
@@ -759,10 +730,6 @@ const AIPanelComponentInner = memo(() => {
     });
     const approvalWaitRef = useRef<{ startedAt: number; traceId: string } | null>(null);
 
-    const hasCustomModes = Object.keys(aiModeConfigs).some((key) => !key.startsWith("waveai@"));
-    const isUsingCustomMode = !defaultMode.startsWith("waveai@");
-    const allowAccess = telemetryEnabled || (hasCustomModes && isUsingCustomMode);
-
     const { messages, sendMessage, status, setMessages, error, stop } = useChat<WaveUIMessage>({
         experimental_throttle: STREAM_UPDATE_THROTTLE_MS,
         transport: new DefaultChatTransport({
@@ -776,10 +743,6 @@ const AIPanelComponentInner = memo(() => {
                     aimode: globalStore.get(model.currentAIMode),
                     agentmode: globalStore.get(model.agentModeAtom),
                 };
-                if (isBuilderWindow()) {
-                    body.builderid = globalStore.get(atoms.builderId);
-                    body.builderappid = globalStore.get(atoms.builderAppId);
-                }
                 body.tabid = tabModel.tabId;
                 const focusedBlockId = getFocusedBlockId();
                 if (focusedBlockId) {
@@ -1132,10 +1095,6 @@ const AIPanelComponentInner = memo(() => {
     };
 
     const handleDragOver = (e: React.DragEvent) => {
-        if (!allowAccess) {
-            return;
-        }
-
         const hasFiles = hasFilesDragged(e.dataTransfer);
 
         // Only handle native file drags here, let react-dnd handle FILE_ITEM drags
@@ -1152,10 +1111,6 @@ const AIPanelComponentInner = memo(() => {
     };
 
     const handleDragEnter = (e: React.DragEvent) => {
-        if (!allowAccess) {
-            return;
-        }
-
         const hasFiles = hasFilesDragged(e.dataTransfer);
 
         // Only handle native file drags here, let react-dnd handle FILE_ITEM drags
@@ -1170,10 +1125,6 @@ const AIPanelComponentInner = memo(() => {
     };
 
     const handleDragLeave = (e: React.DragEvent) => {
-        if (!allowAccess) {
-            return;
-        }
-
         const hasFiles = hasFilesDragged(e.dataTransfer);
 
         // Only handle native file drags here, let react-dnd handle FILE_ITEM drags
@@ -1195,15 +1146,6 @@ const AIPanelComponentInner = memo(() => {
     };
 
     const handleDrop = async (e: React.DragEvent) => {
-        if (!allowAccess) {
-            e.preventDefault();
-            e.stopPropagation();
-            setIsDragOver(false);
-            return;
-        }
-
-        // Check if this is a FILE_ITEM drag from react-dnd
-        // If so, let react-dnd handle it instead
         if (!e.dataTransfer.files.length) {
             return; // Let react-dnd handle FILE_ITEM drags
         }
@@ -1236,12 +1178,9 @@ const AIPanelComponentInner = memo(() => {
 
     const handleFileItemDrop = useCallback(
         (draggedFile: DraggedFile) => {
-            if (!allowAccess) {
-                return;
-            }
             model.addFileFromRemoteUri(draggedFile);
         },
-        [model, allowAccess]
+        [model]
     );
 
     const [{ isOver, canDrop }, drop] = useDrop(
@@ -1319,13 +1258,13 @@ const AIPanelComponentInner = memo(() => {
             data-waveai-panel="true"
             className={cn(
                 "@container bg-zinc-900/70 flex flex-col relative",
-                model.inBuilder ? "mt-0 h-full" : "mt-1 h-[calc(100%-4px)]",
+                "mt-1 h-[calc(100%-4px)]",
                 (isDragOver || isReactDndDragOver) && "bg-zinc-800 border-accent",
                 isFocused ? "border-2 border-accent" : "border-2 border-transparent"
             )}
             style={{
-                borderTopRightRadius: model.inBuilder ? 0 : 10,
-                borderBottomRightRadius: model.inBuilder ? 0 : 10,
+                borderTopRightRadius: 10,
+                borderBottomRightRadius: 10,
                 borderBottomLeftRadius: 10,
             }}
             onFocusCapture={handleFocusCapture}
@@ -1338,36 +1277,30 @@ const AIPanelComponentInner = memo(() => {
             inert={!isPanelVisible ? true : undefined}
         >
             <ConfigChangeModeFixer />
-            {(isDragOver || isReactDndDragOver) && allowAccess && <AIDragOverlay />}
+            {(isDragOver || isReactDndDragOver) && <AIDragOverlay />}
             {showBlockMask && <AIBlockMask />}
             <div key="main-content" className="flex-1 flex flex-col min-h-0">
-                {!allowAccess ? (
-                    <TelemetryRequiredMessage />
-                ) : (
-                    <>
-                        <AISessionToolbar messages={messages} />
-                        <TaskProgressPanel taskState={taskState} />
-                        {messages.length === 0 && initialLoadDone ? (
-                            <div
-                                className="flex-1 overflow-y-auto p-2 relative"
-                                onContextMenu={(e) => handleWaveAIContextMenu(e, true)}
-                            >
-                                {model.inBuilder ? <AIBuilderWelcomeMessage /> : <AIWelcomeMessage />}
+                <AISessionToolbar messages={messages} />
+                <TaskProgressPanel taskState={taskState} />
+                {messages.length === 0 && initialLoadDone ? (
+                    <div
+                        className="flex-1 overflow-y-auto p-2 relative"
+                        onContextMenu={(e) => handleWaveAIContextMenu(e, true)}
+                    >
+                                <AIWelcomeMessage />
                             </div>
-                        ) : (
-                            <AIPanelMessages
-                                messages={messages}
-                                status={status}
-                                onContextMenu={(e) => handleWaveAIContextMenu(e, true)}
-                            />
-                        )}
-                        <AIErrorMessage />
-                        <AIDroppedFiles model={model} />
-                        <CommandInteractionInput />
-                        <AskUserCard />
-                        <AIPanelInput onSubmit={handleSubmit} status={status} model={model} />
-                    </>
+                ) : (
+                    <AIPanelMessages
+                        messages={messages}
+                        status={status}
+                        onContextMenu={(e) => handleWaveAIContextMenu(e, true)}
+                    />
                 )}
+                <AIErrorMessage />
+                <AIDroppedFiles model={model} />
+                <CommandInteractionInput />
+                <AskUserCard />
+                <AIPanelInput onSubmit={handleSubmit} status={status} model={model} />
             </div>
         </div>
     );
