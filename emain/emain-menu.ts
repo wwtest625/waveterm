@@ -5,8 +5,6 @@ import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import * as electron from "electron";
 import { fireAndForget } from "../frontend/util/util";
-import { focusedBuilderWindow, getBuilderWindowById } from "./emain-builder";
-import { openBuilderWindow } from "./emain-ipc";
 import { isDev, unamePlatform } from "./emain-platform";
 import { clearTabCache } from "./emain-tabview";
 import { decreaseZoomLevel, increaseZoomLevel } from "./emain-util";
@@ -31,11 +29,9 @@ function getWindowWebContents(window: electron.BaseWindow): electron.WebContents
     if (window == null) {
         return null;
     }
-    // Check BrowserWindow first (for Tsunami Builder windows)
     if (window instanceof electron.BrowserWindow) {
         return window.webContents;
     }
-    // Check WaveBrowserWindow (for main Wave windows with tab views)
     if (window instanceof WaveBrowserWindow) {
         if (window.activeTabView) {
             return window.activeTabView.webContents;
@@ -153,14 +149,6 @@ function makeFileMenu(
             },
         },
     ];
-    const featureWaveAppBuilder = fullConfig?.settings?.["feature:waveappbuilder"];
-    if (isDev || featureWaveAppBuilder) {
-        fileMenu.splice(1, 0, {
-            label: "新建 WaveApp Builder 窗口",
-            accelerator: unamePlatform === "darwin" ? "Command+Shift+B" : "Alt+Shift+B",
-            click: () => openBuilderWindow(""),
-        });
-    }
     if (numWaveWindows == 0) {
         fileMenu.push({
             label: "新窗口 (隐藏 -1)",
@@ -212,13 +200,12 @@ function makeAppMenuItems(webContents: electron.WebContents): Electron.MenuItemC
 function makeViewMenu(
     webContents: electron.WebContents,
     callbacks: AppMenuCallbacks,
-    isBuilderWindowFocused: boolean,
     fullscreenOnLaunch: boolean
 ): Electron.MenuItemConstructorOptions[] {
     const devToolsAccel = unamePlatform === "darwin" ? "Option+Command+I" : "Alt+Shift+I";
     return [
         {
-            label: isBuilderWindowFocused ? "重新加载窗口" : "重新加载标签页",
+            label: "重新加载标签页",
             accelerator: "Shift+CommandOrControl+R",
             click: (_, window) => {
                 (getWindowWebContents(window) ?? webContents)?.reloadIgnoringCache();
@@ -325,12 +312,11 @@ function makeViewMenu(
     ];
 }
 
-async function makeFullAppMenu(callbacks: AppMenuCallbacks, workspaceOrBuilderId?: string): Promise<Electron.Menu> {
+async function makeFullAppMenu(callbacks: AppMenuCallbacks, workspaceId?: string): Promise<Electron.Menu> {
     const numWaveWindows = getAllWaveWindows().length;
-    const webContents = workspaceOrBuilderId && getWebContentsByWorkspaceOrBuilderId(workspaceOrBuilderId);
+    const webContents = workspaceId && getWebContentsByWorkspaceId(workspaceId);
     const appMenuItems = makeAppMenuItems(webContents);
 
-    const isBuilderWindowFocused = focusedBuilderWindow != null;
     let fullscreenOnLaunch = false;
     let fullConfig: FullConfigType = null;
     try {
@@ -341,7 +327,7 @@ async function makeFullAppMenu(callbacks: AppMenuCallbacks, workspaceOrBuilderId
     }
     const editMenu = makeEditMenu(fullConfig);
     const fileMenu = makeFileMenu(numWaveWindows, callbacks, fullConfig);
-    const viewMenu = makeViewMenu(webContents, callbacks, isBuilderWindowFocused, fullscreenOnLaunch);
+    const viewMenu = makeViewMenu(webContents, callbacks, fullscreenOnLaunch);
     let workspaceMenu: Electron.MenuItemConstructorOptions[] = null;
     try {
         workspaceMenu = await getWorkspaceMenu();
@@ -360,7 +346,7 @@ async function makeFullAppMenu(callbacks: AppMenuCallbacks, workspaceOrBuilderId
         { role: "editMenu", submenu: editMenu },
         { role: "viewMenu", submenu: viewMenu },
     ];
-    if (workspaceMenu != null && !isBuilderWindowFocused) {
+    if (workspaceMenu != null) {
         menuTemplate.push({
             label: "工作区",
             id: "workspace-menu",
@@ -374,13 +360,13 @@ async function makeFullAppMenu(callbacks: AppMenuCallbacks, workspaceOrBuilderId
     return electron.Menu.buildFromTemplate(menuTemplate);
 }
 
-export function instantiateAppMenu(workspaceOrBuilderId?: string): Promise<electron.Menu> {
+export function instantiateAppMenu(workspaceId?: string): Promise<electron.Menu> {
     return makeFullAppMenu(
         {
             createNewWaveWindow,
             relaunchBrowserWindows,
         },
-        workspaceOrBuilderId
+        workspaceId
     );
 }
 
@@ -402,17 +388,11 @@ function initMenuEventSubscriptions() {
     });
 }
 
-function getWebContentsByWorkspaceOrBuilderId(workspaceOrBuilderId: string): electron.WebContents {
-    const ww = getWaveWindowByWorkspaceId(workspaceOrBuilderId);
+function getWebContentsByWorkspaceId(workspaceId: string): electron.WebContents {
+    const ww = getWaveWindowByWorkspaceId(workspaceId);
     if (ww) {
         return ww.activeTabView?.webContents;
     }
-
-    const bw = getBuilderWindowById(workspaceOrBuilderId);
-    if (bw) {
-        return bw.webContents;
-    }
-
     return null;
 }
 
@@ -445,10 +425,10 @@ function convertMenuDefArrToMenu(
 
 electron.ipcMain.on(
     "contextmenu-show",
-    (event, workspaceOrBuilderId: string, menuDefArr: ElectronContextMenuItem[]) => {
-        const webContents = getWebContentsByWorkspaceOrBuilderId(workspaceOrBuilderId);
+    (event, workspaceId: string, menuDefArr: ElectronContextMenuItem[]) => {
+        const webContents = getWebContentsByWorkspaceId(workspaceId);
         if (!webContents) {
-            console.error("invalid window for context menu:", workspaceOrBuilderId);
+            console.error("invalid window for context menu:", workspaceId);
             event.returnValue = true;
             return;
         }
@@ -474,25 +454,12 @@ electron.ipcMain.on(
 
 electron.ipcMain.on("workspace-appmenu-show", (event, workspaceId: string) => {
     fireAndForget(async () => {
-        const webContents = getWebContentsByWorkspaceOrBuilderId(workspaceId);
+        const webContents = getWebContentsByWorkspaceId(workspaceId);
         if (!webContents) {
             console.error("invalid window for workspace app menu:", workspaceId);
             return;
         }
         const menu = await instantiateAppMenu(workspaceId);
-        menu.popup();
-    });
-    event.returnValue = true;
-});
-
-electron.ipcMain.on("builder-appmenu-show", (event, builderId: string) => {
-    fireAndForget(async () => {
-        const webContents = getWebContentsByWorkspaceOrBuilderId(builderId);
-        if (!webContents) {
-            console.error("invalid window for builder app menu:", builderId);
-            return;
-        }
-        const menu = await instantiateAppMenu(builderId);
         menu.popup();
     });
     event.returnValue = true;
