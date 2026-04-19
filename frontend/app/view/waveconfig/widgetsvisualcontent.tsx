@@ -85,6 +85,7 @@ const fallbackWidgets: Record<string, WidgetConfigDraft> = {
     },
     "defwidget@transfer": {
         "display:order": 1,
+        "display:hidden": true,
         icon: "arrow-right-arrow-left",
         label: "transfer",
         blockdef: { meta: { view: "transfer" } },

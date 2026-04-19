@@ -6,6 +6,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import type { TabModel } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { transferTasksAtom } from "@/app/transfer/transfer-store";
 import type { TreeViewRef } from "@/app/treeview/treeview";
 import { getWidgetWidthMenuItems } from "@/app/workspace/widgetsettings";
 import { getConnStatusAtom, getOverrideConfigAtom, getSettingsKeyAtom, globalStore, refocusNode } from "@/store/global";
@@ -14,7 +15,7 @@ import * as WOS from "@/store/wos";
 import { goHistory, goHistoryBack, goHistoryForward } from "@/util/historyutil";
 import { checkKeyPressed } from "@/util/keyutil";
 import { addOpenMenuItems, openPreviewInNewBlock } from "@/util/previewutil";
-import { base64ToString, fireAndForget, isBlank, jotaiLoadableValue, stringToBase64 } from "@/util/util";
+import { base64ToString, fireAndForget, isBlank, jotaiLoadableValue, makeIconClass, stringToBase64 } from "@/util/util";
 import { formatRemoteUri } from "@/util/waveutil";
 import clsx from "clsx";
 import { Atom, atom, Getter, PrimitiveAtom, WritableAtom } from "jotai";
@@ -49,7 +50,6 @@ const textApplicationMimetypes = [
     "application/dart",
     "application/vnd.dart",
     "application/x-ruby",
-    "application/sql",
     "application/wasm",
     "application/x-latex",
     "application/x-sh",
@@ -152,7 +152,7 @@ export class PreviewModel implements ViewModel {
     fileContent: WritableAtom<Promise<string>, [string], void>;
     newFileContent: PrimitiveAtom<string | null>;
     connectionError: PrimitiveAtom<string>;
-    errorMsgAtom: PrimitiveAtom<ErrorMsg>;
+    errorMsgAtom: PrimitiveAtom<ErrorMsg | null>;
 
     openFileModal: PrimitiveAtom<boolean>;
     openFileModalDelay: PrimitiveAtom<boolean>;
@@ -167,9 +167,10 @@ export class PreviewModel implements ViewModel {
     directoryViewMode: PrimitiveAtom<"tree" | "list">;
     refreshVersion: PrimitiveAtom<number>;
     directorySearchActive: PrimitiveAtom<boolean>;
-    refreshCallback: () => void;
-    directoryKeyDownHandler: (waveEvent: WaveKeyboardEvent) => boolean;
-    codeEditKeyDownHandler: (waveEvent: WaveKeyboardEvent) => boolean;
+    showTransferPanel: PrimitiveAtom<boolean>;
+    refreshCallback: (() => void) | null;
+    directoryKeyDownHandler: ((waveEvent: WaveKeyboardEvent) => boolean) | null;
+    codeEditKeyDownHandler: ((waveEvent: WaveKeyboardEvent) => boolean) | null;
     directoryTreeRef: React.RefObject<TreeViewRef>;
 
     constructor(blockId: string, nodeModel: BlockNodeModel, tabModel: TabModel) {
@@ -182,6 +183,7 @@ export class PreviewModel implements ViewModel {
         this.directoryViewMode = atom<"tree" | "list">("tree");
         this.refreshVersion = atom(0);
         this.directorySearchActive = atom(false);
+        this.showTransferPanel = atom(false);
         this.previewTextRef = createRef();
         this.openFileModal = atom(false);
         this.openFileModalDelay = atom(false);
@@ -194,7 +196,7 @@ export class PreviewModel implements ViewModel {
         this.monacoRef = createRef();
         this.directoryTreeRef = createRef();
         this.connectionError = atom("");
-        this.errorMsgAtom = atom(null) as PrimitiveAtom<ErrorMsg | null>;
+        this.errorMsgAtom = atom<ErrorMsg | null>(null);
         this.viewIcon = atom((get) => {
             const blockData = get(this.blockAtom);
             if (blockData?.meta?.icon) {
@@ -338,6 +340,14 @@ export class PreviewModel implements ViewModel {
             if (mimeType == "directory") {
                 const showHiddenFiles = get(this.showHiddenFiles);
                 const directoryViewMode = get(this.directoryViewMode);
+                const tasks = get(transferTasksAtom);
+                const runningCount = tasks.filter((t) => t.status === "pending" || t.status === "running").length;
+                const transferIcon: React.ReactNode = (
+                    <span className="transfer-icon-wrapper">
+                        <i className={makeIconClass("arrow-right-arrow-left", true)} />
+                        {runningCount > 0 && <span className="transfer-badge">{runningCount}</span>}
+                    </span>
+                );
                 return [
                     {
                         elemtype: "iconbutton",
@@ -359,6 +369,14 @@ export class PreviewModel implements ViewModel {
                         elemtype: "iconbutton",
                         icon: "arrows-rotate",
                         click: () => this.refreshCallback?.(),
+                    },
+                    {
+                        elemtype: "iconbutton",
+                        icon: transferIcon,
+                        title: "Transfer",
+                        click: () => {
+                            globalStore.set(this.showTransferPanel, (prev) => !prev);
+                        },
                     },
                 ] as IconButtonDecl[];
             } else if (!isCeView && isMarkdownLike(mimeType)) {
@@ -527,10 +545,6 @@ export class PreviewModel implements ViewModel {
         }
         if (isStreamingType(mimeType)) {
             return { specializedView: "streaming" };
-        }
-        if (!fileInfo) {
-            const fileNameStr = fileName ? " " + JSON.stringify(fileName) : "";
-            return { errorStr: "File Not Found" + fileNameStr };
         }
         if (fileInfo.size > MaxFileSize) {
             return { errorStr: "File Too Large to Preview (10 MB Max)" };

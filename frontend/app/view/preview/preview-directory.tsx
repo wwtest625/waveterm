@@ -3,7 +3,14 @@
 
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { Modal } from "@/app/modals/modal";
-import { uploadFileWithTransfer } from "@/app/transfer/transfer-store";
+import {
+    clearTransferHistory,
+    formatTransferBytes,
+    removeTransferTask,
+    transferTasksAtom,
+    type TransferTask,
+    uploadFileWithTransfer,
+} from "@/app/transfer/transfer-store";
 import { TreeNodeData, TreeView } from "@/app/treeview/treeview";
 import { atoms, getApi, globalStore } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -438,8 +445,7 @@ function openRenameEntryManager(
         startingValue: fileName,
         onSave: (newName: string) => {
             if (newName !== fileName) {
-                const lastInstance = path.lastIndexOf(fileName);
-                const newPath = path.substring(0, lastInstance) + newName;
+                const newPath = path.slice(0, path.length - fileName.length) + newName;
                 handleRename(model, path, newPath, isDir, setErrorMsg);
             }
             setEntryManagerProps(undefined);
@@ -578,7 +584,9 @@ function DirectoryTable({
 
     const onScroll = useCallback(
         debounce(2, () => {
-            setScrollHeight(osRef.current.osInstance().elements().viewport.scrollTop);
+            if (osRef.current) {
+                setScrollHeight(osRef.current.osInstance().elements().viewport.scrollTop);
+            }
         }),
         []
     );
@@ -675,12 +683,17 @@ function TableBody({
             return;
         }
 
+        const osInstance = osRef.osInstance();
+        if (!osInstance) {
+            return;
+        }
+
         const rowElement = bodyRef.current.querySelector(`[data-rowindex="${focusIndex}"]`) as HTMLDivElement;
         if (!rowElement) {
             return;
         }
 
-        const viewport = osRef.osInstance().elements().viewport;
+        const viewport = osInstance.elements().viewport;
         const viewportHeight = viewport.offsetHeight;
         const rowRect = rowElement.getBoundingClientRect();
         const parentRect = viewport.getBoundingClientRect();
@@ -798,7 +811,7 @@ function TableBody({
                         setSearch={setSearch}
                         idx={dotdotRow ? idx + 1 : idx}
                         handleFileContextMenu={handleFileContextMenu}
-                        key={idx}
+                        key={row.original.path}
                     />
                 ))}
             </div>
@@ -816,7 +829,7 @@ type TableRowProps = {
     handleFileContextMenu: (e: any, finfo: FileInfo) => void;
 };
 
-const TableRow = React.forwardRef(function ({
+function TableRow({
     model,
     row,
     focusIndex,
@@ -824,7 +837,7 @@ const TableRow = React.forwardRef(function ({
     setSearch,
     idx,
     handleFileContextMenu,
-}: TableRowProps, _ref: React.ForwardedRef<HTMLDivElement>) {
+}: TableRowProps) {
     const dirPath = useAtomValue(model.statFilePath);
     const connection = useAtomValue(model.connection);
     const setErrorMsg = useSetAtom(model.errorMsgAtom);
@@ -875,7 +888,7 @@ const TableRow = React.forwardRef(function ({
             ))}
         </div>
     );
-});
+}
 
 const MemoizedTableBody = React.memo(
     TableBody,
@@ -1085,6 +1098,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
     const directoryViewMode = useAtomValue(model.directoryViewMode);
     const showHiddenFiles = useAtomValue(model.showHiddenFiles);
+    const [showTransferPanel, setShowTransferPanel] = useAtom(model.showTransferPanel);
     const [selectedPath, setSelectedPath] = useState("");
     const [refreshVersion, setRefreshVersion] = useAtom(model.refreshVersion);
     const conn = useAtomValue(model.connection);
@@ -1146,9 +1160,6 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
         () =>
             unfilteredData?.filter((fileInfo) => {
                 if (!shouldIncludeDirectoryEntry(fileInfo, showHiddenFiles)) {
-                    if (fileInfo.name == null) {
-                        console.log("fileInfo.name is null", fileInfo);
-                    }
                     return false;
                 }
                 return fileInfo.name.toLowerCase().includes(searchText);
@@ -1182,7 +1193,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
             if (checkKeyPressed(waveEvent, "Escape")) {
                 setSearchText("");
                 globalStore.set(model.directorySearchActive, false);
-                return;
+                return true;
             }
             if (checkKeyPressed(waveEvent, "ArrowUp")) {
                 setFocusIndex((idx) => Math.max(idx - 1, 0));
@@ -1293,9 +1304,9 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 }
                 setErrorMsg(errorMsg);
             }
-            model.refreshCallback();
+            model.refreshCallback?.();
         },
-        [model.refreshCallback]
+        [model, setErrorMsg]
     );
 
     const uploadLocalFiles = useCallback(
@@ -1480,7 +1491,6 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
         setEntryManagerProps({
             entryManagerType: EntryManagerType.NewFile,
             onSave: (newName: string) => {
-                console.log(`newFile: ${newName}`);
                 fireAndForget(async () => {
                     await RpcApi.FileCreateCommand(
                         TabRpcClient,
@@ -1502,7 +1512,6 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
         setEntryManagerProps({
             entryManagerType: EntryManagerType.NewDirectory,
             onSave: (newName: string) => {
-                console.log(`newDirectory: ${newName}`);
                 fireAndForget(async () => {
                     await RpcApi.FileMkdirCommand(TabRpcClient, {
                         info: {
@@ -1622,6 +1631,9 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         openUploadFilePicker={openUploadFilePicker}
                     />
                 )}
+                {showTransferPanel && (
+                    <TransferMiniPanel onClose={() => setShowTransferPanel(false)} />
+                )}
             </div>
             {entryManagerProps && (
                 <EntryManagerOverlay
@@ -1674,8 +1686,113 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                     </div>
                 </Modal>
             )}
+            {showTransferPanel && (
+                <TransferMiniPanel onClose={() => setShowTransferPanel(false)} />
+            )}
         </Fragment>
     );
 }
 
-export { DirectoryPreview };
+function getMiniTaskIcon(task: TransferTask): string {
+    if (task.status === "completed") return "circle-check";
+    if (task.status === "error") return "circle-xmark";
+    if (task.status === "cancelled") return "ban";
+    return task.direction === "upload" ? "arrow-up-from-bracket" : "arrow-down-to-bracket";
+}
+
+function getMiniTaskStatusText(task: TransferTask): string {
+    if (task.status === "pending") return "等待中";
+    if (task.status === "running") return `${Math.round(task.progress)}% · ${formatTransferBytes(task.speedBytesPerSecond)}/s`;
+    if (task.status === "completed") return "已完成";
+    if (task.status === "cancelled") return "已取消";
+    return "失败";
+}
+
+function getMiniTaskStatusClass(task: TransferTask): string {
+    if (task.status === "completed") return "completed";
+    if (task.status === "error") return "error";
+    if (task.status === "cancelled") return "cancelled";
+    if (task.status === "running") return "running";
+    return "pending";
+}
+
+function TransferMiniPanel({ onClose }: { onClose: () => void }) {
+    const tasks = useAtomValue(transferTasksAtom);
+    const panelRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+                const target = e.target as HTMLElement;
+                if (target.closest(".wave-iconbutton")) return;
+                onClose();
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [onClose]);
+
+    const runningTasks = tasks.filter((t) => t.status === "pending" || t.status === "running");
+    const finishedTasks = tasks.filter((t) => t.status === "completed" || t.status === "error" || t.status === "cancelled");
+    const displayFinished = finishedTasks.slice(0, 5);
+    const hasMore = finishedTasks.length > 5;
+    const canClear = finishedTasks.length > 0;
+
+    return (
+        <div ref={panelRef} className="transfer-mini-panel">
+            <div className="transfer-mini-header">
+                <span className="transfer-mini-title">传输</span>
+                {runningTasks.length > 0 && (
+                    <span className="transfer-mini-running-count">{runningTasks.length} 个进行中</span>
+                )}
+                {canClear && (
+                    <button type="button" className="transfer-mini-clear" onClick={() => clearTransferHistory()}>
+                        清空
+                    </button>
+                )}
+            </div>
+            {tasks.length === 0 ? (
+                <div className="transfer-mini-empty">暂无传输任务</div>
+            ) : (
+                <div className="transfer-mini-list">
+                    {runningTasks.map((task) => (
+                        <div key={task.id} className="transfer-mini-item running">
+                            <i className={makeIconClass(getMiniTaskIcon(task), true)} />
+                            <div className="transfer-mini-item-info">
+                                <div className="transfer-mini-item-name">{task.name}</div>
+                                <div className="transfer-mini-item-status">
+                                    <span className={getMiniTaskStatusClass(task)}>{getMiniTaskStatusText(task)}</span>
+                                </div>
+                            </div>
+                            <div className="transfer-mini-progress">
+                                <div className="transfer-mini-progress-fill" style={{ width: `${task.progress}%` }} />
+                            </div>
+                        </div>
+                    ))}
+                    {displayFinished.map((task) => (
+                        <div key={task.id} className="transfer-mini-item finished">
+                            <i className={makeIconClass(getMiniTaskIcon(task), true)} />
+                            <div className="transfer-mini-item-info">
+                                <div className="transfer-mini-item-name">{task.name}</div>
+                                <div className="transfer-mini-item-status">
+                                    <span className={getMiniTaskStatusClass(task)}>{getMiniTaskStatusText(task)}</span>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                className="transfer-mini-remove"
+                                title="移除"
+                                onClick={() => removeTransferTask(task.id)}
+                            >
+                                <i className={makeIconClass("xmark", false)} />
+                            </button>
+                        </div>
+                    ))}
+                    {hasMore && <div className="transfer-mini-more">还有 {finishedTasks.length - 5} 个已结束任务</div>}
+                </div>
+            )}
+        </div>
+    );
+}
+
+export { DirectoryPreview, TransferMiniPanel };

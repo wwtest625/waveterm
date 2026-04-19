@@ -1,11 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { getActiveTabModel } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { callBackendService } from "@/app/store/wos";
-import { createBlock, getApi, globalStore, refocusNode, WOS } from "@/app/store/global";
+import { getAllBlockComponentModels, getApi, globalStore } from "@/app/store/global";
 import { fireAndForget } from "@/util/util";
 import base64 from "base64-js";
 import { atom } from "jotai";
@@ -132,20 +131,13 @@ function ensureTransferViewOpen(): void {
         return;
     }
     ensureTransferViewOpenPromise = (async () => {
-        const tabModel = getActiveTabModel();
-        if (tabModel == null) {
-            return;
-        }
-        const tabData = globalStore.get(tabModel.tabAtom);
-        for (const blockId of tabData?.blockids ?? []) {
-            const blockAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId));
-            const blockData = globalStore.get(blockAtom);
-            if (blockData?.meta?.view === "transfer") {
-                refocusNode(blockId);
+        const models = getAllBlockComponentModels();
+        for (const bcm of models) {
+            if (bcm.viewModel?.viewType === "preview" && (bcm.viewModel as any).showTransferPanel) {
+                globalStore.set((bcm.viewModel as any).showTransferPanel, true);
                 return;
             }
         }
-        await createBlock({ meta: { view: "transfer" } }, false, true);
     })().finally(() => {
         ensureTransferViewOpenPromise = null;
     });
