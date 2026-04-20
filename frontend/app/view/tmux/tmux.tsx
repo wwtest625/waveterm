@@ -12,7 +12,7 @@ import { WOS } from "@/store/global";
 import { sendCommandToFocusedTerminal } from "@/util/previewutil";
 import clsx from "clsx";
 import { atom } from "jotai";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Component, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     buildTmuxEnterOrCreateSessionCommand,
     buildTmuxEnterSessionCommand,
@@ -23,13 +23,13 @@ import {
     trimNameInput,
 } from "./tmux-util";
 
-const panelClass = "rounded-xl border border-zinc-800 bg-zinc-950/70 p-4";
-const rowPrimaryButtonClass = "!h-[28px] !px-2 !text-xs";
-const rowSecondaryButtonClass = "grey !h-[28px] !px-2 !text-xs";
-const rowDangerButtonClass =
-    "!h-[28px] !px-2 !text-xs !bg-red-500/10 !border-red-500/30 !text-red-300 hover:!bg-red-500/20";
-const rowMenuButtonClass = "grey !h-[28px] !px-2 !text-xs";
-const TmuxViewComponent = memo(TmuxView);
+const TmuxViewComponent = memo(function TmuxViewWithBoundary(props: ViewComponentProps<TmuxViewModel>) {
+    return (
+        <TmuxErrorBoundary>
+            <TmuxView {...props} />
+        </TmuxErrorBoundary>
+    );
+});
 
 // ============================================================================
 // Types for Tree View
@@ -53,7 +53,6 @@ function SessionNode({
     windows,
     isExpanded,
     isSelected,
-    isFocused,
     onToggle,
     onEnter,
     onSelect,
@@ -63,7 +62,6 @@ function SessionNode({
     windows: TmuxWindowSummary[];
     isExpanded: boolean;
     isSelected: boolean;
-    isFocused: boolean;
     onToggle: () => void;
     onEnter: () => void;
     onSelect: () => void;
@@ -148,7 +146,7 @@ function SessionNode({
                         )}
                     >
                         <i className={clsx("fa-solid", session.attached > 0 ? "fa-link" : "fa-unlink")} />
-                        {session.attached} connected
+                        {session.attached} 已连接
                     </span>
                 </div>
             </div>
@@ -160,7 +158,7 @@ function SessionNode({
                     isSelected ? "text-zinc-500 opacity-100" : "text-zinc-600 opacity-0 group-hover:opacity-100"
                 )}
             >
-                <span className="hidden md:inline">Enter</span>
+                <span className="hidden md:inline">进入</span>
                 <i className="fa-solid fa-arrow-right text-accent" />
             </div>
         </div>
@@ -171,7 +169,6 @@ function WindowNode({
     session,
     window,
     isSelected,
-    isFocused,
     onEnter,
     onSelect,
     onContextMenu,
@@ -179,7 +176,6 @@ function WindowNode({
     session: TmuxSessionSummary;
     window: TmuxWindowSummary;
     isSelected: boolean;
-    isFocused: boolean;
     onEnter: () => void;
     onSelect: () => void;
     onContextMenu: (e: React.MouseEvent) => void;
@@ -244,11 +240,6 @@ function WindowNode({
                 )}
             </div>
 
-            {/* Panes count placeholder */}
-            <div className="hidden md:flex items-center gap-1.5 text-zinc-600">
-                <i className="fa-solid fa-columns text-xs" />
-                <span className="text-xs">panes</span>
-            </div>
         </div>
     );
 }
@@ -293,8 +284,8 @@ function TmuxTreeView({
                     <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800/50">
                         <i className="fa-solid fa-folder-open text-3xl text-zinc-600" />
                     </div>
-                    <div className="text-zinc-500">No tmux sessions</div>
-                    <div className="text-xs text-zinc-600">Create one using the form below</div>
+                    <div className="text-zinc-500">暂无 tmux 会话</div>
+                    <div className="text-xs text-zinc-600">使用下方表单创建一个</div>
                 </div>
             ) : (
                 <div className="space-y-2">
@@ -311,7 +302,6 @@ function TmuxTreeView({
                                     windows={sessionWindows}
                                     isExpanded={isExpanded}
                                     isSelected={isSelected}
-                                    isFocused={selectedNodeId === sessionId}
                                     onToggle={() => onToggleSession(session.name)}
                                     onEnter={() => onEnterNode(sessionId)}
                                     onSelect={() => onSelectNode(sessionId)}
@@ -329,7 +319,6 @@ function TmuxTreeView({
                                                     session={session}
                                                     window={window}
                                                     isSelected={selectedNodeId === windowId}
-                                                    isFocused={selectedNodeId === windowId}
                                                     onEnter={() => onEnterNode(windowId)}
                                                     onSelect={() => onSelectNode(windowId)}
                                                     onContextMenu={(e) => onWindowContextMenu(session, window, e)}
@@ -345,6 +334,29 @@ function TmuxTreeView({
             )}
         </div>
     );
+}
+
+class TmuxErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
+    state = { hasError: false };
+
+    static getDerivedStateFromError() {
+        return { hasError: true };
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="flex h-full items-center justify-center p-8 text-sm text-zinc-400">
+                    <div className="text-center">
+                        <i className="fa-solid fa-circle-exclamation mb-2 text-2xl text-red-400" />
+                        <div className="font-medium text-red-300">Tmux 组件渲染出错</div>
+                        <div className="mt-1 text-xs text-zinc-500">请刷新页面重试</div>
+                    </div>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
 }
 
 function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
@@ -365,6 +377,21 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
     const [pendingAction, setPendingAction] = useState<string | null>(null);
     const [serverRunning, setServerRunning] = useState(true);
+    const refreshVersionRef = useRef(0);
+    const selectedSessionRef = useRef(selectedSession);
+    selectedSessionRef.current = selectedSession;
+
+    const [confirmDialog, setConfirmDialog] = useState<{
+        title: string;
+        message: string;
+        onConfirm: () => void;
+    } | null>(null);
+    const [promptDialog, setPromptDialog] = useState<{
+        title: string;
+        defaultValue: string;
+        onSubmit: (value: string) => void;
+    } | null>(null);
+    const [promptInput, setPromptInput] = useState("");
 
     const selectedSessionSummary = useMemo(
         () => sessions.find((session) => session.name === selectedSession) ?? null,
@@ -386,8 +413,12 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             if (showLoading) {
                 setLoading(true);
             }
+            const thisVersion = ++refreshVersionRef.current;
             try {
                 const sessionResp = await RpcApi.TmuxListSessionsCommand(TabRpcClient, { connection });
+                if (thisVersion !== refreshVersionRef.current) {
+                    return;
+                }
                 setServerRunning(sessionResp?.serverRunning !== false);
                 if (sessionResp?.error) {
                     setLoadingError(sessionResp.error);
@@ -399,12 +430,11 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 setSessions(nextSessions);
                 setLoadingError(null);
 
-                const hasCurrentSelection = nextSessions.some((session) => session.name === selectedSession);
-                // Keep current selection if still valid, otherwise select first
-                const nextSelectedSession = hasCurrentSelection ? selectedSession : nextSessions[0]?.name ?? "";
+                const currentSelected = selectedSessionRef.current;
+                const hasCurrentSelection = nextSessions.some((session) => session.name === currentSelected);
+                const nextSelectedSession = hasCurrentSelection ? currentSelected : nextSessions[0]?.name ?? "";
                 setSelectedSession(nextSelectedSession);
 
-                // Only auto-expand when we had to pick a new selected session.
                 if (!hasCurrentSelection && nextSelectedSession) {
                     setExpandedSessionIds((prev) => new Set([...prev, nextSelectedSession]));
                 }
@@ -414,7 +444,6 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                     return;
                 }
 
-                // Fetch windows for all sessions in parallel
                 const windowPromises = nextSessions.map(async (session) => {
                     try {
                         const windowResp = await RpcApi.TmuxListWindowsCommand(TabRpcClient, {
@@ -428,21 +457,29 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 });
 
                 const windowResults = await Promise.all(windowPromises);
+                if (thisVersion !== refreshVersionRef.current) {
+                    return;
+                }
                 const nextWindowsBySession: Record<string, TmuxWindowSummary[]> = {};
                 for (const result of windowResults) {
                     nextWindowsBySession[result.sessionName] = result.windows;
                 }
                 setWindowsBySession(nextWindowsBySession);
             } catch (err) {
+                if (thisVersion !== refreshVersionRef.current) {
+                    return;
+                }
                 const message = err instanceof Error ? err.message : String(err);
                 setLoadingError({ code: "unknown", message } as TmuxError);
                 setSessions([]);
                 setWindowsBySession({});
             } finally {
-                setLoading(false);
+                if (thisVersion === refreshVersionRef.current) {
+                    setLoading(false);
+                }
             }
         },
-        [connection, selectedSession]
+        [connection]
     );
 
     useEffect(() => {
@@ -495,7 +532,6 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                     return false;
                 }
                 setStatusMessage(actionLabel);
-                await refreshData(false);
                 return true;
             } catch (err) {
                 setActionError(`tmux 操作失败：${err instanceof Error ? err.message : String(err)}`);
@@ -504,7 +540,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 setPendingAction(null);
             }
         },
-        [refreshData]
+        []
     );
 
     const enterSession = useCallback(
@@ -550,8 +586,17 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
     );
 
     const confirmDangerousAction = useCallback(
-        (actionLabel: string, sessionName: string, windowName?: string) => {
-            return window.confirm(formatDangerConfirmText(actionLabel, connection, sessionName, windowName));
+        (actionLabel: string, sessionName: string, windowName?: string): Promise<boolean> => {
+            return new Promise((resolve) => {
+                setConfirmDialog({
+                    title: actionLabel,
+                    message: formatDangerConfirmText(actionLabel, connection, sessionName, windowName),
+                    onConfirm: () => {
+                        setConfirmDialog(null);
+                        resolve(true);
+                    },
+                });
+            });
         },
         [connection]
     );
@@ -574,7 +619,8 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
         setSelectedSession(resolvedName);
         setExpandedSessionIds((prev) => new Set([...prev, resolvedName]));
         setStatusMessage(`已创建 Session ${resolvedName}`);
-    }, [baseSessionName, connection, resolvedSessionName, runTmuxAction]);
+        await refreshData(false);
+    }, [baseSessionName, connection, refreshData, resolvedSessionName, runTmuxAction]);
 
     const createWindow = useCallback(async () => {
         if (selectedSession === "") {
@@ -617,6 +663,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                     ? `Window 已创建，但未能确定新窗口编号。`
                     : `Window ${trimmedWindowName} 已创建，但未能自动进入。`
             );
+            await refreshData(false);
             return;
         }
         const entered = await sendCommand(
@@ -626,12 +673,30 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
         if (!entered) {
             setStatusMessage(`Window ${nextWindow.index}:${nextWindow.name} 已创建，但未能自动进入。`);
         }
-    }, [connection, newWindowName, runTmuxAction, selectedSession, sendCommand]);
+        await refreshData(false);
+    }, [connection, newWindowName, refreshData, runTmuxAction, selectedSession, sendCommand]);
+
+    const requestPromptInput = useCallback(
+        (title: string, defaultValue: string): Promise<string | null> => {
+            return new Promise((resolve) => {
+                setPromptInput(defaultValue);
+                setPromptDialog({
+                    title,
+                    defaultValue,
+                    onSubmit: (value: string) => {
+                        setPromptDialog(null);
+                        resolve(trimNameInput(value));
+                    },
+                });
+            });
+        },
+        []
+    );
 
     const renameSession = useCallback(
         async (sessionName: string) => {
-            const nextName = trimNameInput(window.prompt(`重命名 Session "${sessionName}" 为：`, sessionName) ?? "");
-            if (nextName === "" || nextName === sessionName) {
+            const nextName = await requestPromptInput(`重命名 Session "${sessionName}"`, sessionName);
+            if (nextName == null || nextName === "" || nextName === sessionName) {
                 return;
             }
             const ok = await runTmuxAction(
@@ -646,19 +711,20 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             if (ok && selectedSession === sessionName) {
                 setSelectedSession(nextName);
             }
+            if (ok) {
+                await refreshData(false);
+            }
         },
-        [connection, runTmuxAction, selectedSession]
+        [connection, refreshData, requestPromptInput, runTmuxAction, selectedSession]
     );
 
     const renameWindow = useCallback(
         async (sessionName: string, windowItem: TmuxWindowSummary) => {
-            const nextName = trimNameInput(
-                window.prompt(`重命名 Window "${windowItem.name}" 为：`, windowItem.name) ?? ""
-            );
-            if (nextName === "" || nextName === windowItem.name) {
+            const nextName = await requestPromptInput(`重命名 Window "${windowItem.name}"`, windowItem.name);
+            if (nextName == null || nextName === "" || nextName === windowItem.name) {
                 return;
             }
-            await runTmuxAction(
+            const ok = await runTmuxAction(
                 {
                     connection,
                     action: "rename_window",
@@ -668,8 +734,11 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 },
                 `已重命名 Window ${windowItem.name} -> ${nextName}`
             );
+            if (ok) {
+                await refreshData(false);
+            }
         },
-        [connection, runTmuxAction]
+        [connection, refreshData, requestPromptInput, runTmuxAction]
     );
 
     const detachSession = useCallback(
@@ -677,7 +746,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             if (!confirmDangerousAction("Detach", sessionName)) {
                 return;
             }
-            await runTmuxAction(
+            const ok = await runTmuxAction(
                 {
                     connection,
                     action: "detach_session",
@@ -685,8 +754,11 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 },
                 `已 Detach Session ${sessionName}`
             );
+            if (ok) {
+                await refreshData(false);
+            }
         },
-        [confirmDangerousAction, connection, runTmuxAction]
+        [confirmDangerousAction, connection, refreshData, runTmuxAction]
     );
 
     const killSession = useCallback(
@@ -694,7 +766,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             if (!confirmDangerousAction("Kill Session", sessionName)) {
                 return;
             }
-            await runTmuxAction(
+            const ok = await runTmuxAction(
                 {
                     connection,
                     action: "kill_session",
@@ -702,8 +774,11 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 },
                 `已 Kill Session ${sessionName}`
             );
+            if (ok) {
+                await refreshData(false);
+            }
         },
-        [confirmDangerousAction, connection, runTmuxAction]
+        [confirmDangerousAction, connection, refreshData, runTmuxAction]
     );
 
     const killWindow = useCallback(
@@ -712,7 +787,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
             if (!confirmDangerousAction("Kill Window", sessionName, windowTitle)) {
                 return;
             }
-            await runTmuxAction(
+            const ok = await runTmuxAction(
                 {
                     connection,
                     action: "kill_window",
@@ -721,8 +796,11 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 },
                 `已 Kill Window ${windowTitle}`
             );
+            if (ok) {
+                await refreshData(false);
+            }
         },
-        [confirmDangerousAction, connection, runTmuxAction]
+        [confirmDangerousAction, connection, refreshData, runTmuxAction]
     );
 
     // ============================================================================
@@ -743,9 +821,8 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
 
     const selectNode = useCallback((nodeId: string) => {
         setSelectedNodeId(nodeId);
-        // If selecting a session, also update selectedSession
         if (nodeId.startsWith("session:")) {
-            const sessionName = nodeId.replace("session:", "");
+            const sessionName = nodeId.slice("session:".length);
             setSelectedSession(sessionName);
         }
     }, []);
@@ -756,12 +833,19 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 return;
             }
             if (nodeId.startsWith("session:")) {
-                const sessionName = nodeId.replace("session:", "");
+                const sessionName = nodeId.slice("session:".length);
                 void enterSession(sessionName);
             } else if (nodeId.startsWith("window:")) {
-                const parts = nodeId.split(":");
-                const sessionName = parts[1];
-                const windowIndex = parseInt(parts[2], 10);
+                const rest = nodeId.slice("window:".length);
+                const colonIdx = rest.lastIndexOf(":");
+                if (colonIdx < 0) {
+                    return;
+                }
+                const sessionName = rest.slice(0, colonIdx);
+                const windowIndex = parseInt(rest.slice(colonIdx + 1), 10);
+                if (isNaN(windowIndex)) {
+                    return;
+                }
                 const sessionWindows = windowsBySession[sessionName] ?? [];
                 const windowItem = sessionWindows.find((w) => w.index === windowIndex);
                 if (windowItem) {
@@ -857,6 +941,68 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 ) : null}
             </div>
 
+            {/* Confirm Dialog */}
+            {confirmDialog && (
+                <div className="shrink-0 px-4">
+                    <div className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+                        <div className="mb-1 font-medium text-amber-200">{confirmDialog.title}</div>
+                        <div className="whitespace-pre-line text-amber-100/80">{confirmDialog.message}</div>
+                        <div className="mt-3 flex items-center gap-2">
+                            <Button
+                                className="!h-8 !gap-2 !px-3 !text-xs !bg-red-500/20 !border-red-500/30 !text-red-300 hover:!bg-red-500/30"
+                                onClick={confirmDialog.onConfirm}
+                            >
+                                <i className="fa-solid fa-check" />
+                                确认
+                            </Button>
+                            <Button
+                                className="!h-8 !gap-2 !px-3 !text-xs grey"
+                                onClick={() => setConfirmDialog(null)}
+                            >
+                                取消
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Prompt Dialog */}
+            {promptDialog && (
+                <div className="shrink-0 px-4">
+                    <div className="mb-3 rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 py-3 text-sm">
+                        <div className="mb-2 font-medium text-zinc-200">{promptDialog.title}</div>
+                        <div className="flex items-center gap-2">
+                            <input
+                                className="flex-1 rounded-lg border border-zinc-600/80 bg-zinc-700/50 px-3 py-1.5 text-sm text-zinc-100 outline-none focus:border-accent/50"
+                                value={promptInput}
+                                onChange={(e) => setPromptInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                        promptDialog.onSubmit(promptInput);
+                                    } else if (e.key === "Escape") {
+                                        setPromptDialog(null);
+                                    }
+                                }}
+                                autoFocus
+                            />
+                            <Button
+                                className="!h-8 !gap-2 !px-3 !text-xs"
+                                onClick={() => promptDialog.onSubmit(promptInput)}
+                            >
+                                <i className="fa-solid fa-check" />
+                                确定
+                            </Button>
+                            <Button
+                                className="!h-8 !gap-2 !px-3 !text-xs grey"
+                                onClick={() => setPromptDialog(null)}
+                            >
+                                取消
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Header */}
             <div className="mx-4 mt-0 shrink-0">
                 <div className="flex flex-col gap-4 rounded-2xl border border-zinc-800/80 bg-gradient-to-r from-zinc-800/40 via-zinc-800/20 to-zinc-800/40 p-5 backdrop-blur-sm">
@@ -864,7 +1010,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                         <div className="flex items-center gap-4">
                             {/* Logo */}
                             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/10 shadow-lg shadow-amber-500/10">
-                                <i className="fa-brands fa-twitter text-2xl text-amber-400" />
+                                <i className="fa-solid fa-terminal text-2xl text-amber-400" />
                             </div>
                             <div>
                                 <h1 className="text-xl font-bold text-white">Tmux Manager</h1>
@@ -886,7 +1032,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                             {!serverRunning && (
                                 <div className="rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400">
                                     <i className="fa-solid fa-info-circle mr-1.5" />
-                                    Server Offline
+                                    服务离线
                                 </div>
                             )}
                             <Button className="!h-10 !gap-2 !px-4 grey" onClick={() => void refreshData(true)}>
@@ -907,7 +1053,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                         <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/45 p-4">
                             <label className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-500">
                                 <i className="fa-solid fa-folder text-amber-500/70" />
-                                Session Name
+                                会话名称
                             </label>
                             <div className="flex gap-2">
                                 <input
@@ -941,7 +1087,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                         <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/45 p-4">
                             <label className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-500">
                                 <i className="fa-solid fa-window-maximize text-emerald-500/70" />
-                                Window Name <span className="text-zinc-600">(optional)</span>
+                                窗口名称 <span className="text-zinc-600">（可选）</span>
                             </label>
                             <div className="flex gap-2">
                                 <input
@@ -968,7 +1114,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                             {selectedSession === "" && (
                                 <div className="mt-2 flex items-center gap-1.5 text-xs text-zinc-600">
                                     <i className="fa-solid fa-lock" />
-                                    Select a session first
+                                    请先选择一个会话
                                 </div>
                             )}
                         </div>
@@ -981,7 +1127,7 @@ function TmuxView({ blockId }: ViewComponentProps<TmuxViewModel>) {
                 <div className="flex items-center justify-between border-b border-zinc-800/80 px-5 py-3">
                     <div className="flex items-center gap-2 text-sm font-medium text-zinc-400">
                         <i className="fa-solid fa-layer-group text-accent" />
-                        Sessions & Windows
+                        会话与窗口
                     </div>
                     <div className="text-xs text-zinc-600">
                         {sessions.length} session{sessions.length !== 1 ? "s" : ""}

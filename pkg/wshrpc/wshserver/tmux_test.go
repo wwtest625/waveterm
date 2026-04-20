@@ -72,6 +72,30 @@ func TestMakeTmuxError(t *testing.T) {
 			stderr: "permission denied",
 			code:   "permission_denied",
 		},
+		{
+			name:   "connection refused",
+			err:    errors.New("exit status 1"),
+			stderr: "connection refused",
+			code:   "connection_unavailable",
+		},
+		{
+			name:   "ssh connection not found",
+			err:    errors.New("exit status 1"),
+			stderr: "ssh: connection not found",
+			code:   "connection_unavailable",
+		},
+		{
+			name:   "generic not found is unknown",
+			err:    errors.New("exit status 1"),
+			stderr: "something not found",
+			code:   "unknown",
+		},
+		{
+			name:   "connection string alone is unknown",
+			err:    errors.New("exit status 1"),
+			stderr: "connection to database established",
+			code:   "unknown",
+		},
 	}
 
 	for _, tc := range tests {
@@ -97,13 +121,9 @@ func TestParseTmuxSessionSummariesEmpty(t *testing.T) {
 
 func TestParseTmuxSessionSummariesMalformed(t *testing.T) {
 	output := "main\t2\ninvalid-line\nproject-a\t5\t0\t1"
-	sessions, err := parseTmuxSessionSummaries(output)
-	// The parser should skip malformed lines and return valid sessions
+	_, err := parseTmuxSessionSummaries(output)
 	if err == nil {
-		// Check that we got at least the valid session
-		if len(sessions) < 1 {
-			t.Fatalf("expected at least 1 session, got %d", len(sessions))
-		}
+		t.Fatal("expected error for malformed input, got nil")
 	}
 }
 
@@ -195,7 +215,7 @@ func TestBuildTmuxActionArgs(t *testing.T) {
 			req: wshrpc.TmuxActionRequest{
 				Action:      "rename_window",
 				Session:     "main",
-				WindowIndex: 2,
+				WindowIndex: intPtr(2),
 				NewName:     "logs",
 			},
 			wantArgs: []string{"rename-window", "-t", "main:2", "logs"},
@@ -205,9 +225,35 @@ func TestBuildTmuxActionArgs(t *testing.T) {
 			req: wshrpc.TmuxActionRequest{
 				Action:      "kill_window",
 				Session:     "main",
-				WindowIndex: 3,
+				WindowIndex: intPtr(3),
 			},
 			wantArgs: []string{"kill-window", "-t", "main:3"},
+		},
+		{
+			name: "kill window at index 0",
+			req: wshrpc.TmuxActionRequest{
+				Action:      "kill_window",
+				Session:     "main",
+				WindowIndex: intPtr(0),
+			},
+			wantArgs: []string{"kill-window", "-t", "main:0"},
+		},
+		{
+			name: "rename window missing window index",
+			req: wshrpc.TmuxActionRequest{
+				Action:  "rename_window",
+				Session: "main",
+				NewName: "logs",
+			},
+			wantErrCode: "invalid_request",
+		},
+		{
+			name: "kill window missing window index",
+			req: wshrpc.TmuxActionRequest{
+				Action:  "kill_window",
+				Session: "main",
+			},
+			wantErrCode: "invalid_request",
 		},
 		{
 			name: "missing session",
@@ -220,6 +266,40 @@ func TestBuildTmuxActionArgs(t *testing.T) {
 			name: "unsupported action",
 			req: wshrpc.TmuxActionRequest{
 				Action: "enter_session",
+			},
+			wantErrCode: "invalid_request",
+		},
+		{
+			name: "create session with colon",
+			req: wshrpc.TmuxActionRequest{
+				Action:  "create_session",
+				Session: "bad:name",
+			},
+			wantErrCode: "invalid_request",
+		},
+		{
+			name: "create session with dot",
+			req: wshrpc.TmuxActionRequest{
+				Action:  "create_session",
+				Session: "bad.name",
+			},
+			wantErrCode: "invalid_request",
+		},
+		{
+			name: "rename session with dollar",
+			req: wshrpc.TmuxActionRequest{
+				Action:  "rename_session",
+				Session: "main",
+				NewName: "bad$name",
+			},
+			wantErrCode: "invalid_request",
+		},
+		{
+			name: "create window with invalid name",
+			req: wshrpc.TmuxActionRequest{
+				Action:     "create_window",
+				Session:    "main",
+				WindowName: "bad*name",
 			},
 			wantErrCode: "invalid_request",
 		},
@@ -263,4 +343,8 @@ func TestTmuxShowOptionArgs(t *testing.T) {
 			t.Fatalf("arg %d: expected %q, got %q", i, expected[i], args[i])
 		}
 	}
+}
+
+func intPtr(v int) *int {
+	return &v
 }

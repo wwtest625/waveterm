@@ -533,7 +533,7 @@ type TmuxActionRequest struct {
 	Connection  string `json:"connection,omitempty"`
 	Action      string `json:"action"`
 	Session     string `json:"session,omitempty"`
-	WindowIndex int    `json:"windowIndex,omitempty"`
+	WindowIndex *int   `json:"windowIndex,omitempty"`
 	NewName     string `json:"newName,omitempty"`
 	WindowName  string `json:"windowName,omitempty"`
 }

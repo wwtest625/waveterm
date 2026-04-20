@@ -23,13 +23,11 @@ export function getNextSuffixName(baseName: string, existingNames: string[]): st
     return `${base}-${suffix}`;
 }
 
+// --- Shell command builders (used by TmuxView component) ---
+
 export function buildTmuxEnterSessionCommand(sessionName: string): string {
     const target = shellQuote([sessionName]);
     return `tmux switch-client -t ${target} || tmux attach-session -t ${target}`;
-}
-
-export function buildTmuxPromptEnterSessionCommand(sessionName: string): string {
-    return `switch-client -t ${shellQuote([sessionName])}`;
 }
 
 export function buildTmuxEnterOrCreateSessionCommand(sessionName: string): string {
@@ -37,10 +35,12 @@ export function buildTmuxEnterOrCreateSessionCommand(sessionName: string): strin
     return `tmux new-session -Ad -s ${target}; ${buildTmuxEnterSessionCommand(sessionName)}`;
 }
 
-export function buildTmuxPromptEnterOrCreateSessionCommand(sessionName: string): string {
-    const target = shellQuote([sessionName]);
-    return `new-session -Ad -s ${target} ; ${buildTmuxPromptEnterSessionCommand(sessionName)}`;
+export function buildTmuxEnterWindowCommand(sessionName: string, windowIndex: number): string {
+    const target = shellQuote([`${sessionName}:${windowIndex}`]);
+    return `tmux select-window -t ${target}; ${buildTmuxEnterSessionCommand(sessionName)}`;
 }
+
+// --- Shell command builders (reserved for future CLI-mode features) ---
 
 export function buildTmuxCreateSessionCommand(sessionName: string): string {
     const target = shellQuote([sessionName]);
@@ -57,16 +57,6 @@ export function buildTmuxDetachSessionCommand(sessionName: string): string {
 
 export function buildTmuxKillSessionCommand(sessionName: string): string {
     return `tmux kill-session -t ${shellQuote([sessionName])}`;
-}
-
-export function buildTmuxEnterWindowCommand(sessionName: string, windowIndex: number): string {
-    const target = shellQuote([`${sessionName}:${windowIndex}`]);
-    return `tmux select-window -t ${target}; ${buildTmuxEnterSessionCommand(sessionName)}`;
-}
-
-export function buildTmuxPromptEnterWindowCommand(sessionName: string, windowIndex: number): string {
-    const target = shellQuote([`${sessionName}:${windowIndex}`]);
-    return `select-window -t ${target} ; ${buildTmuxPromptEnterSessionCommand(sessionName)}`;
 }
 
 export function buildTmuxCreateWindowCommand(sessionName: string, windowName?: string): string {
@@ -89,6 +79,24 @@ export function buildTmuxKillWindowCommand(sessionName: string, windowIndex: num
     const target = shellQuote([`${sessionName}:${windowIndex}`]);
     return `tmux kill-window -t ${target}`;
 }
+
+// --- Tmux command-prompt builders (reserved for future prefix-key features) ---
+
+export function buildTmuxPromptEnterSessionCommand(sessionName: string): string {
+    return `switch-client -t ${shellQuote([sessionName])}`;
+}
+
+export function buildTmuxPromptEnterOrCreateSessionCommand(sessionName: string): string {
+    const target = shellQuote([sessionName]);
+    return `new-session -Ad -s ${target} ; ${buildTmuxPromptEnterSessionCommand(sessionName)}`;
+}
+
+export function buildTmuxPromptEnterWindowCommand(sessionName: string, windowIndex: number): string {
+    const target = shellQuote([`${sessionName}:${windowIndex}`]);
+    return `select-window -t ${target} ; ${buildTmuxPromptEnterSessionCommand(sessionName)}`;
+}
+
+// --- Tmux prefix key utilities (reserved for future prefix-key features) ---
 
 export function tmuxPrefixToBytes(prefix: string): Uint8Array | null {
     const normalized = (prefix ?? "").trim();
@@ -140,6 +148,8 @@ export function resolveTmuxPrefix(config?: TmuxGetConfigResponse | null): string
 export function buildTmuxCommandPromptBytes(command: string): Uint8Array {
     return new TextEncoder().encode(`:${command}\r`);
 }
+
+// --- Error and confirmation utilities ---
 
 export function getTmuxErrorHeadline(error?: TmuxError | null): string {
     switch (error?.code) {

@@ -16,6 +16,21 @@ import (
 
 const tmuxFieldSep = "\t"
 
+var tmuxNameInvalidChars = ":.$*?!"
+
+func validateTmuxName(name, label string) *wshrpc.TmuxError {
+	if strings.ContainsAny(name, tmuxNameInvalidChars) {
+		return &wshrpc.TmuxError{
+			Code:    "invalid_request",
+			Message: fmt.Sprintf("%s contains invalid characters (%s).", label, tmuxNameInvalidChars),
+			Detail:  fmt.Sprintf("The characters %q are reserved in tmux target specifications.", tmuxNameInvalidChars),
+		}
+	}
+	return nil
+}
+
+// TmuxGetConfigCommand reads tmux options (prefix, prefix2) for the given connection.
+// Reserved for future tmux prefix display and command-prompt features in the UI.
 func (ws *WshServer) TmuxGetConfigCommand(ctx context.Context, data wshrpc.TmuxGetConfigRequest) (wshrpc.TmuxGetConfigResponse, error) {
 	prefix, errResp := readTmuxOption(ctx, data.Connection, "prefix")
 	if errResp != nil {
@@ -76,6 +91,15 @@ func (ws *WshServer) TmuxListWindowsCommand(ctx context.Context, data wshrpc.Tmu
 	}
 	stdout, stderr, err := runTmuxCLI(ctx, data.Connection, tmuxListWindowsArgs(data.Session))
 	if err != nil {
+		if isNoTmuxServerError(err, stdout, stderr) {
+			return wshrpc.TmuxListWindowsResponse{
+				Windows: []wshrpc.TmuxWindowSummary{},
+				Error: &wshrpc.TmuxError{
+					Code:    "no_server",
+					Message: "No tmux server is running on this connection.",
+				},
+			}, nil
+		}
 		return wshrpc.TmuxListWindowsResponse{
 			Windows: []wshrpc.TmuxWindowSummary{},
 			Error:   makeTmuxError(err, stdout, stderr),
@@ -114,6 +138,9 @@ func buildTmuxActionArgs(data wshrpc.TmuxActionRequest) ([]string, *wshrpc.TmuxE
 		if sessionName == "" {
 			return nil, invalidTmuxRequest("Session is required when creating a tmux session.")
 		}
+		if err := validateTmuxName(sessionName, "Session name"); err != nil {
+			return nil, err
+		}
 		return []string{"new-session", "-A", "-d", "-s", sessionName}, nil
 	case "create_window":
 		sessionName := strings.TrimSpace(data.Session)
@@ -124,12 +151,18 @@ func buildTmuxActionArgs(data wshrpc.TmuxActionRequest) ([]string, *wshrpc.TmuxE
 		if windowName == "" {
 			return []string{"new-window", "-t", sessionName}, nil
 		}
+		if err := validateTmuxName(windowName, "Window name"); err != nil {
+			return nil, err
+		}
 		return []string{"new-window", "-t", sessionName, "-n", windowName}, nil
 	case "rename_session":
 		sessionName := strings.TrimSpace(data.Session)
 		newName := strings.TrimSpace(data.NewName)
 		if sessionName == "" || newName == "" {
 			return nil, invalidTmuxRequest("Session and newName are required when renaming a tmux session.")
+		}
+		if err := validateTmuxName(newName, "New session name"); err != nil {
+			return nil, err
 		}
 		return []string{"rename-session", "-t", sessionName, newName}, nil
 	case "rename_window":
@@ -138,7 +171,13 @@ func buildTmuxActionArgs(data wshrpc.TmuxActionRequest) ([]string, *wshrpc.TmuxE
 		if sessionName == "" || newName == "" {
 			return nil, invalidTmuxRequest("Session and newName are required when renaming a tmux window.")
 		}
-		return []string{"rename-window", "-t", tmuxWindowTarget(sessionName, data.WindowIndex), newName}, nil
+		if data.WindowIndex == nil {
+			return nil, invalidTmuxRequest("WindowIndex is required when renaming a tmux window.")
+		}
+		if err := validateTmuxName(newName, "New window name"); err != nil {
+			return nil, err
+		}
+		return []string{"rename-window", "-t", tmuxWindowTarget(sessionName, *data.WindowIndex), newName}, nil
 	case "detach_session":
 		sessionName := strings.TrimSpace(data.Session)
 		if sessionName == "" {
@@ -156,7 +195,10 @@ func buildTmuxActionArgs(data wshrpc.TmuxActionRequest) ([]string, *wshrpc.TmuxE
 		if sessionName == "" {
 			return nil, invalidTmuxRequest("Session is required when killing a tmux window.")
 		}
-		return []string{"kill-window", "-t", tmuxWindowTarget(sessionName, data.WindowIndex)}, nil
+		if data.WindowIndex == nil {
+			return nil, invalidTmuxRequest("WindowIndex is required when killing a tmux window.")
+		}
+		return []string{"kill-window", "-t", tmuxWindowTarget(sessionName, *data.WindowIndex)}, nil
 	default:
 		return nil, invalidTmuxRequest(fmt.Sprintf("Unsupported tmux action %q.", data.Action))
 	}
@@ -196,6 +238,10 @@ func readTmuxOption(ctx context.Context, connName string, option string) (string
 	return strings.TrimSpace(stdout), nil
 }
 
+// tmuxWindowTarget builds a tmux window target string (session:windowIndex).
+// Callers (rename_window, kill_window) have already validated via validateTmuxName
+// that the session name does not contain ':' or other reserved characters,
+// so the colon delimiter here is unambiguous.
 func tmuxWindowTarget(session string, windowIndex int) string {
 	return fmt.Sprintf("%s:%d", session, windowIndex)
 }
@@ -301,8 +347,13 @@ func makeTmuxError(err error, stdout string, stderr string) *wshrpc.TmuxError {
 			Message: "Permission denied while accessing tmux on this connection.",
 			Detail:  detail,
 		}
-	case strings.Contains(lowerDetail, "connection"),
-		(strings.Contains(lowerDetail, "not found") || strings.Contains(lowerDetail, "unavailable")):
+	case strings.Contains(lowerDetail, "connection refused"),
+		strings.Contains(lowerDetail, "connection reset"),
+		strings.Contains(lowerDetail, "no such connection"),
+		strings.Contains(lowerDetail, "connection not found"),
+		strings.Contains(lowerDetail, "connection unavailable"),
+		strings.Contains(lowerDetail, "ssh:") && strings.Contains(lowerDetail, "not found"),
+		strings.Contains(lowerDetail, "ssh:") && strings.Contains(lowerDetail, "unavailable"):
 		return &wshrpc.TmuxError{
 			Code:    "connection_unavailable",
 			Message: "The target connection is unavailable.",
