@@ -3,6 +3,7 @@
 
 @import "tailwindcss";
 @source "../node_modules/streamdown/dist/index.js";
+@source "../app/**/*.{tsx,ts,jsx,js}";
 
 @theme {
     --color-background: rgb(34, 34, 34);

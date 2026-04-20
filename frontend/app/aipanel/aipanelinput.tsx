@@ -135,8 +135,8 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     return (
         <div
             className={cn(
-                "border-t border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] px-3 pb-3 pt-2",
-                isFocused && "border-lime-300/30"
+                "border-t border-white/[0.04] bg-black/[0.06] px-3 pb-3 pt-2",
+                isFocused && "border-lime-300/15"
             )}
         >
             <input
@@ -148,7 +148,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                 className="hidden"
             />
             <form onSubmit={onSubmit}>
-                <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-zinc-500">
+                <div className="mb-2 flex items-center justify-between gap-3 text-[10px] text-zinc-500">
                     <div className="truncate">{isChatEmpty ? "Ask, edit, run, verify" : "Continue the session"}</div>
                     <div className="shrink-0">
                         {isThinking
@@ -162,7 +162,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                 : "Ready"}
                     </div>
                 </div>
-                <div className="relative overflow-hidden rounded-[22px] border border-white/10 bg-black/20 shadow-[0_14px_32px_rgba(0,0,0,0.16)]">
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-black/15">
                     <textarea
                         ref={textareaRef}
                         value={input}
@@ -183,10 +183,10 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                 type="button"
                                 onClick={handleUploadClick}
                                 className={cn(
-                                    "flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white/8 hover:text-lime-200"
+                                    "flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-300"
                                 )}
                             >
-                                <i className="fa fa-paperclip text-sm"></i>
+                                <i className="fa fa-paperclip text-xs"></i>
                             </button>
                         </Tooltip>
                         {runtime.state === "failed_retryable" ? (
@@ -195,11 +195,11 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                     type="button"
                                     onClick={() => void model.retryLastAction("step")}
                                     className={cn(
-                                        "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
-                                        "bg-amber-300/10 text-yellow-300 hover:bg-amber-300/15 hover:text-yellow-200"
+                                        "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition-colors",
+                                        "bg-amber-300/[0.06] text-yellow-300/70 hover:bg-amber-300/10 hover:text-yellow-200"
                                     )}
                                 >
-                                    <i className="fa fa-rotate-right text-sm"></i>
+                                    <i className="fa fa-rotate-right text-xs"></i>
                                 </button>
                             </Tooltip>
                         ) : runtime.state === "executing" ||
@@ -210,22 +210,22 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                     type="button"
                                     onClick={() => void model.cancelExecution()}
                                     className={cn(
-                                        "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
-                                        "bg-red-300/10 text-red-300 hover:bg-red-300/15 hover:text-red-200"
+                                        "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition-colors",
+                                        "bg-red-300/[0.06] text-red-300/70 hover:bg-red-300/10 hover:text-red-200"
                                     )}
                                 >
-                                    <i className="fa fa-stop text-sm"></i>
+                                    <i className="fa fa-stop text-xs"></i>
                                 </button>
                             </Tooltip>
                         ) : isThinking ? (
                             <Tooltip content="Thinking" placement="top">
                                 <div
                                     className={cn(
-                                        "flex h-9 w-9 items-center justify-center rounded-full",
-                                        "border border-lime-300/20 bg-lime-300/10 text-lime-200"
+                                        "flex h-8 w-8 items-center justify-center rounded-lg",
+                                        "border border-lime-300/10 bg-lime-300/[0.05] text-lime-200/70"
                                     )}
                                 >
-                                    <i className="fa fa-spinner fa-spin text-sm"></i>
+                                    <i className="fa fa-spinner fa-spin text-xs"></i>
                                 </div>
                             </Tooltip>
                         ) : status === "streaming" ? (
@@ -234,11 +234,11 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                     type="button"
                                     onClick={() => void model.cancelGeneration()}
                                     className={cn(
-                                        "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-colors",
-                                        "bg-emerald-300/10 text-emerald-300 hover:bg-emerald-300/15 hover:text-emerald-200"
+                                        "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition-colors",
+                                        "bg-emerald-300/[0.06] text-emerald-300/70 hover:bg-emerald-300/10 hover:text-emerald-200"
                                     )}
                                 >
-                                    <i className="fa fa-square text-sm"></i>
+                                    <i className="fa fa-square text-xs"></i>
                                 </button>
                             </Tooltip>
                         ) : (
@@ -247,13 +247,13 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                     type="submit"
                                     disabled={status !== "ready" || !input.trim()}
                                     className={cn(
-                                        "flex h-9 w-9 items-center justify-center rounded-full transition-colors",
+                                        "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
                                         status !== "ready" || !input.trim()
-                                            ? "bg-white/[0.04] text-gray-500"
-                                            : "cursor-pointer bg-lime-300/12 text-lime-200 hover:bg-lime-300/18 hover:text-lime-100"
+                                            ? "bg-white/[0.02] text-zinc-600"
+                                            : "cursor-pointer bg-lime-300/[0.08] text-lime-200/80 hover:bg-lime-300/12 hover:text-lime-100"
                                     )}
                                 >
-                                    <i className="fa fa-paper-plane text-sm"></i>
+                                    <i className="fa fa-paper-plane text-xs"></i>
                                 </button>
                             </Tooltip>
                         )}

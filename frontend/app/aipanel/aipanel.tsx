@@ -82,16 +82,9 @@ AIDragOverlay.displayName = "AIDragOverlay";
 
 const AIWelcomeMessage = memo(() => {
     return (
-        <div className="text-secondary py-8">
-            <div className="text-center">
-                <i className="fa fa-sparkles text-4xl text-accent mb-2 block"></i>
-                <p className="text-lg font-bold text-primary">欢迎使用 Wiz AI</p>
-            </div>
-            <div className="mt-4 text-left max-w-md mx-auto">
-                <p className="text-sm">
-                    Wiz AI 是你的终端智能助手，具备上下文能力。我可以读取终端输出、分析组件、访问文件，并更快帮助你解决问题。
-                </p>
-            </div>
+        <div className="flex flex-col items-center justify-center py-16 text-zinc-400">
+
+            <p className="text-sm font-medium text-zinc-200">欢迎使用 Wiz AI</p>
         </div>
     );
 });
@@ -213,19 +206,19 @@ const AIErrorMessage = memo(() => {
     }
 
     return (
-        <div className="px-4 py-2 text-red-400 bg-red-900/20 border-l-4 border-red-500 mx-2 mb-2 relative">
+        <div className="mx-3 mb-2 rounded-xl border border-red-500/15 bg-red-500/[0.04] px-3 py-2 relative">
             <button
                 onClick={() => model.clearError()}
-                className="absolute top-2 right-2 text-red-400 hover:text-red-300 cursor-pointer z-10"
+                className="absolute top-2 right-2 text-red-400/60 hover:text-red-300 cursor-pointer z-10"
                 aria-label="Close error"
             >
-                <i className="fa fa-times text-sm"></i>
+                <i className="fa fa-times text-xs"></i>
             </button>
-            <div className="text-sm pr-6 max-h-[100px] overflow-y-auto">
+            <div className="text-xs pr-6 max-h-[80px] overflow-y-auto text-red-200/80">
                 {errorMessage}
                 <button
                     onClick={() => model.clearChat()}
-                    className="ml-2 text-xs text-red-300 hover:text-red-200 cursor-pointer underline"
+                    className="ml-2 text-[10px] text-red-300/50 hover:text-red-200 cursor-pointer underline"
                 >
                     New Chat
                 </button>
@@ -396,18 +389,21 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
     }, [displaySessions]);
 
     return (
-        <div className="border-b border-white/8 bg-black/15 px-2 py-2">
-            <div className="flex flex-wrap items-center gap-2">
+        <div className="border-b border-white/[0.06] bg-black/10 px-3 py-2">
+            <div className="flex items-center gap-2">
                 <AIModeDropdown />
-                <Popover placement="bottom-start">
-                    <PopoverButton
-                        className="flex h-10 min-w-[118px] items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-200 transition-colors hover:bg-white/[0.07]"
-                        as="div"
-                    >
-                        <span className="font-medium">会话小抄</span>
-                        <i className="fa-solid fa-chevron-down ml-2 text-[10px] text-zinc-500" />
-                    </PopoverButton>
-                    <PopoverContent className="flex min-h-0 w-[360px] max-w-[calc(100vw-24px)] flex-col gap-0 rounded-xl border border-white/10 bg-zinc-900/96 p-3 shadow-2xl backdrop-blur">
+                <div className="ml-auto flex items-center gap-0.5" style={{ color: "#71717a" }}>
+                    <span className="text-[10px]">{contextUsage.usedPercent}%</span>
+                    <Popover placement="bottom-end">
+                        <PopoverButton
+                            className="ghost grey flex items-center justify-center cursor-pointer transition-opacity hover:opacity-80"
+                            as="div"
+                            style={{ width: 20, height: 20, borderRadius: 4, color: "#71717a", border: "none" }}
+                            aria-label="会话小抄"
+                        >
+                            <i className="fa-solid fa-note-sticky" style={{ fontSize: 10 }} />
+                        </PopoverButton>
+                        <PopoverContent className="flex min-h-0 w-[360px] max-w-[calc(100vw-24px)] flex-col gap-0 rounded-xl border border-white/10 bg-zinc-900/96 p-3 shadow-2xl backdrop-blur">
                         <div className="mb-3">
                             <div className="text-sm font-medium text-white">会话小抄</div>
                             <div className="mt-1 text-[11px] text-zinc-400">这四项会重新注入模型请求，用户可以手动修正。</div>
@@ -482,111 +478,105 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
                             </button>
                         </div>
                     </PopoverContent>
-                </Popover>
-                <Popover className="min-w-0" placement="bottom-start" onDismiss={() => setQuery("")}>
-                    <PopoverButton
-                        className="flex h-10 min-w-[118px] items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-200 transition-colors hover:bg-white/[0.07]"
-                        as="div"
-                    >
-                        <span className="font-medium">History</span>
-                        <i className="fa-solid fa-chevron-down ml-2 text-[10px] text-zinc-500" />
-                    </PopoverButton>
-                    <PopoverContent className="flex w-[320px] max-w-[calc(100vw-24px)] flex-col rounded-xl border border-white/10 bg-zinc-900/96 p-2 shadow-2xl backdrop-blur">
-                        <div className="flex w-full items-center rounded-md border border-white/8 bg-white/5 px-2 text-zinc-400 focus-within:border-lime-300/35 focus-within:text-zinc-300">
-                            <i className="fa-solid fa-magnifying-glass text-[11px]" />
-                            <input
-                                value={query}
-                                onChange={(e) => setQuery(e.target.value)}
-                                placeholder="请输入"
-                                className="w-full bg-transparent px-2 py-1.5 text-xs text-white outline-none placeholder:text-zinc-500"
-                            />
-                        </div>
-                        <div className="mt-2 w-full max-h-[420px] overflow-y-auto pr-1">
-                            {groupedHistorySessions.map((group) => (
-                                <div key={group.label} className="border-b border-white/8 py-2 last:border-b-0 last:pb-0">
-                                    <div className="mb-2 px-1 text-[11px] text-zinc-500">{group.label}</div>
-                                    <div className="flex flex-col">
-                                        {group.sessions.map((session) => (
-                                            <div
-                                                key={session.chatid}
-                                                className={cn(
-                                                    "group flex items-center gap-2 rounded-md px-2 py-1 transition-colors",
-                                                    session.chatid === activeChatId ? "bg-white/8" : "hover:bg-white/6"
-                                                )}
-                                            >
-                                                <button
-                                                    type="button"
-                                                    onClick={() => void model.switchSession(session.chatid)}
-                                                    className={cn(
-                                                        "min-w-0 flex-1 truncate text-left text-[13px] font-medium transition-colors",
-                                                        session.chatid === activeChatId ? "text-white" : "text-zinc-200 hover:text-white"
-                                                    )}
-                                                    title={session.summary || session.title || "New Chat"}
-                                                >
-                                                    {session.title || "New Chat"}
-                                                </button>
+                    </Popover>
+                    <Popover className="min-w-0" placement="bottom-end" onDismiss={() => setQuery("")}>
+                        <PopoverButton
+                            className="ghost grey flex items-center justify-center cursor-pointer transition-opacity hover:opacity-80"
+                            as="div"
+                            style={{ width: 20, height: 20, borderRadius: 4, color: "#71717a", border: "none" }}
+                            aria-label="历史记录"
+                        >
+                            <i className="fa-solid fa-clock-rotate-left" style={{ fontSize: 10 }} />
+                        </PopoverButton>
+                        <PopoverContent className="flex w-[320px] max-w-[calc(100vw-24px)] flex-col rounded-xl border border-white/10 bg-zinc-900/96 p-2 shadow-2xl backdrop-blur">
+                            <div className="flex w-full items-center rounded-md border border-white/8 bg-white/5 px-2 text-zinc-400 focus-within:border-lime-300/35 focus-within:text-zinc-300">
+                                <i className="fa-solid fa-magnifying-glass text-[11px]" />
+                                <input
+                                    value={query}
+                                    onChange={(e) => setQuery(e.target.value)}
+                                    placeholder="请输入"
+                                    className="w-full bg-transparent px-2 py-1.5 text-xs text-white outline-none placeholder:text-zinc-500"
+                                />
+                            </div>
+                            <div className="mt-2 w-full max-h-[420px] overflow-y-auto pr-1">
+                                {groupedHistorySessions.map((group) => (
+                                    <div key={group.label} className="border-b border-white/8 py-2 last:border-b-0 last:pb-0">
+                                        <div className="mb-2 px-1 text-[11px] text-zinc-500">{group.label}</div>
+                                        <div className="flex flex-col">
+                                            {group.sessions.map((session) => (
                                                 <div
+                                                    key={session.chatid}
                                                     className={cn(
-                                                        "flex items-center gap-0.5 transition-opacity",
-                                                        session.chatid === activeChatId ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                                                        "group flex items-center gap-2 rounded-md px-2 py-1 transition-colors",
+                                                        session.chatid === activeChatId ? "bg-white/8" : "hover:bg-white/6"
                                                     )}
                                                 >
                                                     <button
                                                         type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            const nextTitle = window.prompt("Rename this session", session.title ?? "New Chat");
-                                                            if (nextTitle && nextTitle.trim()) {
-                                                                void model.renameSession(session.chatid, nextTitle);
-                                                            }
-                                                        }}
-                                                        className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-500 hover:bg-white/10 hover:text-white"
-                                                        title="Rename"
-                                                        aria-label="Rename session"
+                                                        onClick={() => void model.switchSession(session.chatid)}
+                                                        className={cn(
+                                                            "min-w-0 flex-1 truncate text-left text-[13px] font-medium transition-colors",
+                                                            session.chatid === activeChatId ? "text-white" : "text-zinc-200 hover:text-white"
+                                                        )}
+                                                        title={session.summary || session.title || "New Chat"}
                                                     >
-                                                        <i className="fa-regular fa-pen-to-square" />
+                                                        {session.title || "New Chat"}
                                                     </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            if (window.confirm(`Delete "${session.title || "New Chat"}" permanently?`)) {
-                                                                void model.deleteSession(session.chatid);
-                                                            }
-                                                        }}
-                                                        className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-500 hover:bg-red-400/10 hover:text-red-300"
-                                                        title="Delete"
-                                                        aria-label="Delete session"
+                                                    <div
+                                                        className={cn(
+                                                            "flex items-center gap-0.5 transition-opacity",
+                                                            session.chatid === activeChatId ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                                                        )}
                                                     >
-                                                        <i className="fa-regular fa-trash-can" />
-                                                    </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                const nextTitle = window.prompt("Rename this session", session.title ?? "New Chat");
+                                                                if (nextTitle && nextTitle.trim()) {
+                                                                    void model.renameSession(session.chatid, nextTitle);
+                                                                }
+                                                            }}
+                                                            className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-500 hover:bg-white/10 hover:text-white"
+                                                            title="Rename"
+                                                            aria-label="Rename session"
+                                                        >
+                                                            <i className="fa-regular fa-pen-to-square" />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (window.confirm(`Delete "${session.title || "New Chat"}" permanently?`)) {
+                                                                    void model.deleteSession(session.chatid);
+                                                                }
+                                                            }}
+                                                            className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-500 hover:bg-red-400/10 hover:text-red-300"
+                                                            title="Delete"
+                                                            aria-label="Delete session"
+                                                        >
+                                                            <i className="fa-regular fa-trash-can" />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
-                            {groupedHistorySessions.length === 0 && (
-                                <div className="px-2 py-3 text-xs text-zinc-500">No matching history</div>
-                            )}
-                        </div>
-                    </PopoverContent>
-                </Popover>
-                <div className="ml-auto flex items-center gap-2">
-                    <div className="flex h-8 min-w-[146px] flex-col justify-center rounded-lg border border-white/10 bg-white/[0.04] px-3">
-                        <div className="mt-1 text-xs leading-none text-zinc-300">
-                            <span className="text-lime-200">{contextUsage.usedPercent}% </span>
-                            <span className="mx-1 text-zinc-500">·</span>
-                            统计 {formatTokensCompact(contextUsage.usedTokens)} ，共{" "}
-                            {formatTokensCompact(contextUsage.totalTokens)}
-                        </div>
-                    </div>
+                                ))}
+                                {groupedHistorySessions.length === 0 && (
+                                    <div className="px-2 py-3 text-xs text-zinc-500">No matching history</div>
+                                )}
+                            </div>
+                        </PopoverContent>
+                    </Popover>
                     <button
                         type="button"
                         onClick={() => model.clearChat()}
-                        className="rounded-full border border-lime-300/20 bg-lime-300/10 px-3 py-1 text-xs text-lime-200 hover:bg-lime-300/15"
+                        className="flex items-center justify-center transition-colors hover:opacity-80 cursor-pointer"
+                        style={{ width: 20, height: 20, borderRadius: 4, color: "#71717a", backgroundColor: "transparent", border: "none" }}
+                        aria-label="新建会话"
                     >
-                        New
+                        <i className="fa-solid fa-plus" style={{ fontSize: 10 }} />
                     </button>
                 </div>
             </div>
@@ -623,15 +613,15 @@ const CommandInteractionInput = memo(() => {
     const canSend = input.trim().length > 0 || allowEmptyInput;
 
     return (
-        <div className="mx-2 mb-2 rounded-xl border border-amber-300/20 bg-amber-300/8 px-3 py-3 text-sm text-zinc-200">
+        <div className="mx-3 mb-2 rounded-xl border border-amber-300/12 bg-amber-300/[0.04] px-3 py-3 text-sm text-zinc-200">
             <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                    <div className="font-medium text-amber-100">
+                    <div className="font-medium text-amber-100/80 text-xs">
                         {interaction.tuiDetected
                             ? "Interactive TUI detected"
                             : interaction.promptHint || "Command is waiting for input"}
                     </div>
-                    <div className="mt-1 text-xs text-zinc-400">
+                    <div className="mt-1 text-[11px] text-zinc-400">
                         {interaction.tuiSuppressed
                             ? "Wave suppressed the TUI so the session stays usable. Continue it in a terminal if you need the full screen app."
                             : "Submit input below to continue the running command."}
@@ -640,7 +630,7 @@ const CommandInteractionInput = memo(() => {
                 <button
                     type="button"
                     onClick={() => void model.cancelExecution()}
-                    className="rounded-full border border-red-300/20 bg-red-300/10 px-3 py-1 text-xs text-red-200"
+                    className="rounded-lg border border-red-300/12 bg-red-300/[0.06] px-2.5 py-1 text-[11px] text-red-200/70"
                 >
                     Cancel
                 </button>
@@ -653,13 +643,13 @@ const CommandInteractionInput = memo(() => {
             {!interaction.tuiSuppressed && (
                 <>
                     {interaction.inputOptions && interaction.inputOptions.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-2">
+                        <div className="mt-2 flex flex-wrap gap-1.5">
                             {interaction.inputOptions.map((option) => (
                                 <button
                                     key={option === "" ? "__enter__" : option}
                                     type="button"
                                     onClick={() => void model.submitCommandInteraction(option)}
-                                    className="rounded-full border border-white/8 bg-white/6 px-2 py-1 text-[11px] text-zinc-200"
+                                    className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[11px] text-zinc-300 hover:bg-white/[0.06]"
                                 >
                                     {option === "" ? "Enter" : option}
                                 </button>
@@ -672,17 +662,17 @@ const CommandInteractionInput = memo(() => {
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             placeholder={interaction.promptHint || "Type command input"}
-                            className="min-w-0 flex-1 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                            className="min-w-0 flex-1 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-1.5 text-sm text-white outline-none placeholder:text-zinc-500"
                         />
                         <button
                             type="button"
                             onClick={() => void model.submitCommandInteraction(input)}
                             disabled={!canSend}
                             className={cn(
-                                "rounded-lg px-3 py-2 text-sm",
+                                "rounded-lg px-3 py-1.5 text-sm",
                                 canSend
-                                    ? "bg-amber-300/15 text-amber-100 hover:bg-amber-300/20"
-                                    : "bg-white/5 text-zinc-500"
+                                    ? "bg-amber-300/[0.08] text-amber-100 hover:bg-amber-300/12"
+                                    : "bg-white/[0.02] text-zinc-600"
                             )}
                         >
                             Send
@@ -1257,15 +1247,15 @@ const AIPanelComponentInner = memo(() => {
             ref={containerRef}
             data-waveai-panel="true"
             className={cn(
-                "@container bg-zinc-900/70 flex flex-col relative",
+                "@container bg-zinc-900/80 flex flex-col relative",
                 "mt-1 h-[calc(100%-4px)]",
                 (isDragOver || isReactDndDragOver) && "bg-zinc-800 border-accent",
-                isFocused ? "border-2 border-accent" : "border-2 border-transparent"
+                isFocused ? "border border-white/[0.08]" : "border border-transparent"
             )}
             style={{
-                borderTopRightRadius: 10,
-                borderBottomRightRadius: 10,
-                borderBottomLeftRadius: 10,
+                borderTopRightRadius: 12,
+                borderBottomRightRadius: 12,
+                borderBottomLeftRadius: 12,
             }}
             onFocusCapture={handleFocusCapture}
             onPointerEnter={handlePointerEnter}

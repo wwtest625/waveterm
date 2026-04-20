@@ -31,7 +31,7 @@ const AIModeMenuItem = memo(({ config, isSelected, isDisabled, isPremiumDisabled
             className={cn(
                 "w-full flex flex-col gap-0.5 px-3 transition-colors text-left",
                 isFirst ? "pt-1 pb-0.5" : isLast ? "pt-0.5 pb-1" : "pt-0.5 pb-0.5",
-                isDisabled ? "text-zinc-500" : "text-zinc-300 hover:bg-zinc-700 cursor-pointer"
+                isDisabled ? "text-zinc-500" : "text-zinc-300 hover:bg-white/[0.06] cursor-pointer"
             )}
         >
             <div className="flex items-center gap-2 w-full">
@@ -210,8 +210,8 @@ export const AIModeDropdown = memo(({ compatibilityMode = false }: AIModeDropdow
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className={cn(
-                    "group flex min-w-[120px] items-center justify-between rounded-full border border-white/8 bg-white/5 px-3 py-1 text-xs text-zinc-300 transition-colors hover:text-white cursor-pointer",
-                    isOpen ? "bg-zinc-700" : "bg-zinc-800/50 hover:bg-zinc-700"
+                    "group flex min-w-[120px] items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 text-[11px] text-zinc-300 transition-colors hover:text-white cursor-pointer",
+                    isOpen ? "bg-white/[0.06]" : "hover:bg-white/[0.06]"
                 )}
                 title={`AI Mode: ${displayName}`}
             >
@@ -243,14 +243,14 @@ export const AIModeDropdown = memo(({ compatibilityMode = false }: AIModeDropdow
             {isOpen && (
                 <>
                     <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-                    <div className="absolute top-full left-0 mt-1 bg-zinc-800 border border-zinc-600 rounded shadow-lg z-50 min-w-[280px]">
+                    <div className="absolute top-full left-0 mt-1 bg-zinc-900/96 border border-white/[0.06] rounded-xl shadow-2xl z-50 min-w-[280px] backdrop-blur">
                         {sections.map((section, sectionIndex) => {
                             const isFirstSection = sectionIndex === 0;
                             const isLastSection = sectionIndex === sections.length - 1;
 
                             return (
                                 <div key={section.sectionName}>
-                                    {!isFirstSection && <div className="border-t border-gray-600 my-2" />}
+                                    {!isFirstSection && <div className="border-t border-white/[0.06] my-2" />}
                                     {showSectionHeaders && (
                                         <>
                                             <div
@@ -292,17 +292,17 @@ export const AIModeDropdown = memo(({ compatibilityMode = false }: AIModeDropdow
                                 </div>
                             );
                         })}
-                        <div className="border-t border-gray-600 my-1" />
+                        <div className="border-t border-white/[0.06] my-1" />
                         <button
                             onClick={handleNewChatClick}
-                            className="w-full flex items-center gap-2 px-3 pt-1 pb-1 text-gray-300 hover:bg-zinc-700 cursor-pointer transition-colors text-left"
+                            className="w-full flex items-center gap-2 px-3 pt-1 pb-1 text-zinc-400 hover:bg-white/[0.06] cursor-pointer transition-colors text-left"
                         >
                             <i className={makeIconClass("plus", false)}></i>
                             <span className="text-sm">New Chat</span>
                         </button>
                         <button
                             onClick={handleConfigureClick}
-                            className="w-full flex items-center gap-2 px-3 pt-1 pb-2 text-gray-300 hover:bg-zinc-700 cursor-pointer transition-colors text-left"
+                            className="w-full flex items-center gap-2 px-3 pt-1 pb-2 text-zinc-400 hover:bg-white/[0.06] cursor-pointer transition-colors text-left"
                         >
                             <i className={makeIconClass("gear", false)}></i>
                             <span className="text-sm">Configure Modes</span>

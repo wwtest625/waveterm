@@ -590,13 +590,13 @@ function getTaskChainToneClass(state?: AgentRuntimeSnapshot["state"] | TaskChain
         case "unavailable":
         case "cancelled":
         case "failed":
-            return "border-red-900/60 bg-red-950/20 text-red-100";
+            return "border-red-500/20 bg-red-500/[0.04] text-red-100";
         case "awaiting_approval":
         case "interacting":
         case "retrying":
-            return "border-yellow-800/60 bg-yellow-950/20 text-yellow-100";
+            return "border-amber-400/20 bg-amber-400/[0.04] text-amber-100";
         default:
-            return "border-emerald-900/50 bg-emerald-950/20 text-emerald-100";
+            return "border-white/[0.06] text-emerald-100";
     }
 }
 
@@ -651,32 +651,28 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
     return (
         <div
             className={cn(
-                "group relative mt-2 overflow-hidden rounded-[18px] border px-3 py-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.12)] transition-all duration-300",
-                "bg-[radial-gradient(circle_at_top_left,rgba(163,230,53,0.12),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.02))]",
-                "hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(0,0,0,0.18)]",
+                "group relative mt-2 overflow-hidden rounded-2xl border px-3 py-2.5 transition-colors duration-200",
+                "bg-white/[0.02]",
                 displayState.toneClassName
             )}
         >
-            <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-                <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-lime-300/10 blur-2xl" />
-            </div>
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold tracking-[0.08em]">
-                        <span>任务链</span>
+                    <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium tracking-[0.06em]">
+                        <span className="text-zinc-200">任务链</span>
                         {displayState.statusLabel && (
-                            <span className="rounded-full border border-white/10 bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-normal tracking-[0.14em] text-zinc-200 uppercase">
+                            <span className="rounded-full border border-white/[0.06] bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-normal tracking-[0.1em] text-zinc-300 uppercase">
                                 {displayState.statusLabel}
                             </span>
                         )}
                         {toolUseCount > 0 && (
-                            <span className="rounded-full border border-lime-300/30 bg-lime-300/12 px-2 py-0.5 text-[12px] font-normal tracking-normal text-lime-100">
-                                已调用工具 {toolUseCount} 次
+                            <span className="rounded-full border border-lime-300/15 bg-lime-300/[0.06] px-2 py-0.5 text-[11px] font-normal tracking-normal text-lime-200/80">
+                                {toolUseCount} 次调用
                             </span>
                         )}
                         {isThinkingPhaseLabel(displayState.statusLabel) && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[12px] font-normal tracking-normal text-zinc-200/80">
-                                <i className="fa-solid fa-spinner fa-spin text-[10px]" />
+                            <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[11px] font-normal tracking-normal text-zinc-300/70">
+                                <i className="fa-solid fa-spinner fa-spin text-[9px]" />
                                 Thinking
                             </span>
                         )}
@@ -711,8 +707,8 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                               ? "text-zinc-100"
                               : "text-zinc-300";
                     const stepToneClass = isActive
-                        ? "border-lime-300/25 bg-lime-400/[0.08] shadow-[0_0_0_1px_rgba(163,230,53,0.14)]"
-                        : "border-white/8 bg-black/15";
+                        ? "border-lime-300/15 bg-lime-300/[0.05]"
+                        : "border-transparent bg-transparent";
                     return (
                         <div
                             key={step.id}
@@ -731,12 +727,12 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                 ></i>
                                 <span className={titleClass}>{step.title}</span>
                                 {(step.duplicateCount ?? 1) > 1 && (
-                                    <span className="rounded-full border border-white/10 bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-zinc-300">
+                                    <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
                                         ×{step.duplicateCount}
                                     </span>
                                 )}
                                 {step.status === "running" && step.toolName === "term_command_output" && (
-                                    <span className="rounded-full border border-yellow-400/30 bg-yellow-400/10 px-2 py-0.5 text-[10px] font-medium tracking-[0.08em] text-yellow-200">
+                                    <span className="rounded-full border border-yellow-400/15 bg-yellow-400/[0.05] px-2 py-0.5 text-[10px] font-medium tracking-[0.06em] text-yellow-200/70">
                                         后台刷新中
                                     </span>
                                 )}
@@ -780,7 +776,7 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                                     {commandDisplay.shouldCollapse && (
                                                         <button
                                                             type="button"
-                                                            className="absolute right-10 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/30 px-2 py-0.5 text-[11px] text-zinc-200 transition hover:bg-black/45"
+                                                            className="absolute right-10 top-2 inline-flex items-center gap-1 rounded border border-white/[0.06] bg-black/20 px-1.5 py-0.5 text-[10px] text-zinc-400 transition hover:bg-black/35"
                                                             onClick={() =>
                                                                 setExpandedOutputSteps((prev) => ({
                                                                     ...prev,
@@ -791,7 +787,7 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                                             <span>更多</span>
                                                             <i
                                                                 className={cn(
-                                                                    "fa-solid text-[10px]",
+                                                                    "fa-solid text-[9px]",
                                                                     isExpanded ? "fa-chevron-up" : "fa-chevron-down"
                                                                 )}
                                                             />
@@ -815,8 +811,8 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                                 <div className="relative">
                                                     <pre
                                                         className={cn(
-                                                            "whitespace-pre-wrap break-all rounded-md bg-black px-2.5 py-2 pt-7 pr-20 text-[14px] leading-6",
-                                                            isActive ? "text-zinc-100/95" : "text-zinc-200/90"
+                                                            "whitespace-pre-wrap break-all rounded-lg bg-black/15 px-2.5 py-2 pt-7 pr-20 text-[13px] leading-6",
+                                                            isActive ? "text-zinc-100/90" : "text-zinc-200/80"
                                                         )}
                                                         style={{ fontFamily: AI_CODE_FONT_FAMILY }}
                                                     >
@@ -825,7 +821,7 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                                     {outputDisplay.shouldCollapse && (
                                                         <button
                                                             type="button"
-                                                            className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/30 px-2 py-0.5 text-[11px] text-zinc-200 transition hover:bg-black/45"
+                                                            className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-white/[0.06] bg-black/20 px-1.5 py-0.5 text-[10px] text-zinc-400 transition hover:bg-black/35"
                                                             onClick={() =>
                                                                 setExpandedOutputSteps((prev) => ({
                                                                     ...prev,
@@ -836,7 +832,7 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                                             <span>更多</span>
                                                             <i
                                                                 className={cn(
-                                                                    "fa-solid text-[10px]",
+                                                                    "fa-solid text-[9px]",
                                                                     isExpanded ? "fa-chevron-up" : "fa-chevron-down"
                                                                 )}
                                                             />
@@ -861,7 +857,7 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                 <div className="mt-1 flex flex-wrap items-center gap-2 pl-5 text-[11px] text-zinc-400">
                                     {durationLabel && <span>{durationLabel}</span>}
                                     {exitCodeLabel && (
-                                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-zinc-300">
+                                        <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
                                             {exitCodeLabel}
                                         </span>
                                     )}
@@ -888,30 +884,30 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                                 <div className="mt-1 pl-5">
                                                     <div className="relative">
                                                         <pre
-                                                            className="whitespace-pre-wrap break-all rounded-md bg-black px-2.5 py-2 pt-7 pr-20 text-[14px] leading-6 text-zinc-100/90"
+                                                            className="whitespace-pre-wrap break-all rounded-lg bg-black/15 px-2.5 py-2 pt-7 pr-20 text-[13px] leading-6 text-zinc-100/85"
                                                             style={{ fontFamily: AI_CODE_FONT_FAMILY }}
                                                         >
                                                             {displayedText}
                                                         </pre>
                                                         {outputDisplay.shouldCollapse && (
                                                             <button
-                                                                type="button"
-                                                                className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/30 px-2 py-0.5 text-[11px] text-zinc-200 transition hover:bg-black/45"
-                                                                onClick={() =>
-                                                                    setExpandedOutputSteps((prev) => ({
-                                                                        ...prev,
-                                                                        [secondary.id]: !isExpanded,
-                                                                    }))
-                                                                }
-                                                            >
-                                                                <span>更多</span>
-                                                                <i
-                                                                    className={cn(
-                                                                        "fa-solid text-[10px]",
-                                                                        isExpanded ? "fa-chevron-up" : "fa-chevron-down"
-                                                                    )}
-                                                                />
-                                                            </button>
+                                                            type="button"
+                                                            className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-white/[0.06] bg-black/20 px-1.5 py-0.5 text-[10px] text-zinc-400 transition hover:bg-black/35"
+                                                            onClick={() =>
+                                                                setExpandedOutputSteps((prev) => ({
+                                                                    ...prev,
+                                                                    [secondary.id]: !isExpanded,
+                                                                }))
+                                                            }
+                                                        >
+                                                            <span>更多</span>
+                                                            <i
+                                                                className={cn(
+                                                                    "fa-solid text-[9px]",
+                                                                    isExpanded ? "fa-chevron-up" : "fa-chevron-down"
+                                                                )}
+                                                            />
+                                                        </button>
                                                         )}
                                                     </div>
                                                 </div>
@@ -921,10 +917,10 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                         <div className="mt-0.5 flex flex-wrap items-center gap-2 pl-5 text-[11px] text-zinc-400">
                                             {secondary.durationLabel && <span>{secondary.durationLabel}</span>}
                                             {formatExitCodeLabel(secondary.exitCode) && (
-                                                <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-zinc-300">
-                                                    {formatExitCodeLabel(secondary.exitCode)}
-                                                </span>
-                                            )}
+                                                    <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                                                        {formatExitCodeLabel(secondary.exitCode)}
+                                                    </span>
+                                                )}
                                         </div>
                                     )}
                                 </div>
@@ -971,26 +967,26 @@ const TaskChainApprovalActions = memo(({ turn }: { turn: TaskTurn }) => {
     const label = pendingApprovals.length > 1 ? `审批 ${pendingApprovals.length} 个步骤` : "等待审批";
 
     return (
-        <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-amber-100">
-            <div className="flex items-center gap-2 text-xs font-medium">
-                <i className="fa-solid fa-triangle-exclamation text-amber-300" />
+        <div className="mt-3 rounded-xl border border-amber-300/15 bg-amber-300/[0.05] px-3 py-2 text-amber-100">
+            <div className="flex items-center gap-2 text-[11px] font-medium">
+                <i className="fa-solid fa-triangle-exclamation text-amber-300/70" />
                 <span>{label}</span>
             </div>
-            <div className="mt-1 text-[12px] text-amber-50/80">
+            <div className="mt-1 text-[11px] text-amber-50/60">
                 这一步需要确认后才能继续。审批按钮已直接显示在任务链里。
             </div>
             <div className="mt-2 flex gap-2">
                 <button
                     type="button"
                     onClick={handleApproveAll}
-                    className="cursor-pointer rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs text-emerald-100 transition hover:border-emerald-200/35 hover:bg-emerald-300/15"
+                    className="cursor-pointer rounded-lg border border-emerald-300/15 bg-emerald-300/[0.06] px-2.5 py-1 text-[11px] text-emerald-100 transition hover:border-emerald-200/25 hover:bg-emerald-300/10"
                 >
                     Approve
                 </button>
                 <button
                     type="button"
                     onClick={handleDenyAll}
-                    className="cursor-pointer rounded-full border border-red-300/20 bg-red-300/10 px-3 py-1.5 text-xs text-red-100 transition hover:border-red-200/35 hover:bg-red-300/15"
+                    className="cursor-pointer rounded-lg border border-red-300/15 bg-red-300/[0.06] px-2.5 py-1 text-[11px] text-red-100 transition hover:border-red-200/25 hover:bg-red-300/10"
                 >
                     Deny
                 </button>
@@ -1144,8 +1140,8 @@ const UserPromptCard = memo(({ message }: { message?: WaveUIMessage }) => {
     }
     return (
         <div className="flex justify-end">
-            <div className="max-w-[78%] rounded-[20px] border border-lime-300/25 bg-[linear-gradient(180deg,rgba(132,255,120,0.12),rgba(132,255,120,0.06))] px-4 py-3 text-sm text-zinc-100 shadow-[0_10px_30px_rgba(0,0,0,0.16)]">
-                <div className="mb-1 text-[11px] uppercase tracking-[0.18em] text-lime-200/70">You</div>
+            <div className="max-w-[78%] rounded-2xl border border-lime-300/15 bg-lime-300/[0.06] px-4 py-3 text-sm text-zinc-100">
+                <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-lime-200/50">You</div>
                 <div className="whitespace-pre-wrap break-words">{text}</div>
             </div>
         </div>
@@ -1156,8 +1152,8 @@ UserPromptCard.displayName = "UserPromptCard";
 
 const StreamingTextBlock = memo(({ text }: { text: string }) => {
     return (
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
-            <div className="absolute inset-y-0 left-0 w-0.5 bg-emerald-400/70" />
+        <div className="relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+            <div className="absolute inset-y-0 left-0 w-0.5 bg-emerald-400/50" />
             <div className="whitespace-pre-wrap break-words pl-2 text-[13px] leading-6 text-zinc-100">{text}</div>
         </div>
     );
@@ -1168,8 +1164,8 @@ StreamingTextBlock.displayName = "StreamingTextBlock";
 const CompletionHeader = memo(() => {
     return (
         <div className="mb-2 flex items-center gap-2">
-            <div className="flex items-center gap-2 text-[12px] font-medium text-zinc-100">
-                <i className="fa-solid fa-circle-check text-emerald-400" />
+            <div className="flex items-center gap-2 text-[11px] font-medium text-zinc-300">
+                <i className="fa-solid fa-circle-check text-emerald-400/70" />
                 <span>任务完成</span>
             </div>
         </div>
@@ -1187,7 +1183,7 @@ const CompactRateLimit = memo(() => {
 
     if (rateLimitInfo.req === 0 && rateLimitInfo.preq === 0) {
         return (
-            <div className="rounded-full border border-red-300/20 bg-red-300/10 px-3 py-1 text-[11px] text-red-100">
+            <div className="rounded-full border border-red-300/12 bg-red-300/[0.05] px-2 py-0.5 text-[10px] text-red-200/70">
                 Daily limit reached
             </div>
         );
@@ -1195,7 +1191,7 @@ const CompactRateLimit = memo(() => {
 
     if (rateLimitInfo.preq <= 5) {
         return (
-            <div className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[11px] text-amber-100">
+            <div className="rounded-full border border-amber-300/12 bg-amber-300/[0.05] px-2 py-0.5 text-[10px] text-amber-200/70">
                 Premium {Math.max(rateLimitInfo.preq, 0)} left
             </div>
         );
@@ -1215,18 +1211,18 @@ const PanelHero = memo(() => {
     const stateLabel = runtime.phaseLabel || "Ready";
 
     return (
-        <div className="mb-4 rounded-[24px] border border-lime-400/20 bg-[radial-gradient(circle_at_top_left,rgba(114,255,102,0.16),transparent_42%),linear-gradient(180deg,rgba(114,255,102,0.08),rgba(114,255,102,0.02))] px-4 py-3">
+        <div className="mb-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
-                        <i className="fa fa-sparkles text-lime-300" />
+                    <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                        <i className="fa fa-sparkles text-lime-300/70" />
                         <span>{providerLabel}</span>
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-400">
+                        <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5">
                             {modeLabel}
                         </span>
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">
+                        <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5">
                             {stateLabel}
                         </span>
                         <CompactRateLimit />
@@ -1242,11 +1238,11 @@ PanelHero.displayName = "PanelHero";
 
 const AssistantRail = memo(({ status }: { status: "streaming" | "ready" | "attention" }) => {
     const dotClass =
-        status === "streaming" ? "bg-emerald-400" : status === "attention" ? "bg-amber-300" : "bg-zinc-500";
+        status === "streaming" ? "bg-emerald-400/60" : status === "attention" ? "bg-amber-300/60" : "bg-zinc-600";
     return (
         <div className="flex shrink-0 flex-col items-center">
-            <div className={cn("mt-1 h-2.5 w-2.5 rounded-full", dotClass)} />
-            <div className="mt-2 h-full min-h-10 w-px bg-white/8" />
+            <div className={cn("mt-1 h-2 w-2 rounded-full", dotClass)} />
+            <div className="mt-2 h-full min-h-10 w-px bg-white/[0.04]" />
         </div>
     );
 });
@@ -1268,11 +1264,11 @@ const ToolTrace = memo(({ turn }: { turn: TaskTurn }) => {
     }
 
     return (
-        <div className="mt-4 border-t border-white/8 pt-3">
+        <div className="mt-4 border-t border-white/[0.04] pt-3">
             <button
                 type="button"
                 onClick={() => setOpen((value) => !value)}
-                className="cursor-pointer text-xs uppercase tracking-[0.18em] text-zinc-500 transition hover:text-zinc-300"
+                className="cursor-pointer text-[10px] uppercase tracking-[0.12em] text-zinc-500 transition hover:text-zinc-300"
             >
                 {open ? "Hide tool trace" : "Show tool trace"}
             </button>
@@ -1303,31 +1299,31 @@ const ThinkingTraceCard = memo(({ reasoningText, isStreaming }: { reasoningText:
     }
 
     return (
-        <div className="mb-3 overflow-hidden rounded-xl border border-emerald-300/20 bg-emerald-300/[0.06]">
-            <div className="flex items-center justify-between gap-2 border-b border-emerald-300/15 px-3 py-2">
-                <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-emerald-200/85">
+        <div className="mb-3 overflow-hidden rounded-xl border border-emerald-300/12 bg-emerald-300/[0.03]">
+            <div className="flex items-center justify-between gap-2 border-b border-emerald-300/10 px-3 py-2">
+                <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.12em] text-emerald-200/70">
                     <i className="fa-solid fa-brain" />
                     <span>深度思考</span>
-                    {isStreaming && <span className="text-emerald-200/60">处理中</span>}
+                    {isStreaming && <span className="text-emerald-200/50">处理中</span>}
                 </div>
                 {displayState.shouldCollapse && (
                     <button
                         type="button"
                         onClick={() => setExpanded((value) => !value)}
-                        className="text-[10px] uppercase tracking-[0.16em] text-emerald-200/70 transition hover:text-emerald-100"
+                        className="text-[10px] uppercase tracking-[0.12em] text-emerald-200/50 transition hover:text-emerald-100"
                     >
                         {expanded ? "收起" : `展开 (${displayState.lineCount})`}
                     </button>
                 )}
             </div>
             <pre
-                className="max-h-[20lh] overflow-auto whitespace-pre-wrap px-3 py-2 text-xs leading-5 text-emerald-50/85"
+                className="max-h-[20lh] overflow-auto whitespace-pre-wrap px-3 py-2 text-xs leading-5 text-emerald-50/75"
                 style={{ fontFamily: AI_CODE_FONT_FAMILY }}
             >
                 {displayedText}
             </pre>
             {displayState.shouldCollapse && !expanded && (
-                <div className="border-t border-emerald-300/15 px-3 py-1.5 text-[10px] text-emerald-200/65">
+                <div className="border-t border-emerald-300/10 px-3 py-1.5 text-[10px] text-emerald-200/50">
                     仅显示前 {THINKING_OUTPUT_COLLAPSE_LINES} 行
                 </div>
             )}
@@ -1373,7 +1369,7 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
     return (
         <div className="flex items-stretch gap-3">
             <AssistantRail status={railStatus} />
-            <div className="min-w-0 flex-1 rounded-[18px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.025))] px-3.5 py-3.5 shadow-[0_12px_28px_rgba(0,0,0,0.12)]">
+            <div className="min-w-0 flex-1 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5">
                 {showCompletionHeader && <CompletionHeader />}
 
                 {thinkingText && <ThinkingTraceCard reasoningText={thinkingText} isStreaming={turn.isStreaming} />}
@@ -1396,12 +1392,12 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
                 )}
 
                 {showRawOutputBlock && (
-                    <div className="mt-2 overflow-hidden rounded-xl border border-white/8 bg-black/25">
-                        <div className="flex items-center justify-between gap-3 border-b border-white/8 px-2.5 py-1.5">
+                    <div className="mt-2 overflow-hidden rounded-xl border border-white/[0.06] bg-black/20">
+                        <div className="flex items-center justify-between gap-3 border-b border-white/[0.04] px-3 py-1.5">
                             <div className="flex items-center gap-2">
-                                <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">结果</div>
+                                <div className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">结果</div>
                                 {exitCodeLabel && (
-                                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-zinc-300">
+                                    <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
                                         {exitCodeLabel}
                                     </span>
                                 )}
@@ -1410,20 +1406,20 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
                                 <button
                                     type="button"
                                     onClick={() => setRawOutputExpanded((value) => !value)}
-                                    className="text-[10px] uppercase tracking-[0.18em] text-zinc-400 transition hover:text-zinc-200"
+                                    className="text-[10px] uppercase tracking-[0.14em] text-zinc-500 transition hover:text-zinc-300"
                                 >
                                     {rawOutputExpanded ? "收起" : `展开 (${rawOutputDisplay.lineCount})`}
                                 </button>
                             )}
                         </div>
                         <pre
-                            className="overflow-x-auto whitespace-pre-wrap px-2.5 py-2.5 text-base text-zinc-100"
+                            className="overflow-x-auto whitespace-pre-wrap px-3 py-2.5 text-base text-zinc-100"
                             style={{ fontFamily: AI_CODE_FONT_FAMILY }}
                         >
                             {displayedRawOutput}
                         </pre>
                         {rawOutputDisplay.shouldCollapse && !rawOutputExpanded && (
-                            <div className="border-t border-white/8 px-2.5 py-1.5 text-[10px] text-zinc-500">
+                            <div className="border-t border-white/[0.04] px-3 py-1.5 text-[10px] text-zinc-500">
                                 仅显示前 {RAW_OUTPUT_COLLAPSE_LINES} 行
                             </div>
                         )}
@@ -1435,13 +1431,13 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
                 {showEmptyState && <div className="mt-3 text-sm text-zinc-400">No visible result returned.</div>}
 
                 {!turn.isStreaming && (assistantText || rawToolOutput) && (
-                    <div className="mt-3 flex items-center gap-2 border-t border-white/8 pt-2.5">
+                    <div className="mt-3 flex items-center gap-2 border-t border-white/[0.04] pt-2.5">
                         <button
                             type="button"
                             onClick={handleCopy}
-                            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-200 transition hover:border-white/20 hover:bg-white/[0.07]"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] text-zinc-400 transition hover:border-white/[0.1] hover:bg-white/[0.05] hover:text-zinc-200"
                         >
-                            <i className={`fa ${copied ? "fa-check" : "fa-copy"}`} />
+                            <i className={`fa ${copied ? "fa-check" : "fa-copy"} text-[10px]`} />
                             {copied ? "已复制" : "复制"}
                         </button>
                     </div>

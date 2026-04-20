@@ -109,7 +109,7 @@ function TaskItemRow({ item, expanded, onToggle }: { item: TaskProgressItemViewM
 function ContextUsageIndicator({ percent, level }: { percent: number; level: ContextThresholdLevel }) {
     return (
         <div className="flex items-center gap-2">
-            <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+            <div className="flex-1 h-1 overflow-hidden rounded-full bg-white/[0.04]">
                 <div
                     className={cn("h-full transition-all", getContextLevelBgColor(level))}
                     style={{ width: `${Math.min(percent, 100)}%` }}
@@ -146,7 +146,7 @@ export function TaskProgressPanel({ taskState }: { taskState: AgentTaskState | n
     };
 
     return (
-        <div className="mx-2 mb-2 rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-3">
+        <div className="mx-3 mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
                 <div>
                     <div className="text-xs text-zinc-400">任务进度</div>
@@ -174,8 +174,8 @@ export function TaskProgressPanel({ taskState }: { taskState: AgentTaskState | n
                 </div>
             </div>
 
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-800">
-                <div className="h-full bg-accent transition-all" style={{ width: `${viewModel.percent}%` }} />
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.04]">
+                <div className="h-full bg-accent/60 transition-all" style={{ width: `${viewModel.percent}%` }} />
             </div>
 
             {viewModel.contextUsagePercent > 0 && (
@@ -190,7 +190,7 @@ export function TaskProgressPanel({ taskState }: { taskState: AgentTaskState | n
             {viewModel.chainProgress > 0 && viewModel.focusedTaskId && (
                 <div className="mt-2 flex items-center gap-2 text-[10px] text-zinc-500">
                     <span>聚焦链进度</span>
-                    <div className="flex-1 h-1 overflow-hidden rounded-full bg-zinc-800">
+                    <div className="flex-1 h-0.5 overflow-hidden rounded-full bg-white/[0.04]">
                         <div className="h-full bg-blue-400 transition-all" style={{ width: `${viewModel.chainProgress}%` }} />
                     </div>
                     <span className="font-mono">{viewModel.chainProgress}%</span>
@@ -209,7 +209,7 @@ export function TaskProgressPanel({ taskState }: { taskState: AgentTaskState | n
             </div>
 
             {viewModel.securityBlocked && (
-                <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                <div className="mt-3 rounded-lg border border-red-500/12 bg-red-500/[0.04] px-3 py-2 text-xs text-red-300/70">
                     <i className="fa-solid fa-shield-halved mr-1.5" />
                     命令被安全机制阻止，已停止所有处理
                 </div>

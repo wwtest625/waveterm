@@ -77,10 +77,10 @@ export const AskUserCard = memo(() => {
     return (
         <div
             className={cn(
-                "mx-2 mb-2 rounded-xl border px-3 py-3 text-sm text-zinc-200",
+                "mx-3 mb-2 rounded-xl border px-3 py-3 text-sm text-zinc-200",
                 isConfirm
-                    ? "border-red-300/25 bg-red-300/8"
-                    : "border-blue-300/20 bg-blue-300/8"
+                    ? "border-red-300/12 bg-red-300/[0.04]"
+                    : "border-blue-300/12 bg-blue-300/[0.04]"
             )}
         >
             <div className="flex items-start justify-between gap-3">
@@ -110,7 +110,7 @@ export const AskUserCard = memo(() => {
                             void model.submitAskUserAnswer(askData.actionid, "__canceled__");
                         }
                     }}
-                    className="rounded-full border border-red-300/20 bg-red-300/10 px-3 py-1 text-xs text-red-200"
+                    className="rounded-lg border border-red-300/12 bg-red-300/[0.06] px-2.5 py-1 text-[11px] text-red-200/70"
                 >
                     跳过
                 </button>
@@ -124,10 +124,10 @@ export const AskUserCard = memo(() => {
                             type="button"
                             onClick={() => handleSubmit(opt.value || opt.id)}
                             className={cn(
-                                "relative rounded-lg border px-3 py-1.5 text-sm",
+                                "relative rounded-lg border px-2.5 py-1.5 text-sm",
                                 opt.recommended
-                                    ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-100 hover:bg-emerald-400/25"
-                                    : "border-blue-300/20 bg-blue-300/10 text-blue-100 hover:bg-blue-300/20"
+                                    ? "border-emerald-400/20 bg-emerald-400/[0.06] text-emerald-100 hover:bg-emerald-400/12"
+                                    : "border-blue-300/12 bg-blue-300/[0.05] text-blue-100 hover:bg-blue-300/10"
                             )}
                         >
                             {opt.recommended && (
@@ -151,11 +151,11 @@ export const AskUserCard = memo(() => {
                                     "rounded-lg border px-3 py-1.5 text-sm",
                                     selectedIds.has(opt.id)
                                         ? opt.recommended
-                                            ? "border-emerald-400/40 bg-emerald-400/20 text-emerald-100"
-                                            : "border-blue-400/40 bg-blue-400/20 text-blue-100"
+                                            ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
+                                            : "border-blue-400/20 bg-blue-400/10 text-blue-100"
                                         : opt.recommended
-                                            ? "border-emerald-400/25 bg-emerald-400/8 text-emerald-200"
-                                            : "border-white/8 bg-white/6 text-zinc-300"
+                                            ? "border-emerald-400/12 bg-emerald-400/[0.04] text-emerald-200"
+                                            : "border-white/[0.06] bg-white/[0.03] text-zinc-400"
                                 )}
                             >
                                 {selectedIds.has(opt.id) ? "✓ " : "○ "}
@@ -175,10 +175,10 @@ export const AskUserCard = memo(() => {
                             }}
                             disabled={!hasSelection}
                             className={cn(
-                                "rounded-lg px-3 py-1.5 text-sm",
+                                "rounded-lg px-2.5 py-1.5 text-sm",
                                 hasSelection
-                                    ? "bg-blue-300/15 text-blue-100 hover:bg-blue-300/20"
-                                    : "bg-white/5 text-zinc-500"
+                                    ? "bg-blue-300/[0.08] text-blue-100 hover:bg-blue-300/12"
+                                    : "bg-white/[0.02] text-zinc-600"
                             )}
                         >
                             确认选择
@@ -192,14 +192,14 @@ export const AskUserCard = memo(() => {
                     <button
                         type="button"
                         onClick={() => handleConfirm(true)}
-                        className="rounded-lg border border-red-400/30 bg-red-400/15 px-4 py-1.5 text-sm text-red-100 hover:bg-red-400/25"
+                        className="rounded-lg border border-red-400/15 bg-red-400/[0.06] px-3 py-1.5 text-sm text-red-100 hover:bg-red-400/10"
                     >
                         确认
                     </button>
                     <button
                         type="button"
                         onClick={() => handleConfirm(false)}
-                        className="rounded-lg border border-white/8 bg-white/6 px-4 py-1.5 text-sm text-zinc-300 hover:bg-white/10"
+                        className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.06]"
                     >
                         取消
                     </button>
@@ -218,17 +218,17 @@ export const AskUserCard = memo(() => {
                             }
                         }}
                         placeholder={askData.default || "请输入..."}
-                        className="min-w-0 flex-1 rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                        className="min-w-0 flex-1 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-1.5 text-sm text-white outline-none placeholder:text-zinc-500"
                     />
                     <button
                         type="button"
                         onClick={() => handleSubmit(input.trim())}
                         disabled={!canSendFreeform}
                         className={cn(
-                            "rounded-lg px-3 py-2 text-sm",
+                            "rounded-lg px-3 py-1.5 text-sm",
                             canSendFreeform
-                                ? "bg-blue-300/15 text-blue-100 hover:bg-blue-300/20"
-                                : "bg-white/5 text-zinc-500"
+                                ? "bg-blue-300/[0.08] text-blue-100 hover:bg-blue-300/12"
+                                : "bg-white/[0.02] text-zinc-600"
                         )}
                     >
                         发送
