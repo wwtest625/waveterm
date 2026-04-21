@@ -28,6 +28,7 @@ type ConnMonitor struct {
 	ctx               context.Context
 	cancelFunc        context.CancelFunc
 	inputNotifyCh     chan int64
+	monitorWg         sync.WaitGroup
 }
 
 func MakeConnMonitor(conn *SSHConn, client *ssh.Client) *ConnMonitor {
@@ -46,6 +47,7 @@ func MakeConnMonitor(conn *SSHConn, client *ssh.Client) *ConnMonitor {
 		cancelFunc:    cancelFunc,
 		inputNotifyCh: make(chan int64, 1),
 	}
+	cm.monitorWg.Add(1)
 	go cm.keepAliveMonitor()
 	return cm
 }
@@ -160,6 +162,7 @@ func (cm *ConnMonitor) keepAliveMonitor() {
 	defer func() {
 		panichandler.PanicHandler("conncontroller:keepAliveMonitor", recover())
 	}()
+	defer cm.monitorWg.Done()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -195,4 +198,5 @@ func (cm *ConnMonitor) Close() {
 	if cm.cancelFunc != nil {
 		cm.cancelFunc()
 	}
+	cm.monitorWg.Wait()
 }

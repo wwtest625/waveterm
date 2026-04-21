@@ -11,13 +11,14 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atoms, getConnStatusAtom } from "@/store/global";
 import { RpcApi } from "@/store/wshclientapi";
 import { atom, useAtomValue } from "jotai";
-import { type MouseEvent, useEffect, useMemo, useState } from "react";
+import React, { type MouseEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
     buildConnectionHost,
     buildConnMetaFromForm,
     buildPasswordSecretName,
     ConnectionFormState,
     connectionMatchesQuery,
+    getConnStatusBadgeInfo,
     getEnsureWshButtonLabel,
     getWshBadgeInfo,
     makeConnectionFormFromConfig,
@@ -45,7 +46,7 @@ function makeBlankForm(): ConnectionFormState {
     };
 }
 
-function AuthToggle({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+const AuthToggle = React.memo(function AuthToggle({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
     return (
         <button
             type="button"
@@ -55,11 +56,13 @@ function AuthToggle({ label, active, onClick }: { label: string; active: boolean
                     : "bg-panel text-secondary border-border hover:text-primary"
             }`}
             onClick={onClick}
+            role="switch"
+            aria-checked={active}
         >
             {label}
         </button>
     );
-}
+});
 
 function ListActionButton({
     label,
@@ -83,7 +86,7 @@ function ListActionButton({
     );
 }
 
-function ConnectionListRow({
+const ConnectionListRow = React.memo(function ConnectionListRow({
     host,
     meta,
     isSelected,
@@ -114,7 +117,11 @@ function ConnectionListRow({
             className={`flex items-center gap-2 rounded px-2 py-2 cursor-pointer border ${
                 isSelected ? "bg-green-900/30 border-green-700" : "bg-panel border-transparent hover:border-border"
             }`}
+            role="button"
+            tabIndex={0}
+            aria-selected={isSelected}
             onClick={onSelect}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } }}
         >
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 min-w-0">
@@ -150,7 +157,7 @@ function ConnectionListRow({
             </div>
         </div>
     );
-}
+});
 
 class ConnectionsManagerViewModel implements ViewModel {
     viewType: string;
@@ -172,32 +179,25 @@ class ConnectionsManagerViewModel implements ViewModel {
     }
 }
 
-function ConnectionStatusBadge({ host }: { host: string }) {
+const ConnectionStatusBadge = React.memo(function ConnectionStatusBadge({ host }: { host: string }) {
     const connStatus = useAtomValue(getConnStatusAtom(host));
-    let label = "未连接";
-    let className = "text-gray-300 border-gray-600";
-    if (connStatus?.status === "connected") {
-        label = "已连接";
-        className = "text-green-400 border-green-600";
-    } else if (connStatus?.status === "connecting") {
-        label = "连接中";
-        className = "text-yellow-300 border-yellow-600";
-    } else if (connStatus?.status === "error") {
-        label = "错误";
-        className = "text-red-400 border-red-600";
-    }
-    return <span className={`px-2 py-0.5 rounded border text-xs ${className}`}>{label}</span>;
-}
-
-function WshStatusBadge({ host }: { host: string }) {
-    const connStatus = useAtomValue(getConnStatusAtom(host));
-    const badge = getWshBadgeInfo(connStatus);
+    const badge = getConnStatusBadgeInfo(connStatus);
     return (
-        <span className={`px-2 py-0.5 rounded border text-xs ${badge.className}`} title={badge.title}>
+        <span className={`px-2 py-0.5 rounded border text-xs ${badge.className}`} role="status" aria-label={badge.label}>
             {badge.label}
         </span>
     );
-}
+});
+
+const WshStatusBadge = React.memo(function WshStatusBadge({ host }: { host: string }) {
+    const connStatus = useAtomValue(getConnStatusAtom(host));
+    const badge = getWshBadgeInfo(connStatus);
+    return (
+        <span className={`px-2 py-0.5 rounded border text-xs ${badge.className}`} title={badge.title} role="status" aria-label={badge.label}>
+            {badge.label}
+        </span>
+    );
+});
 
 function getConnectionFailureGuidance(errorText: string): {
     summary: string;

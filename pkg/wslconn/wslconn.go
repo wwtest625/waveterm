@@ -29,8 +29,10 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
 	"github.com/wavetermdev/waveterm/pkg/wsl"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 const (
@@ -49,7 +51,9 @@ var activeConnCounter = &atomic.Int32{}
 
 type WslConn struct {
 	Lock               *sync.Mutex
+	lifecycleLock      *sync.Mutex
 	Status             string
+	ConnHealthStatus   string
 	WshEnabled         *atomic.Bool
 	Name               wsl.WslName
 	Client             *wsl.Distro
@@ -100,16 +104,17 @@ func (conn *WslConn) DeriveConnStatus() wshrpc.ConnStatus {
 	conn.Lock.Lock()
 	defer conn.Lock.Unlock()
 	return wshrpc.ConnStatus{
-		Status:        conn.Status,
-		Connected:     conn.Status == Status_Connected,
-		WshEnabled:    conn.WshEnabled.Load(),
-		Connection:    conn.GetName(),
-		HasConnected:  (conn.LastConnectTime > 0),
-		ActiveConnNum: conn.ActiveConnNum,
-		Error:         conn.Error,
-		WshError:      conn.WshError,
-		NoWshReason:   conn.NoWshReason,
-		WshVersion:    conn.WshVersion,
+		Status:           conn.Status,
+		Connected:        conn.Status == Status_Connected,
+		ConnHealthStatus: conn.ConnHealthStatus,
+		WshEnabled:       conn.WshEnabled.Load(),
+		Connection:       conn.GetName(),
+		HasConnected:     (conn.LastConnectTime > 0),
+		ActiveConnNum:    conn.ActiveConnNum,
+		Error:            conn.Error,
+		WshError:         conn.WshError,
+		NoWshReason:      conn.NoWshReason,
+		WshVersion:       conn.WshVersion,
 	}
 }
 
@@ -131,46 +136,54 @@ func (conn *WslConn) FireConnChangeEvent() {
 		},
 		Data: status,
 	}
-	log.Printf("sending event: %+#v", event)
+	log.Printf("sending conn change event for %s", conn.GetName())
 	wps.Broker.Publish(event)
 }
 
 func (conn *WslConn) Close() error {
+	conn.lifecycleLock.Lock()
+	defer conn.lifecycleLock.Unlock()
+
 	defer conn.FireConnChangeEvent()
 	conn.WithLock(func() {
 		if conn.Status == Status_Connected || conn.Status == Status_Connecting {
-			// if status is init, disconnected, or error don't change it
 			conn.Status = Status_Disconnected
 		}
-		conn.close_nolock()
 	})
-	// we must wait for the waiter to complete
-	startTime := time.Now()
-	for conn.HasWaiter.Load() {
-		time.Sleep(10 * time.Millisecond)
-		if time.Since(startTime) > 2*time.Second {
-			return fmt.Errorf("timeout waiting for waiter to complete")
-		}
-	}
+	conn.closeInternal_withlifecyclelock()
 	return nil
 }
 
-func (conn *WslConn) close_nolock() {
-	// does not set status (that should happen at another level)
-	if conn.DomainSockListener != nil {
-		conn.DomainSockListener.Close()
-		conn.DomainSockListener = nil
-		conn.DomainSockName = ""
+func (conn *WslConn) closeInternal_withlifecyclelock() {
+	listener := WithLockRtn(conn, func() net.Listener {
+		return conn.DomainSockListener
+	})
+	if listener != nil {
+		listener.Close()
+		conn.WithLock(func() {
+			conn.DomainSockListener = nil
+			conn.DomainSockName = ""
+		})
 	}
-	if conn.ConnController != nil {
-		conn.cancelFn() // this suspends the conn controller
-		conn.ConnController = nil
+	controller := WithLockRtn(conn, func() *wsl.WslCmd {
+		return conn.ConnController
+	})
+	if controller != nil {
+		cancelFn := WithLockRtn(conn, func() func() {
+			return conn.cancelFn
+		})
+		if cancelFn != nil {
+			cancelFn()
+		}
+		conn.WithLock(func() {
+			conn.ConnController = nil
+		})
 	}
-	if conn.Client != nil {
-		// conn.Client.Close() is not relevant here
-		// we do not want to completely close the wsl in case
-		// other applications are using it
-		conn.Client = nil
+	client := conn.GetClient()
+	if client != nil {
+		conn.WithLock(func() {
+			conn.Client = nil
+		})
 	}
 }
 
@@ -339,11 +352,28 @@ func (conn *WslConn) StartConnServer(ctx context.Context, afterUpdate bool) (boo
 	conn.Infof(ctx, "connserver started, waiting for route to be registered\n")
 	regCtx, cancelFn := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelFn()
-	err = wshutil.DefaultRouter.WaitForRegister(regCtx, wshutil.MakeConnectionRouteId(conn.GetName()))
+	connRoute := wshutil.MakeConnectionRouteId(conn.GetName())
+	err = wshutil.DefaultRouter.WaitForRegister(regCtx, connRoute)
 	if err != nil {
 		return false, clientVersion, "", fmt.Errorf("timeout waiting for connserver to register")
 	}
-	time.Sleep(300 * time.Millisecond) // TODO remove this sleep (but we need to wait until connserver is "ready")
+	initCtx, initCancelFn := context.WithTimeout(context.Background(), 5*time.Second)
+	defer initCancelFn()
+	for {
+		err = wshclient.ConnServerInitCommand(
+			wshclient.GetBareRpcClient(),
+			wshrpc.CommandConnServerInitData{ClientId: wstore.GetClientId()},
+			&wshrpc.RpcOpts{Route: connRoute},
+		)
+		if err == nil {
+			break
+		}
+		select {
+		case <-initCtx.Done():
+			return false, clientVersion, "", fmt.Errorf("connserver init failed: %w", err)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 	conn.Infof(ctx, "connserver is registered and ready\n")
 	return false, clientVersion, "", nil
 }
@@ -366,7 +396,7 @@ func (conn *WslConn) UpdateWsh(ctx context.Context, clientDisplayName string, re
 		conn.GetName(), remoteInfo.ClientOs, remoteInfo.ClientArch, remoteInfo.ClientVersion)
 	client := conn.GetClient()
 	if client == nil {
-		return fmt.Errorf("cannot update wsh: ssh client is not connected")
+		return fmt.Errorf("cannot update wsh: wsl client is not connected")
 	}
 	err := CpWshToRemote(ctx, client, remoteInfo.ClientOs, remoteInfo.ClientArch)
 	if err != nil {
@@ -426,8 +456,8 @@ func (conn *WslConn) InstallWsh(ctx context.Context, osArchStr string) error {
 	conn.Infof(ctx, "running installWsh...\n")
 	client := conn.GetClient()
 	if client == nil {
-		conn.Infof(ctx, "ERROR ssh client is not connected, cannot install\n")
-		return fmt.Errorf("ssh client is not connected, cannot install")
+		conn.Infof(ctx, "ERROR wsl client is not connected, cannot install\n")
+		return fmt.Errorf("wsl client is not connected, cannot install")
 	}
 	var clientOs, clientArch string
 	var err error
@@ -438,6 +468,7 @@ func (conn *WslConn) InstallWsh(ctx context.Context, osArchStr string) error {
 	}
 	if err != nil {
 		conn.Infof(ctx, "ERROR detecting client platform: %v\n", err)
+		return fmt.Errorf("error detecting client platform: %w", err)
 	}
 	conn.Infof(ctx, "detected remote platform os:%s arch:%s\n", clientOs, clientArch)
 	err = CpWshToRemote(ctx, client, clientOs, clientArch)
@@ -489,6 +520,9 @@ func (conn *WslConn) WaitForConnect(ctx context.Context) error {
 
 // does not return an error since that error is stored inside of WslConn
 func (conn *WslConn) Connect(ctx context.Context) error {
+	conn.lifecycleLock.Lock()
+	defer conn.lifecycleLock.Unlock()
+
 	var connectAllowed bool
 	conn.WithLock(func() {
 		if conn.Status == Status_Connecting || conn.Status == Status_Connected {
@@ -506,39 +540,41 @@ func (conn *WslConn) Connect(ctx context.Context) error {
 	}
 	conn.FireConnChangeEvent()
 	err := conn.connectInternal(ctx)
-	conn.WithLock(func() {
-		if err != nil {
-			conn.Infof(ctx, "ERROR %v\n\n", err)
+	if err != nil {
+		conn.Infof(ctx, "ERROR %v\n\n", err)
+		conn.WithLock(func() {
 			conn.Status = Status_Error
 			conn.Error = err.Error()
-			conn.close_nolock()
-			telemetry.GoUpdateActivityWrap(wshrpc.ActivityUpdate{
-				Conn: map[string]int{"wsl:connecterror": 1},
-			}, "wsl-connconnect")
-			telemetry.GoRecordTEventWrap(&telemetrydata.TEvent{
-				Event: "conn:connecterror",
-				Props: telemetrydata.TEventProps{
-					ConnType: "wsl",
-				},
-			})
-		} else {
-			conn.Infof(ctx, "successfully connected (wsh:%v)\n\n", conn.WshEnabled.Load())
+		})
+		conn.closeInternal_withlifecyclelock()
+		telemetry.GoUpdateActivityWrap(wshrpc.ActivityUpdate{
+			Conn: map[string]int{"wsl:connecterror": 1},
+		}, "wsl-connconnect")
+		telemetry.GoRecordTEventWrap(&telemetrydata.TEvent{
+			Event: "conn:connecterror",
+			Props: telemetrydata.TEventProps{
+				ConnType: "wsl",
+			},
+		})
+	} else {
+		conn.Infof(ctx, "successfully connected (wsh:%v)\n\n", conn.WshEnabled.Load())
+		conn.WithLock(func() {
 			conn.Status = Status_Connected
 			conn.LastConnectTime = time.Now().UnixMilli()
 			if conn.ActiveConnNum == 0 {
 				conn.ActiveConnNum = int(activeConnCounter.Add(1))
 			}
-			telemetry.GoUpdateActivityWrap(wshrpc.ActivityUpdate{
-				Conn: map[string]int{"wsl:connect": 1},
-			}, "wsl-connconnect")
-			telemetry.GoRecordTEventWrap(&telemetrydata.TEvent{
-				Event: "conn:connect",
-				Props: telemetrydata.TEventProps{
-					ConnType: "wsl",
-				},
-			})
-		}
-	})
+		})
+		telemetry.GoUpdateActivityWrap(wshrpc.ActivityUpdate{
+			Conn: map[string]int{"wsl:connect": 1},
+		}, "wsl-connconnect")
+		telemetry.GoRecordTEventWrap(&telemetrydata.TEvent{
+			Event: "conn:connect",
+			Props: telemetrydata.TEventProps{
+				ConnType: "wsl",
+			},
+		})
+	}
 	conn.FireConnChangeEvent()
 	return err
 }
@@ -580,6 +616,7 @@ type WshCheckResult struct {
 	WshEnabled    bool
 	ClientVersion string
 	NoWshReason   string
+	NoWshCode     string
 	WshError      error
 }
 
@@ -589,29 +626,29 @@ func (conn *WslConn) tryEnableWsh(ctx context.Context, clientDisplayName string)
 	enableWsh, askBeforeInstall := conn.getConnWshSettings()
 	conn.Infof(ctx, "wsh settings enable:%v ask:%v\n", enableWsh, askBeforeInstall)
 	if !enableWsh {
-		return WshCheckResult{NoWshReason: "conn:wshenabled set to false"}
+		return WshCheckResult{NoWshReason: "conn:wshenabled set to false", NoWshCode: conncontroller.NoWshCode_Disabled}
 	}
 	if askBeforeInstall {
 		allowInstall, err := conn.getPermissionToInstallWsh(ctx, clientDisplayName)
 		if err != nil {
 			log.Printf("error getting permission to install wsh: %v\n", err)
-			return WshCheckResult{NoWshReason: "error getting user permission to install", WshError: err}
+			return WshCheckResult{NoWshReason: "error getting user permission to install", NoWshCode: conncontroller.NoWshCode_PermissionError, WshError: err}
 		}
 		if !allowInstall {
-			return WshCheckResult{NoWshReason: "user selected not to install wsh extensions"}
+			return WshCheckResult{NoWshReason: "user selected not to install wsh extensions", NoWshCode: conncontroller.NoWshCode_UserDeclined}
 		}
 	}
 	err := conn.OpenDomainSocketListener(ctx)
 	if err != nil {
 		conn.Infof(ctx, "ERROR opening domain socket listener: %v\n", err)
 		err = fmt.Errorf("error opening domain socket listener: %w", err)
-		return WshCheckResult{NoWshReason: "error opening domain socket", WshError: err}
+		return WshCheckResult{NoWshReason: "error opening domain socket", NoWshCode: conncontroller.NoWshCode_DomainSocketError, WshError: err}
 	}
 	needsInstall, clientVersion, osArchStr, err := conn.StartConnServer(ctx, false)
 	if err != nil {
 		conn.Infof(ctx, "ERROR starting conn server: %v\n", err)
 		err = fmt.Errorf("error starting conn server: %w", err)
-		return WshCheckResult{NoWshReason: "error starting connserver", WshError: err}
+		return WshCheckResult{NoWshReason: "error starting connserver", NoWshCode: conncontroller.NoWshCode_ConnServerStartError, WshError: err}
 	}
 	if needsInstall {
 		conn.Infof(ctx, "connserver needs to be (re)installed\n")
@@ -619,18 +656,18 @@ func (conn *WslConn) tryEnableWsh(ctx context.Context, clientDisplayName string)
 		if err != nil {
 			conn.Infof(ctx, "ERROR installing wsh: %v\n", err)
 			err = fmt.Errorf("error installing wsh: %w", err)
-			return WshCheckResult{NoWshReason: "error installing wsh/connserver", WshError: err}
+			return WshCheckResult{NoWshReason: "error installing wsh/connserver", NoWshCode: conncontroller.NoWshCode_InstallError, WshError: err}
 		}
 		needsInstall, clientVersion, _, err = conn.StartConnServer(ctx, true)
 		if err != nil {
 			conn.Infof(ctx, "ERROR starting conn server (after install): %v\n", err)
 			err = fmt.Errorf("error starting conn server (after install): %w", err)
-			return WshCheckResult{NoWshReason: "error starting connserver", WshError: err}
+			return WshCheckResult{NoWshReason: "error starting connserver", NoWshCode: conncontroller.NoWshCode_PostInstallStartError, WshError: err}
 		}
 		if needsInstall {
 			conn.Infof(ctx, "conn server not installed correctly (after install)\n")
 			err = fmt.Errorf("conn server not installed correctly (after install)")
-			return WshCheckResult{NoWshReason: "connserver not installed properly", WshError: err}
+			return WshCheckResult{NoWshReason: "connserver not installed properly", NoWshCode: conncontroller.NoWshCode_InstallVerifyError, WshError: err}
 		}
 		return WshCheckResult{WshEnabled: true, ClientVersion: clientVersion}
 	} else {
@@ -678,7 +715,9 @@ func (conn *WslConn) connectInternal(ctx context.Context) error {
 	}
 	conn.WithLock(func() {
 		conn.Client = client
+		conn.ConnHealthStatus = conncontroller.ConnHealthStatus_Good
 	})
+	conn.HasWaiter.Store(true)
 	go func() {
 		defer func() {
 			panichandler.PanicHandler("wsl-waitForDisconnect", recover())
@@ -699,25 +738,26 @@ func (conn *WslConn) connectInternal(ctx context.Context) error {
 }
 
 func (conn *WslConn) waitForDisconnect() {
-	log.Printf("wait for disconnect in %+#v", conn)
 	defer conn.FireConnChangeEvent()
 	defer conn.HasWaiter.Store(false)
-	if conn.ConnController == nil {
+	controller := WithLockRtn(conn, func() *wsl.WslCmd {
+		return conn.ConnController
+	})
+	if controller == nil {
 		return
 	}
-	err := conn.ConnController.Wait()
+	err := controller.Wait()
+	conn.lifecycleLock.Lock()
+	defer conn.lifecycleLock.Unlock()
 	conn.WithLock(func() {
-		// disconnects happen for a variety of reasons (like network, etc. and are typically transient)
-		// so we just set the status to "disconnected" here (not error)
-		// don't overwrite any existing error (or error status)
 		if err != nil && conn.Error == "" {
 			conn.Error = err.Error()
 		}
 		if conn.Status != Status_Error {
 			conn.Status = Status_Disconnected
 		}
-		conn.close_nolock()
 	})
+	conn.closeInternal_withlifecyclelock()
 }
 
 func (conn *WslConn) SetWshError(err error) {
@@ -743,7 +783,7 @@ func getConnInternal(name string) *WslConn {
 	connName := wsl.WslName{Distro: name}
 	rtn := clientControllerMap[name]
 	if rtn == nil {
-		rtn = &WslConn{Lock: &sync.Mutex{}, Status: Status_Init, Name: connName, WshEnabled: &atomic.Bool{}, HasWaiter: &atomic.Bool{}, cancelFn: nil}
+		rtn = &WslConn{Lock: &sync.Mutex{}, lifecycleLock: &sync.Mutex{}, Status: Status_Init, ConnHealthStatus: conncontroller.ConnHealthStatus_Good, Name: connName, WshEnabled: &atomic.Bool{}, HasWaiter: &atomic.Bool{}, cancelFn: nil}
 		clientControllerMap[name] = rtn
 	}
 	return rtn
@@ -784,5 +824,10 @@ func DisconnectClient(connName string) error {
 		return fmt.Errorf("client %q not found", connName)
 	}
 	err := conn.Close()
+	if err == nil {
+		globalLock.Lock()
+		delete(clientControllerMap, connName)
+		globalLock.Unlock()
+	}
 	return err
 }

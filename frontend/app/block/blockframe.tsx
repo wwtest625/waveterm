@@ -178,7 +178,6 @@ const BlockFrame_Default_Component = (props: BlockFrameProps) => {
             {preview || viewModel == null || !manageConnection ? null : (
                 <ConnStatusOverlay
                     nodeModel={nodeModel}
-                    viewModel={viewModel}
                     changeConnModalAtom={changeConnModalAtom}
                 />
             )}

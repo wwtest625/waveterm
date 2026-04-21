@@ -1,6 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { sortConnectionHosts } from "@/app/view/connectionsmanager/connections-manager-util";
+
 const WslPrefix = "wsl://";
 
 function isRemoteConnectionName(connName?: string | null): boolean {
@@ -8,16 +10,6 @@ function isRemoteConnectionName(connName?: string | null): boolean {
         return false;
     }
     return connName !== "local" && !connName.startsWith("local:") && !connName.startsWith(WslPrefix);
-}
-
-function sortRemoteConnectionNames(a: string, b: string, fullConfig?: FullConfigType | null): number {
-    const connectionsConfig = fullConfig?.connections;
-    const aOrder = connectionsConfig?.[a]?.["display:order"] ?? 0;
-    const bOrder = connectionsConfig?.[b]?.["display:order"] ?? 0;
-    if (aOrder !== bOrder) {
-        return aOrder - bOrder;
-    }
-    return a.localeCompare(b);
 }
 
 function shouldIncludeAdhocConnection(connStatus?: ConnStatus | null): boolean {
@@ -41,5 +33,9 @@ export function getRemoteConnectionNames(
             remoteConnections.add(connStatus.connection);
         }
     }
-    return Array.from(remoteConnections).sort((a, b) => sortRemoteConnectionNames(a, b, fullConfig));
+    const connectionsMap: {[key: string]: ConnKeywords} = {};
+    for (const conn of remoteConnections) {
+        connectionsMap[conn] = fullConfig?.connections?.[conn] ?? {};
+    }
+    return sortConnectionHosts(connectionsMap);
 }

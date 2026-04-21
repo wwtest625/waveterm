@@ -150,7 +150,7 @@ export function getWshBadgeInfo(connStatus: ConnStatus | null | undefined): WshB
     if (!connStatus || connStatus.status === "disconnected") {
         return {
             label: "-",
-            className: "text-gray-300 border-gray-600",
+            className: "text-secondary border-border",
             title: "连接激活前 WSH 状态不可用",
         };
     }
@@ -176,4 +176,22 @@ export function getWshBadgeInfo(connStatus: ConnStatus | null | undefined): WshB
         className: isDisabled ? "text-yellow-300 border-yellow-600" : "text-red-400 border-red-600",
         title: detail,
     };
+}
+
+export type ConnStatusBadgeInfo = {
+    label: string;
+    className: string;
+};
+
+export function getConnStatusBadgeInfo(connStatus: ConnStatus | null | undefined): ConnStatusBadgeInfo {
+    if (connStatus?.status === "connected") {
+        return { label: "已连接", className: "text-green-400 border-green-600" };
+    }
+    if (connStatus?.status === "connecting") {
+        return { label: "连接中", className: "text-yellow-300 border-yellow-600" };
+    }
+    if (connStatus?.status === "error") {
+        return { label: "错误", className: "text-red-400 border-red-600" };
+    }
+    return { label: "未连接", className: "text-secondary border-border" };
 }

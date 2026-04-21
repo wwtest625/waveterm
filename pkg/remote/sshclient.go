@@ -249,17 +249,25 @@ func ClassifyDialErrorSubCode(err error) string {
 // This exists to trick the ssh library into continuing to try
 // different public keys even when the current key cannot be
 // properly parsed
-func createDummySigner() ([]ssh.Signer, error) {
-	dummyKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, err
-	}
-	dummySigner, err := ssh.NewSignerFromKey(dummyKey)
-	if err != nil {
-		return nil, err
-	}
-	return []ssh.Signer{dummySigner}, nil
+var dummySignerOnce sync.Once
+var dummySignerCache []ssh.Signer
+var dummySignerErr error
 
+func createDummySigner() ([]ssh.Signer, error) {
+	dummySignerOnce.Do(func() {
+		dummyKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			dummySignerErr = err
+			return
+		}
+		signer, err := ssh.NewSignerFromKey(dummyKey)
+		if err != nil {
+			dummySignerErr = err
+			return
+		}
+		dummySignerCache = []ssh.Signer{signer}
+	})
+	return dummySignerCache, dummySignerErr
 }
 
 // This is a workaround to only process one identity file at a time,
@@ -1146,7 +1154,7 @@ func findSshConfigKeywords(hostPattern string) (connKeywords *wconfig.ConnKeywor
 	if hostNameProcessed == "" {
 		sshKeywords.SshHostName = &hostPattern
 	} else {
-		sshKeywords.SshHostName = &hostNameRaw
+		sshKeywords.SshHostName = &hostNameProcessed
 	}
 
 	portRaw, err := WaveSshConfigUserSettings().GetStrict(hostPattern, "Port")

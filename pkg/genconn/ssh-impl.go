@@ -84,7 +84,9 @@ func (s *SSHProcessController) Start() error {
 // Wait waits for the command to complete
 func (s *SSHProcessController) Wait() error {
 	s.once.Do(func() {
-		s.waitErr = s.session.Wait()
+		if s.session != nil {
+			s.waitErr = s.session.Wait()
+		}
 	})
 	return s.waitErr
 }
@@ -96,6 +98,7 @@ func (s *SSHProcessController) Kill() {
 
 	if s.session != nil {
 		s.session.Close()
+		s.session = nil
 	}
 }
 

@@ -15,6 +15,7 @@ import {
 import { globalRefocusWithTimeout } from "@/app/store/keymodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { sortConnectionHosts } from "@/app/view/connectionsmanager/connections-manager-util";
 import { NodeModel } from "@/layout/index";
 import * as keyutil from "@/util/keyutil";
 import * as util from "@/util/util";
@@ -43,13 +44,16 @@ function sortConnSuggestionItems(
     connSuggestions: Array<SuggestionConnectionItem>,
     fullConfig: FullConfigType
 ): Array<SuggestionConnectionItem> {
-    const connectionsConfig = fullConfig.connections;
-    return connSuggestions.sort((itemA: SuggestionConnectionItem, itemB: SuggestionConnectionItem) => {
-        const connNameA = itemA.value;
-        const connNameB = itemB.value;
-        const valueA = connectionsConfig?.[connNameA]?.["display:order"] ?? 0;
-        const valueB = connectionsConfig?.[connNameB]?.["display:order"] ?? 0;
-        return valueA - valueB;
+    const connectionsMap: {[key: string]: ConnKeywords} = {};
+    for (const item of connSuggestions) {
+        connectionsMap[item.value] = fullConfig.connections?.[item.value] ?? {};
+    }
+    const sortedHosts = sortConnectionHosts(connectionsMap);
+    const hostIndex = new Map(sortedHosts.map((host, idx) => [host, idx]));
+    return [...connSuggestions].sort((a, b) => {
+        const aIdx = hostIndex.get(a.value) ?? Infinity;
+        const bIdx = hostIndex.get(b.value) ?? Infinity;
+        return aIdx - bIdx;
     });
 }
 
@@ -136,7 +140,7 @@ function getReconnectItem(
                 { host: connStatus.connection, logblockid: blockId },
                 { timeout: 60000 }
             );
-            prtn.catch((e) => console.log("error reconnecting", connStatus.connection, e));
+            prtn.catch((e) => console.error("error reconnecting", connStatus.connection, e));
         },
     };
     return reconnectSuggestionItem;
@@ -222,7 +226,7 @@ function getDisconnectItem(
         onSelect: async (_: string) => {
             globalStore.set(changeConnModalAtom, false);
             const prtn = RpcApi.ConnDisconnectCommand(TabRpcClient, connection, { timeout: 60000 });
-            prtn.catch((e) => console.log("error disconnecting", connStatus.connection, e));
+            prtn.catch((e) => console.error("error disconnecting", connStatus.connection, e));
         },
     };
     return disconnectSuggestionItem;
@@ -311,7 +315,13 @@ const ChangeConnectionBlockModal = React.memo(
         const [wslList, setWslList] = React.useState<Array<string>>([]);
         const allConnStatus = jotai.useAtomValue(atoms.allConnStatus);
         const [rowIndex, setRowIndex] = React.useState(0);
-        const connStatusMap = new Map<string, ConnStatus>();
+        const connStatusMap = React.useMemo(() => {
+            const map = new Map<string, ConnStatus>();
+            for (const conn of allConnStatus) {
+                map.set(conn.connection, conn);
+            }
+            return map;
+        }, [allConnStatus]);
         const fullConfig = jotai.useAtomValue(atoms.fullConfigAtom);
         let filterOutNowsh = util.useAtomValueSafe(viewModel.filterOutNowsh) ?? true;
         const hasGitBash = jotai.useAtomValue(ConnectionsModel.getInstance().hasGitBashAtom);
@@ -321,13 +331,6 @@ const ChangeConnectionBlockModal = React.memo(
             [fullConfig, allConnStatus, connection]
         );
 
-        let maxActiveConnNum = 1;
-        for (const conn of allConnStatus) {
-            if (conn.activeconnnum > maxActiveConnNum) {
-                maxActiveConnNum = conn.activeconnnum;
-            }
-            connStatusMap.set(conn.connection, conn);
-        }
         React.useEffect(() => {
             if (!changeConnModalOpen) {
                 setWslList([]);
@@ -369,7 +372,7 @@ const ChangeConnectionBlockModal = React.memo(
                         { timeout: 60000 }
                     );
                 } catch (e) {
-                    console.log("error connecting", blockId, connName, e);
+                    console.error("error connecting", blockId, connName, e);
                 }
             },
             [blockId, blockData]
@@ -421,10 +424,9 @@ const ChangeConnectionBlockModal = React.memo(
             return item;
         });
 
-        // quick way to change icon color when highlighted
         selectionList = selectionList.map((item, index) => {
             if (index == rowIndex && item.iconColor == "var(--grey-text-color)") {
-                item.iconColor = "var(--main-text-color)";
+                return { ...item, iconColor: "var(--main-text-color)" };
             }
             return item;
         });

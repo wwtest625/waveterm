@@ -57,7 +57,7 @@ const StalledOverlay = React.memo(
 
         const handleDisconnect = React.useCallback(() => {
             const prtn = RpcApi.ConnDisconnectCommand(TabRpcClient, connName, { timeout: 5000 });
-            prtn.catch((e) => console.log("error disconnecting", connName, e));
+            prtn.catch((e) => console.error("error disconnecting", connName, e));
         }, [connName]);
 
         React.useEffect(() => {
@@ -111,11 +111,9 @@ StalledOverlay.displayName = "StalledOverlay";
 export const ConnStatusOverlay = React.memo(
     ({
         nodeModel,
-        viewModel,
         changeConnModalAtom,
     }: {
         nodeModel: NodeModel;
-        viewModel: ViewModel;
         changeConnModalAtom: jotai.PrimitiveAtom<boolean>;
     }) => {
         const [blockData] = WOS.useWaveObjectValue<Block>(WOS.makeORef("block", nodeModel.blockId));
@@ -144,7 +142,7 @@ export const ConnStatusOverlay = React.memo(
                 { host: connName, logblockid: nodeModel.blockId },
                 { timeout: 60000 }
             );
-            prtn.catch((e) => console.log("error reconnecting", connName, e));
+            prtn.catch((e) => console.error("error reconnecting", connName, e));
         }, [connName, nodeModel.blockId]);
 
         const handleDisableWsh = React.useCallback(async () => {
@@ -158,7 +156,7 @@ export const ConnStatusOverlay = React.memo(
             try {
                 await RpcApi.SetConnectionsConfigCommand(TabRpcClient, data);
             } catch (e) {
-                console.log("problem setting connection config: ", e);
+                console.error("problem setting connection config: ", e);
             }
         }, [connName]);
 
@@ -166,14 +164,14 @@ export const ConnStatusOverlay = React.memo(
             try {
                 await RpcApi.DismissWshFailCommand(TabRpcClient, connName);
             } catch (e) {
-                console.log("unable to dismiss wsh error: ", e);
+                console.error("unable to dismiss wsh error: ", e);
             }
         }, [connName]);
 
-        let statusText = `Disconnected from "${connName}"`;
+        let statusText = `已断开与 "${connName}" 的连接`;
         let showReconnect = true;
         if (connStatus.status == "connecting") {
-            statusText = `Connecting to "${connName}"...`;
+            statusText = `正在连接 "${connName}"...`;
             showReconnect = false;
         }
         if (connStatus.status == "connected") {
@@ -185,7 +183,7 @@ export const ConnStatusOverlay = React.memo(
             reconDisplay = <i className="fa-sharp fa-solid fa-rotate-right"></i>;
             reconClassName = clsx(reconClassName, "text-[12px] py-[5px] px-[6px]");
         } else {
-            reconDisplay = "Reconnect";
+            reconDisplay = "重新连接";
             reconClassName = clsx(reconClassName, "text-[11px] py-[3px] px-[7px]");
         }
         const showIcon = connStatus.status != "connecting";
@@ -239,13 +237,13 @@ export const ConnStatusOverlay = React.memo(
                                     options={{ scrollbars: { autoHide: "leave" } }}
                                 >
                                     <CopyButton className="copy-button" onClick={handleCopy} title="Copy" />
-                                    {showError ? <div>error: {connStatus.error}</div> : null}
-                                    {showWshError ? <div>unable to use wsh: {wshStatusDetail}</div> : null}
+                                    {showError ? <div>错误: {connStatus.error}</div> : null}
+                                    {showWshError ? <div>无法使用 WSH: {wshStatusDetail}</div> : null}
                                 </OverlayScrollbarsComponent>
                             )}
                             {showWshError && (
                                 <Button className={reconClassName} onClick={handleDisableWsh}>
-                                    always disable wsh
+                                    始终禁用 WSH
                                 </Button>
                             )}
                         </div>

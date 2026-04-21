@@ -177,7 +177,7 @@ func (conn *SSHConn) FireConnChangeEvent() {
 		},
 		Data: status,
 	}
-	log.Printf("sending event: %+#v", event)
+	log.Printf("sending conn change event for %s", conn.GetName())
 	wps.Broker.Publish(event)
 }
 
@@ -197,14 +197,14 @@ func (conn *SSHConn) Close() error {
 }
 
 func (conn *SSHConn) closeInternal_withlifecyclelock() {
-	// does not set status (that should happen at another level)
-	conn.WithLock(func() {
-		if conn.Monitor != nil {
-			conn.Monitor.Close()
-			conn.Monitor = nil
-		}
+	monitor := WithLockRtn(conn, func() *ConnMonitor {
+		m := conn.Monitor
 		conn.Monitor = nil
+		return m
 	})
+	if monitor != nil {
+		monitor.Close()
+	}
 	client := conn.GetClient()
 	if client != nil {
 		// this MUST go first to force close the connection.
@@ -574,14 +574,22 @@ func (conn *SSHConn) StartConnServer(ctx context.Context, afterUpdate bool, useR
 	if err != nil {
 		return false, clientVersion, "", fmt.Errorf("timeout waiting for connserver to register")
 	}
-	time.Sleep(300 * time.Millisecond) // TODO remove this sleep (but we need to wait until connserver is "ready")
-	err = wshclient.ConnServerInitCommand(
-		wshclient.GetBareRpcClient(),
-		wshrpc.CommandConnServerInitData{ClientId: wstore.GetClientId()},
-		&wshrpc.RpcOpts{Route: connRoute},
-	)
-	if err != nil {
-		return false, clientVersion, "", fmt.Errorf("connserver init failed: %w", err)
+	initCtx, initCancelFn := context.WithTimeout(context.Background(), 5*time.Second)
+	defer initCancelFn()
+	for {
+		err = wshclient.ConnServerInitCommand(
+			wshclient.GetBareRpcClient(),
+			wshrpc.CommandConnServerInitData{ClientId: wstore.GetClientId()},
+			&wshrpc.RpcOpts{Route: connRoute},
+		)
+		if err == nil {
+			break
+		}
+		select {
+		case <-initCtx.Done():
+			return false, clientVersion, "", fmt.Errorf("connserver init failed: %w", err)
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 	conn.Infof(ctx, "connserver is registered and ready\n")
 	return false, clientVersion, "", nil
@@ -800,10 +808,6 @@ func (conn *SSHConn) Connect(ctx context.Context, connFlags *wconfig.ConnKeyword
 	if ok {
 		identityFiles = existingConnection.SshIdentityFile
 	}
-	if err != nil {
-		// i do not consider this a critical failure
-		log.Printf("config read error: unable to save connection %s: %v", conn.GetName(), err)
-	}
 
 	meta := make(map[string]any)
 	if connFlags.SshIdentityFile != nil {
@@ -811,7 +815,7 @@ func (conn *SSHConn) Connect(ctx context.Context, connFlags *wconfig.ConnKeyword
 			if utilfn.ContainsStr(identityFiles, identityFile) {
 				continue
 			}
-			identityFiles = append(identityFiles, connFlags.SshIdentityFile...)
+			identityFiles = append(identityFiles, identityFile)
 		}
 		meta["ssh:identityfile"] = identityFiles
 	}
@@ -965,11 +969,15 @@ func (conn *SSHConn) connectInternal(ctx context.Context, connFlags *wconfig.Con
 		log.Printf("error: failed to connect to client %s: %s\n", conn.GetName(), err)
 		return err
 	}
+	oldMonitor := WithLockRtn(conn, func() *ConnMonitor {
+		m := conn.Monitor
+		conn.Monitor = nil
+		return m
+	})
+	if oldMonitor != nil {
+		oldMonitor.Close()
+	}
 	conn.WithLock(func() {
-		if conn.Monitor != nil {
-			conn.Monitor.Close()
-			conn.Monitor = nil
-		}
 		conn.Client = client
 		conn.ConnHealthStatus = ConnHealthStatus_Good
 		conn.Monitor = MakeConnMonitor(conn, client)
@@ -1151,6 +1159,11 @@ func DisconnectClient(opts *remote.SSHOpts) error {
 		return fmt.Errorf("client %q not found", opts.String())
 	}
 	err := conn.Close()
+	if err == nil {
+		globalLock.Lock()
+		delete(clientControllerMap, *opts)
+		globalLock.Unlock()
+	}
 	return err
 }
 
