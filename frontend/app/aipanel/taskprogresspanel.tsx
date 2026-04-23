@@ -4,7 +4,7 @@ import { TaskProgressItemViewModel, deriveTaskProgressViewModel } from "./taskpr
 import { useState } from "react";
 
 function getTaskTone(status: string, isCurrent: boolean, isFocused: boolean): string {
-    if (isCurrent || isFocused) {
+    if (status !== "completed" && (isCurrent || isFocused)) {
         return "text-accent";
     }
     switch (status) {
@@ -20,7 +20,7 @@ function getTaskTone(status: string, isCurrent: boolean, isFocused: boolean): st
 }
 
 function getTaskIcon(status: string, isCurrent: boolean, isFocused: boolean): string {
-    if (isCurrent || isFocused || status === "in_progress") {
+    if (status !== "completed" && (isCurrent || isFocused || status === "in_progress")) {
         return "fa-solid fa-spinner fa-spin";
     }
     switch (status) {
@@ -75,7 +75,7 @@ function TaskItemRow({ item, expanded, onToggle }: { item: TaskProgressItemViewM
                         {getPriorityBadge(item.priority)}
                     </span>
                 )}
-                {item.isFocused && (
+                {item.isFocused && item.status !== "completed" && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent">聚焦</span>
                 )}
                 {hasSubtasks && (

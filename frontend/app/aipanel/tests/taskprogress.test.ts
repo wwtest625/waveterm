@@ -67,6 +67,24 @@ describe("deriveTaskProgressViewModel", () => {
         expect(viewModel.securityBlocked).toBe(false);
     });
 
+    it("ignores stale focus metadata on completed tasks", () => {
+        const viewModel = deriveTaskProgressViewModel({
+            planid: "plan-1",
+            source: "model-generated",
+            status: "completed",
+            currenttaskid: "",
+            tasks: [
+                { id: "task-1", title: "收集信息", status: "completed", isfocused: true },
+                { id: "task-2", title: "整理结果", status: "completed" },
+            ],
+            summary: { total: 2, completed: 2, percent: 100 },
+            focuschain: { focusedtodoid: "task-1", chainprogress: 100, totaltodos: 2, completedtodos: 2 },
+        });
+
+        expect(viewModel.focusedTaskId).toBeUndefined();
+        expect(viewModel.tasks[0].isFocused).toBe(false);
+    });
+
     it("derives context level from usage percent when not in focuschain", () => {
         const viewModel = deriveTaskProgressViewModel({
             tasks: [
@@ -139,5 +157,26 @@ describe("deriveTaskProgressViewModel", () => {
 
         expect(viewModel.contextLevel).toBe("normal");
         expect(viewModel.contextUsagePercent).toBe(0);
+    });
+
+    it("shows panel when security blocked even for single-item tasks", () => {
+        const viewModel = deriveTaskProgressViewModel({
+            tasks: [{ id: "task-1", title: "A", status: "blocked" }],
+            summary: { total: 1, blocked: 1, percent: 0 },
+            blockedreason: "命令被安全机制阻止",
+            securityblocked: true,
+        });
+
+        expect(viewModel.visible).toBe(true);
+        expect(viewModel.securityBlocked).toBe(true);
+    });
+
+    it("hides trivial single-item task panels without security block", () => {
+        const viewModel = deriveTaskProgressViewModel({
+            tasks: [{ id: "task-1", title: "A", status: "completed" }],
+            summary: { total: 1, completed: 1, percent: 100 },
+        });
+
+        expect(viewModel.visible).toBe(false);
     });
 });

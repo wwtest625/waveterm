@@ -49,10 +49,33 @@ export function deriveTaskProgressViewModel(taskState: AgentTaskState | null | u
             securityBlocked: false,
         };
     }
+    const hasExpandedChecklist = tasks.length > 1 || tasks.some((task) => (task.subtasks?.length ?? 0) > 0);
+    const hasFocusOrContextMetadata =
+        Boolean(taskState?.focuschain) ||
+        tasks.some((task) => Boolean(task.isfocused) || (task.contextusagepercent ?? 0) > 0);
+    if (!hasExpandedChecklist && !hasFocusOrContextMetadata && !taskState?.securityblocked) {
+        return {
+            visible: false,
+            completedLabel: "0 / 0",
+            percent: 0,
+            chainProgress: 0,
+            contextUsagePercent: 0,
+            contextLevel: "normal",
+            tasks: [],
+            summary: taskState?.summary ?? {},
+            blockedReason: taskState?.blockedreason,
+            securityBlocked: Boolean(taskState?.securityblocked),
+        };
+    }
 
     const sortedTasks = [...tasks].sort((left, right) => (left.order ?? 0) - (right.order ?? 0));
     const currentTask = sortedTasks.find((task) => task.id === taskState?.currenttaskid);
-    const focusedTask = sortedTasks.find((task) => task.isfocused);
+    const focusedTaskFromFocusChain =
+        sortedTasks.find((task) => task.id === taskState?.focuschain?.focusedtodoid && task.status !== "completed") ?? null;
+    const focusedTask =
+        focusedTaskFromFocusChain ??
+        sortedTasks.find((task) => task.isfocused && task.status !== "completed") ??
+        sortedTasks.find((task) => task.status === "in_progress");
     const completed = taskState?.summary?.completed ?? sortedTasks.filter((task) => task.status === "completed").length;
     const total = taskState?.summary?.total ?? sortedTasks.length;
     const percent = taskState?.summary?.percent ?? (total > 0 ? Math.round((completed / total) * 100) : 0);
@@ -68,7 +91,7 @@ export function deriveTaskProgressViewModel(taskState: AgentTaskState | null | u
         currentTaskTitle: currentTask?.title,
         currentTaskDescription: currentTask?.description,
         currentTaskPriority: currentTask?.priority,
-        focusedTaskId: taskState?.focuschain?.focusedtodoid ?? focusedTask?.id,
+        focusedTaskId: focusedTask?.id,
         chainProgress,
         contextUsagePercent,
         contextLevel,
@@ -79,7 +102,7 @@ export function deriveTaskProgressViewModel(taskState: AgentTaskState | null | u
             status: task.status,
             priority: task.priority,
             isCurrent: task.id === taskState?.currenttaskid,
-            isFocused: Boolean(task.isfocused),
+            isFocused: Boolean(task.isfocused && task.status !== "completed"),
             subtasks: task.subtasks,
         })),
         summary: taskState?.summary ?? {},

@@ -351,7 +351,9 @@ func ConvertToolResultsToNativeChatMessage(toolResults []uctypes.AIToolResult) (
 		} else if toolResult.ToolName == "wave_run_command" {
 			var payload map[string]any
 			if err := json.Unmarshal([]byte(toolResult.Text), &payload); err == nil {
-				if summary, ok := payload["summary"].(string); ok && strings.TrimSpace(summary) != "" {
+				if modelText, ok := payload["modeltext"].(string); ok && strings.TrimSpace(modelText) != "" {
+					content = strings.TrimSpace(modelText)
+				} else if summary, ok := payload["summary"].(string); ok && strings.TrimSpace(summary) != "" {
 					content = strings.TrimSpace(summary)
 				} else {
 					content = toolResult.Text

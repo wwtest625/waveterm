@@ -30,7 +30,7 @@ const ConfigSidebar = memo(({ model }: ConfigSidebarProps) => {
     return (
         <div className="flex flex-col w-48 border-r border-border @w600:h-full @max-w600:absolute @max-w600:left-0.5 @max-w600:top-0 @max-w600:bottom-0.5 @max-w600:z-10 @max-w600:bg-background @max-w600:shadow-xl @max-w600:rounded-bl">
             <div className="flex items-center justify-between px-4 py-2 border-b border-border @w600:hidden">
-                <span className="font-semibold">Config Files</span>
+                <span className="font-semibold">配置文件</span>
                 <button
                     onClick={() => setIsMenuOpen(false)}
                     className="hover:bg-secondary/50 rounded p-1 cursor-pointer transition-colors"
@@ -145,7 +145,7 @@ const WaveConfigView = memo(({ blockId, model }: ViewComponentProps<WaveConfigVi
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [hasChanges, isSaving, model]);
 
-    const saveTooltip = `Save (${model.saveShortcut})`;
+    const saveTooltip = `保存 (${model.saveShortcut})`;
 
     return (
         <div className="@container flex flex-row w-full h-full">
@@ -170,7 +170,7 @@ const WaveConfigView = memo(({ blockId, model }: ViewComponentProps<WaveConfigVi
                                     {selectedFile.name}
                                 </div>
                                 {selectedFile.docsUrl && (
-                                    <Tooltip content="View documentation">
+                                    <Tooltip content="查看文档">
                                         <a
                                             href={`${selectedFile.docsUrl}?ref=waveconfig`}
                                             target="_blank"
@@ -190,7 +190,7 @@ const WaveConfigView = memo(({ blockId, model }: ViewComponentProps<WaveConfigVi
                                     <>
                                         {hasChanges && (
                                             <span className="text-xs text-warning pb-0.5 @max-w450:hidden">
-                                                Unsaved changes
+                                                有未保存的更改
                                             </span>
                                         )}
                                         <Tooltip content={saveTooltip} placement="bottom" divClassName="shrink-0">
@@ -203,7 +203,7 @@ const WaveConfigView = memo(({ blockId, model }: ViewComponentProps<WaveConfigVi
                                                         : "bg-accent/80 text-primary hover:bg-accent cursor-pointer"
                                                 }`}
                                             >
-                                                {isSaving ? "Saving..." : "Save"}
+                                                {isSaving ? "保存中..." : "保存"}
                                             </button>
                                         </Tooltip>
                                     </>
@@ -221,7 +221,7 @@ const WaveConfigView = memo(({ blockId, model }: ViewComponentProps<WaveConfigVi
                                             : "bg-transparent hover:bg-hover"
                                     )}
                                 >
-                                    Visual
+                                    可视化
                                 </button>
                                 <button
                                     onClick={() => setActiveTab("json")}
@@ -232,7 +232,7 @@ const WaveConfigView = memo(({ blockId, model }: ViewComponentProps<WaveConfigVi
                                             : "bg-transparent hover:bg-hover"
                                     )}
                                 >
-                                    Raw JSON
+                                    原始 JSON
                                 </button>
                             </div>
                         )}

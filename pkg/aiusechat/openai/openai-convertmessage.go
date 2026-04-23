@@ -493,7 +493,9 @@ func ConvertToolResultsToOpenAIChatMessage(toolResults []uctypes.AIToolResult) (
 			} else if result.ToolName == "wave_run_command" {
 				var payload map[string]any
 				if err := json.Unmarshal([]byte(result.Text), &payload); err == nil {
-					if summary, ok := payload["summary"].(string); ok && strings.TrimSpace(summary) != "" {
+					if modelText, ok := payload["modeltext"].(string); ok && strings.TrimSpace(modelText) != "" {
+						outputData = strings.TrimSpace(modelText)
+					} else if summary, ok := payload["summary"].(string); ok && strings.TrimSpace(summary) != "" {
 						outputData = strings.TrimSpace(summary)
 					} else {
 						outputData = result.Text

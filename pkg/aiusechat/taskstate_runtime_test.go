@@ -466,11 +466,61 @@ func TestAdvanceTaskStateForCompletedTool_MarksNextTaskActive(t *testing.T) {
 	if state.Tasks[0].Status != uctypes.TaskItemStatusCompleted {
 		t.Fatalf("expected completed first task, got %q", state.Tasks[0].Status)
 	}
+	if state.Tasks[0].IsFocused {
+		t.Fatal("expected completed first task to lose focus")
+	}
 	if state.Tasks[1].Status != uctypes.TaskItemStatusInProgress {
 		t.Fatalf("expected second task in progress, got %q", state.Tasks[1].Status)
 	}
+	if !state.Tasks[1].IsFocused {
+		t.Fatal("expected second task to be focused")
+	}
 	if state.CurrentTaskId != "tool-2" {
 		t.Fatalf("expected current task id tool-2, got %q", state.CurrentTaskId)
+	}
+}
+
+func TestAdvanceTaskStateForToolResult_ClearsFocusWhenFinalTaskCompletes(t *testing.T) {
+	state := &uctypes.UITaskProgressState{
+		PlanId:        "plan-1",
+		Source:        "system-updated",
+		Status:        uctypes.TaskProgressStatusActive,
+		CurrentTaskId: "tool-1",
+		Tasks: []uctypes.UITaskItem{
+			{ID: "tool-1", Title: "Run tests", Status: uctypes.TaskItemStatusInProgress, IsFocused: true, ToolCalls: []uctypes.UIToolCall{{ID: "tool-1"}}},
+		},
+		FocusChain: &uctypes.UIFocusChainState{
+			FocusedTodoId:  "tool-1",
+			TotalTodos:     1,
+			CompletedTodos: 0,
+		},
+	}
+
+	advanceTaskStateForToolResult(state, uctypes.AIToolResult{ToolUseID: "tool-1"})
+
+	if state.Tasks[0].Status != uctypes.TaskItemStatusCompleted {
+		t.Fatalf("expected completed task, got %q", state.Tasks[0].Status)
+	}
+	if state.Tasks[0].IsFocused {
+		t.Fatal("expected completed task to lose focus")
+	}
+	if state.CurrentTaskId != "" {
+		t.Fatalf("expected current task id to clear, got %q", state.CurrentTaskId)
+	}
+	if state.Status != uctypes.TaskProgressStatusCompleted {
+		t.Fatalf("expected completed state, got %q", state.Status)
+	}
+	if state.FocusChain == nil {
+		t.Fatal("expected focus chain")
+	}
+	if state.FocusChain.FocusedTodoId != "" {
+		t.Fatalf("expected focused todo to clear, got %q", state.FocusChain.FocusedTodoId)
+	}
+	if state.FocusChain.CompletedTodos != 1 {
+		t.Fatalf("expected completed todos to be 1, got %d", state.FocusChain.CompletedTodos)
+	}
+	if state.FocusChain.ChainProgress != 100 {
+		t.Fatalf("expected chain progress 100, got %d", state.FocusChain.ChainProgress)
 	}
 }
 

@@ -15,6 +15,7 @@ import {
     getTurnExitCode,
     resolveTurnFallbackOutput,
     shouldAnimateTaskStep,
+    shouldFollowLatestOutput,
     shouldRenderStreamingPlainText,
     shouldRenderTaskChainBlockedReason,
     shouldShowTurnTaskChain,
@@ -201,6 +202,13 @@ describe("aipanel task turns", () => {
         expect(shouldAnimateTaskStep(true, "running", undefined, "executing")).toBe(true);
     });
 
+    it("follows latest output while streaming or executing", () => {
+        expect(shouldFollowLatestOutput("streaming", "idle", undefined)).toBe(true);
+        expect(shouldFollowLatestOutput("ready", "executing", undefined)).toBe(true);
+        expect(shouldFollowLatestOutput("ready", "idle", "job-1")).toBe(true);
+        expect(shouldFollowLatestOutput("ready", "idle", undefined)).toBe(false);
+    });
+
     it("summarizes task chain with runtime focus and approval state", () => {
         const steps = buildTaskChainSteps(
             [
@@ -238,7 +246,7 @@ describe("aipanel task turns", () => {
         expect(summary.statusLabel).toBe("Waiting Approval");
         expect(summary.blockedReason).toBe("Waiting for tool approval");
         expect(summary.activeStepId).toBe("tool-2");
-        expect(summary.toneClassName).toContain("yellow");
+        expect(summary.toneClassName).toContain("amber");
     });
 
     it("does not mark task chain as failed for model/business command failures", () => {
@@ -319,6 +327,49 @@ describe("aipanel task turns", () => {
 
         expect(shouldShowTurnTaskChain(turns[0])).toBe(true);
         expect(shouldShowTurnTaskChain(turns[1])).toBe(false);
+    });
+
+    it("hides task chain when the turn only used internal todo or skill tools", () => {
+        const turns = buildTaskTurns(
+            [
+                {
+                    id: "user-1",
+                    role: "user",
+                    parts: [{ type: "text", text: "排查一下" }],
+                } as any,
+                {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-1",
+                                toolname: "waveai_todo_write",
+                                tooldesc: "writing todo list",
+                                status: "completed",
+                            },
+                        } as any,
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-2",
+                                toolname: "waveai_use_skill",
+                                tooldesc: 'activating skill "troubleshoot-network"',
+                                status: "completed",
+                            },
+                        } as any,
+                        {
+                            type: "text",
+                            text: "已完成。",
+                        } as any,
+                    ],
+                } as any,
+            ],
+            "ready"
+        );
+
+        expect(shouldShowTurnTaskChain(turns[0])).toBe(false);
     });
 
     it("finds pending approval tool uses even while the turn is still streaming", () => {

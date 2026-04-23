@@ -56,6 +56,7 @@ var quickPatterns = []QuickPattern{
 	{Pattern: *regexp.MustCompile(`(?i)\[Y/n\]`), Type: InteractionConfirm, ConfirmValues: &ConfirmValues{Yes: "Y", No: "n", Default: "Y"}},
 	{Pattern: *regexp.MustCompile(`(?i)\[y/N\]`), Type: InteractionConfirm, ConfirmValues: &ConfirmValues{Yes: "y", No: "N", Default: "N"}},
 	{Pattern: *regexp.MustCompile(`(?i)\(yes/no\)`), Type: InteractionConfirm, ConfirmValues: &ConfirmValues{Yes: "yes", No: "no"}},
+	{Pattern: *regexp.MustCompile(`(?i)\(y/n\)`), Type: InteractionConfirm, ConfirmValues: &ConfirmValues{Yes: "y", No: "n"}},
 	{Pattern: *regexp.MustCompile(`(?i)\[是/否\]`), Type: InteractionConfirm, ConfirmValues: &ConfirmValues{Yes: "是", No: "否"}},
 	{Pattern: *regexp.MustCompile(`(?i)\bconfirm\b`), Type: InteractionConfirm, ConfirmValues: &ConfirmValues{Yes: "yes", No: "no"}},
 	{Pattern: *regexp.MustCompile(`(?i)\bcontinue\?\b`), Type: InteractionConfirm, ConfirmValues: &ConfirmValues{Yes: "yes", No: "no"}},
@@ -74,8 +75,11 @@ var quickPatterns = []QuickPattern{
 	{Pattern: *regexp.MustCompile(`输入序号`), Type: InteractionSelect},
 	{Pattern: *regexp.MustCompile(`(?i)--More--\s*$`), Type: InteractionPager},
 	{Pattern: *regexp.MustCompile(`\(END\)\s*$`), Type: InteractionPager},
+	{Pattern: *regexp.MustCompile(`(?i)^lines\s+\d+-\d+`), Type: InteractionPager},
 	{Pattern: *regexp.MustCompile(`(?i)press\s+q\s+to\s+quit`), Type: InteractionPager},
 	{Pattern: *regexp.MustCompile(`(?i)^:\s*$`), Type: InteractionPager},
+	{Pattern: *regexp.MustCompile(`(?i)^NAME\s*$`), Type: InteractionPager},
+	{Pattern: *regexp.MustCompile(`(?i)^SYNOPSIS\s*$`), Type: InteractionPager},
 }
 
 var promptSuffixPattern = regexp.MustCompile(`[:?：？]\s*$`)
@@ -111,15 +115,19 @@ var alwaysTUICommands = []*regexp.Regexp{
 var conditionalTUICommands = []conditionalTUIRule{
 	{Pattern: regexp.MustCompile(`(?i)^top\b`), NonInteractiveArgs: []*regexp.Regexp{regexp.MustCompile(`-n\s*\d+`), regexp.MustCompile(`-b\b`)}},
 	{Pattern: regexp.MustCompile(`(?i)^htop\b`), NonInteractiveArgs: []*regexp.Regexp{}},
-	{Pattern: regexp.MustCompile(`(?i)^mysql\b`), NonInteractiveArgs: []*regexp.Regexp{regexp.MustCompile(`-e\s`), regexp.MustCompile(`--execute\b`), regexp.MustCompile(`--batch\b`)}},
-	{Pattern: regexp.MustCompile(`(?i)^psql\b`), NonInteractiveArgs: []*regexp.Regexp{regexp.MustCompile(`-c\s`), regexp.MustCompile(`--command\b`)}},
+	{Pattern: regexp.MustCompile(`(?i)^btop\b`), NonInteractiveArgs: []*regexp.Regexp{}},
+	{Pattern: regexp.MustCompile(`(?i)^mysql\b`), NonInteractiveArgs: []*regexp.Regexp{regexp.MustCompile(`-e\s`), regexp.MustCompile(`--execute\b`), regexp.MustCompile(`--batch\b`), regexp.MustCompile(`--silent\b`)}},
+	{Pattern: regexp.MustCompile(`(?i)^psql\b`), NonInteractiveArgs: []*regexp.Regexp{regexp.MustCompile(`-c\s`), regexp.MustCompile(`--command\b`), regexp.MustCompile(`-t\b`), regexp.MustCompile(`-A\b`)}},
 	{Pattern: regexp.MustCompile(`(?i)^redis-cli\b`), NonInteractiveArgs: []*regexp.Regexp{regexp.MustCompile(`--raw\b`)}},
 	{Pattern: regexp.MustCompile(`(?i)^ssh\b`), NonInteractiveArgs: []*regexp.Regexp{regexp.MustCompile(`-T\b`), regexp.MustCompile(`(?i)-o\s*BatchMode=yes`)}},
+	{Pattern: regexp.MustCompile(`(?i)^sftp\b`), NonInteractiveArgs: []*regexp.Regexp{regexp.MustCompile(`-b\b`)}},
+	{Pattern: regexp.MustCompile(`(?i)^ftp\b`), NonInteractiveArgs: []*regexp.Regexp{regexp.MustCompile(`-n\b`)}},
 	{Pattern: regexp.MustCompile(`(?i)^mongo\b`), NonInteractiveArgs: []*regexp.Regexp{regexp.MustCompile(`--eval\b`), regexp.MustCompile(`-e\s`)}},
 }
 
 var pagerCommands = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^less\b`), regexp.MustCompile(`(?i)^more\b`),
+	regexp.MustCompile(`(?i)^most\b`), regexp.MustCompile(`(?i)^pg\b`),
 	regexp.MustCompile(`(?i)^man\b`), regexp.MustCompile(`(?i)^view\b`),
 	regexp.MustCompile(`(?i)^git\s+log\b`), regexp.MustCompile(`(?i)^git\s+diff\b`),
 	regexp.MustCompile(`(?i)^journalctl\b`), regexp.MustCompile(`(?i)^systemctl\s+status\b`),
@@ -159,11 +167,16 @@ type exitKeyRule struct {
 var exitKeyPatterns = []exitKeyRule{
 	{Pattern: regexp.MustCompile(`(?i)press\s+q\s+to\s+quit`), ExitKey: "q", ExitAppendNewline: false},
 	{Pattern: regexp.MustCompile(`(?i)press\s+q\s+to\s+exit`), ExitKey: "q", ExitAppendNewline: false},
+	{Pattern: regexp.MustCompile(`(?i)press\s+'q'\s+to\s+quit`), ExitKey: "q", ExitAppendNewline: false},
 	{Pattern: regexp.MustCompile(`(?i)\(q\s+to\s+quit\)`), ExitKey: "q", ExitAppendNewline: false},
+	{Pattern: regexp.MustCompile(`(?i)\[q\]\s*quit`), ExitKey: "q", ExitAppendNewline: false},
 	{Pattern: regexp.MustCompile(`(?i)type\s+quit\s+to\s+exit`), ExitKey: "quit", ExitAppendNewline: true},
 	{Pattern: regexp.MustCompile(`(?i)type\s+exit\s+to\s+exit`), ExitKey: "exit", ExitAppendNewline: true},
+	{Pattern: regexp.MustCompile(`(?i)enter\s+quit\s+to\s+exit`), ExitKey: "quit", ExitAppendNewline: true},
+	{Pattern: regexp.MustCompile(`(?i)enter\s+exit\s+to\s+exit`), ExitKey: "exit", ExitAppendNewline: true},
 	{Pattern: regexp.MustCompile(`按\s*q\s*退出`), ExitKey: "q", ExitAppendNewline: false},
 	{Pattern: regexp.MustCompile(`输入\s*quit\s*退出`), ExitKey: "quit", ExitAppendNewline: true},
+	{Pattern: regexp.MustCompile(`输入\s*exit\s*退出`), ExitKey: "exit", ExitAppendNewline: true},
 }
 
 var alternateScreenEnterSeqs = []string{"\x1b[?1049h", "\x1b[?47h", "\x1b[?1047h"}

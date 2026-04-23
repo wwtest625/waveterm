@@ -35,6 +35,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -396,6 +397,36 @@ func applyWaveCommandInteractionState(toolUseData *uctypes.UIMessageDataToolUse,
 	toolUseData.TuiSuppressed = interaction.TuiSuppressed
 }
 
+var tuiAutoCancelMu sync.Mutex
+var tuiAutoCancelledJobs = make(map[string]bool)
+
+func autoCancelTUICommand(rpcClient *wshutil.WshRpc, jobId string) {
+	if strings.TrimSpace(jobId) == "" {
+		return
+	}
+	tuiAutoCancelMu.Lock()
+	if tuiAutoCancelledJobs[jobId] {
+		tuiAutoCancelMu.Unlock()
+		return
+	}
+	tuiAutoCancelledJobs[jobId] = true
+	tuiAutoCancelMu.Unlock()
+
+	go func() {
+		err := wshclient.AgentCancelCommand(rpcClient, jobId, &wshrpc.RpcOpts{Timeout: 5000})
+		if err != nil {
+			log.Printf("failed to auto-cancel TUI command %s: %v", jobId, err)
+		} else {
+			log.Printf("auto-cancelled TUI command %s", jobId)
+		}
+		time.AfterFunc(30*time.Second, func() {
+			tuiAutoCancelMu.Lock()
+			delete(tuiAutoCancelledJobs, jobId)
+			tuiAutoCancelMu.Unlock()
+		})
+	}()
+}
+
 var waveCommandResultPollers = struct {
 	mu   sync.Mutex
 	jobs map[string]struct{}
@@ -518,6 +549,7 @@ func tryStartWaveCommandResultPoller(
 	ctx context.Context,
 	chatOpts uctypes.WaveChatOpts,
 	backend UseChatBackend,
+	sseHandler *sse.SSEHandlerCh,
 	toolCallID string,
 	snapshot *wshrpc.CommandAgentGetCommandResultRtnData,
 ) {
@@ -571,12 +603,14 @@ func tryStartWaveCommandResultPoller(
 			if err := ctx.Err(); err != nil {
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = "command result polling canceled"
+				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
 			}
 			if now.After(absoluteDeadline) || now.Sub(lastActivityAt) > waveCommandPollIdleTimeout {
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = "command result polling timed out"
+				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
 			}
@@ -591,6 +625,7 @@ func tryStartWaveCommandResultPoller(
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = err.Error()
 				current.DurationMs = currentDuration
+				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
 			}
@@ -618,6 +653,9 @@ func tryStartWaveCommandResultPoller(
 				detectedInteractionKey = detectedInteraction.DedupKey
 			}
 			applyWaveCommandInteractionState(&current, detectedInteraction)
+			if detectedInteraction != nil && detectedInteraction.TuiDetected && detectedInteraction.TuiCategory == TuiCategoryAlways && !current.TuiSuppressed {
+				autoCancelTUICommand(rpcClient, snapshot.JobId)
+			}
 			statusChanged := result.Status != lastStatus
 			interactionChanged := detectedInteractionKey != currentInteractionDedupKey
 			if outputChanged || interactionChanged || statusChanged {
@@ -634,12 +672,14 @@ func tryStartWaveCommandResultPoller(
 					current.ErrorMessage = "command result is unavailable; rerun the command"
 				}
 				current.DurationMs = currentDuration
+				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
 			}
 			if result.Status == "error" {
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = result.Error
+				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
 			}
@@ -651,6 +691,7 @@ func tryStartWaveCommandResultPoller(
 					currentOutput = current.OutputText
 					currentDuration = current.DurationMs
 					currentInteractionDedupKey = detectedInteractionKey
+					_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 					updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				}
 				select {
@@ -663,6 +704,7 @@ func tryStartWaveCommandResultPoller(
 				current.Status = uctypes.ToolUseStatusCompleted
 				current.ErrorMessage = ""
 				applyWaveCommandInteractionState(&current, nil)
+				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
 			}
@@ -670,6 +712,7 @@ func tryStartWaveCommandResultPoller(
 				currentOutput = current.OutputText
 				currentDuration = current.DurationMs
 				currentInteractionDedupKey = detectedInteractionKey
+				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 			}
 			select {
@@ -808,7 +851,7 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 				toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
 				applyWaveCommandInteractionState(toolCall.ToolUseData, detectCommandInteraction(lookupWaveCommandJob(snapshot.JobId), snapshot))
 				if snapshot.Status == "running" {
-					tryStartWaveCommandResultPoller(sseHandler.Context(), chatOpts, backend, toolCall.ID, snapshot)
+					tryStartWaveCommandResultPoller(sseHandler.Context(), chatOpts, backend, sseHandler, toolCall.ID, snapshot)
 				}
 				if snapshot.Status == "gone" || (snapshot.ExitCode == nil && strings.TrimSpace(snapshot.Error) != "") {
 					toolCall.ToolUseData.Status = uctypes.ToolUseStatusError

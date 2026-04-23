@@ -74,7 +74,7 @@ function validateWaveAiJson(parsed: any): ValidationResult {
 
 const configFiles: ConfigFile[] = [
     {
-        name: "General",
+        name: "通用",
         path: "settings.json",
         language: "json",
         docsUrl: "https://docs.waveterm.dev/config",
@@ -82,16 +82,16 @@ const configFiles: ConfigFile[] = [
         visualComponent: SettingsVisualContent,
     },
     {
-        name: "Connections",
+        name: "连接",
         path: "connections.json",
         language: "json",
         docsUrl: "https://docs.waveterm.dev/connections",
-        description: isWindows() ? "SSH hosts and WSL distros" : "SSH hosts",
+        description: isWindows() ? "SSH 主机和 WSL 发行版" : "SSH 主机",
         hasJsonView: true,
         visualComponent: ConnectionsVisualContent,
     },
     {
-        name: "Sidebar Widgets",
+        name: "侧边栏小组件",
         path: "widgets.json",
         language: "json",
         docsUrl: "https://docs.waveterm.dev/customwidgets",
@@ -99,25 +99,25 @@ const configFiles: ConfigFile[] = [
         visualComponent: WidgetsVisualContent,
     },
     {
-        name: "Wave AI Modes",
+        name: "Wave AI 模式",
         path: "waveai.json",
         language: "json",
-        description: "Local models and BYOK",
+        description: "本地模型与 BYOK",
         docsUrl: "https://docs.waveterm.dev/waveai-modes",
         validator: validateWaveAiJson,
         hasJsonView: true,
         visualComponent: WaveAIVisualContent,
     },
     {
-        name: "AI Skills",
+        name: "AI 技能",
         path: "skills_state.json",
         language: "json",
-        description: "Manage AI skill modules",
+        description: "管理 AI 技能模块",
         hasJsonView: false,
         visualComponent: SkillsVisualContent,
     },
     {
-        name: "Tab Backgrounds",
+        name: "标签页背景",
         path: "presets/bg.json",
         language: "json",
         docsUrl: "https://docs.waveterm.dev/presets#background-configurations",
@@ -126,7 +126,7 @@ const configFiles: ConfigFile[] = [
         visualComponent: BackgroundPresetsVisualContent,
     },
     {
-        name: "Secrets",
+        name: "密钥",
         path: "secrets",
         isSecrets: true,
         hasJsonView: false,

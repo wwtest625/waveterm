@@ -199,27 +199,49 @@ func advanceTaskStateForToolResult(state *uctypes.UITaskProgressState, result uc
 		}
 		task.Status = uctypes.TaskItemStatusCompleted
 		task.CompletedTs = now
+		task.IsFocused = false
+		task.FocusedTs = 0
 		nextTaskIndex = idx + 1
 		break
 	}
 	if !matchedAny {
 		return
 	}
+	var nextTodoID string
 	if nextTaskIndex >= 0 && nextTaskIndex < len(state.Tasks) {
 		state.Tasks[nextTaskIndex].Status = uctypes.TaskItemStatusInProgress
 		if state.Tasks[nextTaskIndex].StartedTs == 0 {
 			state.Tasks[nextTaskIndex].StartedTs = now
 		}
+		state.Tasks[nextTaskIndex].IsFocused = true
+		state.Tasks[nextTaskIndex].FocusedTs = now
+		state.Tasks[nextTaskIndex].UpdatedTs = now
 		state.CurrentTaskId = state.Tasks[nextTaskIndex].ID
+		nextTodoID = state.Tasks[nextTaskIndex].ID
 		state.Status = uctypes.TaskProgressStatusActive
 		state.BlockedReason = ""
 	} else {
 		state.CurrentTaskId = ""
+		if state.FocusChain != nil {
+			state.FocusChain.FocusedTodoId = ""
+		}
 		state.Status = uctypes.TaskProgressStatusCompleted
 		state.BlockedReason = ""
 	}
 	state.LastUpdatedTs = now
 	state.Summary = buildTaskStateSummary(state.Tasks)
+	if state.FocusChain != nil {
+		state.FocusChain.TotalTodos = state.Summary.Total
+		state.FocusChain.CompletedTodos = state.Summary.Completed
+		if state.Summary.Total > 0 {
+			state.FocusChain.ChainProgress = int(float64(state.Summary.Completed) / float64(state.Summary.Total) * 100)
+		} else {
+			state.FocusChain.ChainProgress = 0
+		}
+		state.FocusChain.AutoTransition = true
+		state.FocusChain.LastFocusChangeTs = now
+		state.FocusChain.FocusedTodoId = nextTodoID
+	}
 }
 
 var complexActionPatterns = []*regexp.Regexp{

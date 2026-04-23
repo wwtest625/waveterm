@@ -1,7 +1,7 @@
 import { WaveUIMessage } from "./aitypes";
 
 const SHELL_FENCE_LANGS = new Set(["", "bash", "sh", "shell", "zsh", "fish", "pwsh", "powershell", "cmd", "dos"]);
-const DANGEROUS_PATTERN = /(\|\s*(bash|sh|zsh|pwsh|powershell|cmd)(\s|$)|(^|\s)sudo(\s|$)|(^|\s)(rm|format|shutdown|reboot|halt|poweroff|init|killall|pkill|fuser|dd|mkfs|fdisk|parted|iptables|ufw|firewall-cmd|chmod|chown|mount|umount|truncate|drop|truncate|delete)(\s|$))/i;
+const DANGEROUS_PATTERN = /(\|\s*(bash|sh|zsh|pwsh|powershell|cmd)(\s|$)|(^|\s)sudo(\s|$)|(^|\s)(rm|format|shutdown|reboot|halt|poweroff|init\s+[06]|killall|pkill|fuser|dd|mkfs|fdisk|parted|iptables|ufw|firewall-cmd|mount|umount)(\s|$))/i;
 
 export function extractExecutableCommandsFromMarkdown(text: string): string[] {
     if (!text) {

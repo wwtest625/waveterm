@@ -11,10 +11,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
@@ -188,21 +191,161 @@ func JsonEncodeRequestBody(reqBody any) (bytes.Buffer, error) {
 }
 
 func MakeHTTPClient(proxyURL string) (*http.Client, error) {
+	baseTransport := http.DefaultTransport
+	if proxyURL != "" {
+		pURL, err := url.Parse(proxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy URL: %w", err)
+		}
+		baseTransport = &http.Transport{
+			Proxy: http.ProxyURL(pURL),
+		}
+	}
 	client := &http.Client{
-		Timeout: 0, // rely on ctx; streaming can be long
-	}
-	if proxyURL == "" {
-		return client, nil
-	}
-
-	pURL, err := url.Parse(proxyURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid proxy URL: %w", err)
-	}
-	client.Transport = &http.Transport{
-		Proxy: http.ProxyURL(pURL),
+		Timeout:   0,
+		Transport: &retryTransport{base: baseTransport},
 	}
 	return client, nil
+}
+
+const (
+	retryMaxAttempts = 3
+	retryBaseDelay   = 1 * time.Second
+	retryMaxDelay    = 10 * time.Second
+	apiMinInterval   = 500 * time.Millisecond
+)
+
+var apiIntervalMu sync.Mutex
+var apiLastRequestTime time.Time
+
+type retryTransport struct {
+	base http.RoundTripper
+}
+
+func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	waitForAPIInterval(req.Context())
+
+	var bodyBytes []byte
+	if req.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		req.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read request body for retry: %w", err)
+		}
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < retryMaxAttempts; attempt++ {
+		if attempt > 0 {
+			delay := calcRetryDelay(attempt, nil)
+			log.Printf("api retry attempt %d/%d after %v", attempt+1, retryMaxAttempts, delay)
+			select {
+			case <-req.Context().Done():
+				return nil, req.Context().Err()
+			case <-time.After(delay):
+			}
+		}
+
+		if bodyBytes != nil {
+			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			req.GetBody = func() (io.ReadCloser, error) {
+				return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+			}
+		}
+
+		resp, err := t.base.RoundTrip(req)
+		if err != nil {
+			lastErr = err
+			if isRetryableErr(err) && attempt < retryMaxAttempts-1 {
+				continue
+			}
+			return nil, err
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			if attempt < retryMaxAttempts-1 {
+				delay := calcRetryDelay(attempt, resp)
+				resp.Body.Close()
+				log.Printf("api 429 rate limit, retry attempt %d/%d after %v", attempt+1, retryMaxAttempts, delay)
+				select {
+				case <-req.Context().Done():
+					return nil, req.Context().Err()
+				case <-time.After(delay):
+				}
+				continue
+			}
+			log.Printf("api 429 rate limit, max retries (%d) exhausted", retryMaxAttempts)
+			return resp, nil
+		}
+
+		if resp.StatusCode >= 500 && attempt < retryMaxAttempts-1 {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("server error: %s", resp.Status)
+			continue
+		}
+
+		return resp, nil
+	}
+
+	return nil, fmt.Errorf("max retries exhausted: %w", lastErr)
+}
+
+func calcRetryDelay(attempt int, resp *http.Response) time.Duration {
+	if resp != nil {
+		if ra := resp.Header.Get("Retry-After"); ra != "" {
+			if seconds, err := strconv.Atoi(ra); err == nil && seconds > 0 {
+				delay := time.Duration(seconds) * time.Second
+				if delay > retryMaxDelay {
+					return retryMaxDelay
+				}
+				return delay
+			}
+			if t, err := http.ParseTime(ra); err == nil {
+				delay := time.Until(t)
+				if delay > 0 && delay <= retryMaxDelay {
+					return delay
+				}
+				if delay > retryMaxDelay {
+					return retryMaxDelay
+				}
+			}
+		}
+	}
+	delay := retryBaseDelay * time.Duration(1<<uint(attempt))
+	if delay > retryMaxDelay {
+		return retryMaxDelay
+	}
+	return delay
+}
+
+func isRetryableErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "connection refused") ||
+		strings.Contains(err.Error(), "connection reset") ||
+		strings.Contains(err.Error(), "EOF") ||
+		strings.Contains(err.Error(), "timeout") ||
+		strings.Contains(err.Error(), "temporary")
+}
+
+func waitForAPIInterval(ctx context.Context) {
+	apiIntervalMu.Lock()
+	elapsed := time.Since(apiLastRequestTime)
+	apiIntervalMu.Unlock()
+
+	if elapsed < apiMinInterval {
+		wait := apiMinInterval - elapsed
+		select {
+		case <-ctx.Done():
+		case <-time.After(wait):
+		}
+	}
+
+	apiIntervalMu.Lock()
+	apiLastRequestTime = time.Now()
+	apiIntervalMu.Unlock()
 }
 
 func IsOpenAIReasoningModel(model string) bool {

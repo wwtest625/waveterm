@@ -3,7 +3,7 @@
 
 import { cn } from "@/util/util";
 import { shouldHideProgressStatusLines } from "./aitooluse";
-import { AgentRuntimeSnapshot, AgentRuntimeState, WaveUIMessage, isTextPart } from "./aitypes";
+import { AgentRuntimeSnapshot, AgentRuntimeState, WaveUIMessage, isInternalAssistantToolName, isTextPart } from "./aitypes";
 import { getFirstExecutableCommandFromMessage } from "./autoexecute-util";
 import { AgentMode } from "./waveai-model";
 
@@ -117,8 +117,9 @@ function messageTextIncludesCapabilityDenial(message: WaveUIMessage | undefined)
         "被宿主策略拦了",
         "被拒绝执行",
         "拒绝执行",
-        "沙箱",
-        "超时",
+        "运行在沙箱中",
+        "命令执行超时",
+        "请求超时无法完成",
     ];
     return denialPhrases.some((phrase) => combinedText.includes(phrase));
 }
@@ -147,13 +148,16 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             message.parts?.some(
                 (part) =>
                     (part.type === "data-tooluse" || part.type === "data-toolprogress") &&
+                    !isInternalAssistantToolName(part.data?.toolname) &&
                     isObservedTerminalToolName(part.data?.toolname)
             )
         ) ?? false;
-    const lastToolUse = [...(lastAssistantMessage?.parts ?? [])].reverse().find((part) => part.type === "data-tooluse");
+    const lastToolUse = [...(lastAssistantMessage?.parts ?? [])]
+        .reverse()
+        .find((part) => part.type === "data-tooluse" && !isInternalAssistantToolName(part.data?.toolname));
     const lastToolProgress = [...(lastAssistantMessage?.parts ?? [])]
         .reverse()
-        .find((part) => part.type === "data-toolprogress");
+        .find((part) => part.type === "data-toolprogress" && !isInternalAssistantToolName(part.data?.toolname));
     const toolPhase =
         lastToolUse?.type === "data-tooluse"
             ? getToolUsePhase(
@@ -225,7 +229,7 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
                 blockedReason: progressPhase.blockedReason,
             };
         }
-        if (toolPhase != null) {
+        if (lastToolUse?.type === "data-tooluse" && lastToolUse.data?.status === "running" && toolPhase != null) {
             return {
                 visible: true,
                 providerLabel: formatProviderLabel(input.provider),
@@ -233,6 +237,9 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
                 state: toolPhase.state,
                 phaseLabel: toolPhase.phaseLabel,
                 lastCommand,
+                activeTool: lastToolUse.data?.toolname as string | undefined,
+                activeJobId: lastToolUse.data?.jobid as string | undefined,
+                blockedReason: lastToolUse.data?.errormessage || lastToolUse.data?.tooldesc,
             };
         }
         return {
@@ -242,32 +249,6 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
             state: "planning",
             phaseLabel: hasAssistantText ? "Responding" : "Thinking",
             lastCommand,
-        };
-    }
-
-    if (progressPhase != null) {
-        return {
-            visible: true,
-            providerLabel: formatProviderLabel(input.provider),
-            modeLabel: formatModeLabel(input.mode),
-            state: progressPhase.state,
-            phaseLabel: progressPhase.phaseLabel,
-            lastCommand,
-            blockedReason: progressPhase.blockedReason,
-        };
-    }
-
-    if (lastToolUse?.type === "data-tooluse" && lastToolUse.data?.status === "running" && toolPhase != null) {
-        return {
-            visible: true,
-            providerLabel: formatProviderLabel(input.provider),
-            modeLabel: formatModeLabel(input.mode),
-            state: toolPhase.state,
-            phaseLabel: toolPhase.phaseLabel,
-            lastCommand,
-            activeTool: lastToolUse.data?.toolname as string | undefined,
-            activeJobId: lastToolUse.data?.jobid as string | undefined,
-            blockedReason: lastToolUse.data?.errormessage || lastToolUse.data?.tooldesc,
         };
     }
 

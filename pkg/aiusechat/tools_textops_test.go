@@ -266,6 +266,9 @@ func TestWaveRunCommandResultPayload_UsesHumanReadableSummaryForModel(t *testing
 	if payload["summary"] != "Command completed successfully (exit 0)." {
 		t.Fatalf("expected human-readable summary, got %#v", payload["summary"])
 	}
+	if _, ok := payload["modeltext"]; !ok {
+		t.Fatalf("expected modeltext field, got %#v", payload)
+	}
 }
 
 func TestWaveRunCommandResultPayload_RunningIncludesReadableSummary(t *testing.T) {
@@ -275,6 +278,9 @@ func TestWaveRunCommandResultPayload_RunningIncludesReadableSummary(t *testing.T
 	}
 	if payload["summary"] != "Command is still running in the background." {
 		t.Fatalf("expected running summary, got %#v", payload["summary"])
+	}
+	if payload["modeltext"] != "Command is still running in the background." {
+		t.Fatalf("expected running modeltext, got %#v", payload["modeltext"])
 	}
 }
 
@@ -290,6 +296,9 @@ func TestWaveRunCommandResultPayload_ErrorIncludesReadableSummary(t *testing.T) 
 	if payload["summary"] != "Command failed with exit 2: permission denied" {
 		t.Fatalf("expected error summary, got %#v", payload["summary"])
 	}
+	if modelText, ok := payload["modeltext"].(string); !ok || !strings.Contains(modelText, "permission denied") {
+		t.Fatalf("expected error modeltext, got %#v", payload["modeltext"])
+	}
 }
 
 func TestWaveRunCommandResultPayload_UsesOutputAsSummaryFallback(t *testing.T) {
@@ -303,13 +312,37 @@ func TestWaveRunCommandResultPayload_UsesOutputAsSummaryFallback(t *testing.T) {
 	if payload["summary"] != "Linux version 6.8.0" {
 		t.Fatalf("expected output summary fallback, got %#v", payload["summary"])
 	}
+	if modelText, ok := payload["modeltext"].(string); !ok || !strings.Contains(modelText, "Linux version 6.8.0") {
+		t.Fatalf("expected output modeltext, got %#v", payload["modeltext"])
+	}
+}
+
+func TestWaveRunCommandResultPayload_ModelTextIncludesDetails(t *testing.T) {
+	exitCode := 2
+	payload := waveRunCommandResultPayload("job-123", &wshrpc.CommandAgentGetCommandResultRtnData{
+		JobId:      "job-123",
+		Status:     "error",
+		ExitCode:   &exitCode,
+		DurationMs: 15,
+		Output:     "first line\nsecond line",
+		Error:      "permission denied",
+	})
+	modelText, ok := payload["modeltext"].(string)
+	if !ok {
+		t.Fatalf("expected modeltext string, got %#v", payload["modeltext"])
+	}
+	for _, fragment := range []string{"status: error", "exitcode: 2", "durationms: 15", "output:", "first line", "error:", "permission denied"} {
+		if !strings.Contains(modelText, fragment) {
+			t.Fatalf("expected modeltext to contain %q, got %q", fragment, modelText)
+		}
+	}
 }
 
 func TestWaveRunCommandToolResultUsesSummaryInsteadOfRawJSON(t *testing.T) {
 	payload := map[string]any{
-		"jobid":    "job-123",
-		"status":   "done",
-		"summary":  "Command completed successfully (exit 0).",
+		"jobid":      "job-123",
+		"status":     "done",
+		"summary":    "Command completed successfully (exit 0).",
 		"durationms": int64(8),
 	}
 	resultBytes, err := json.Marshal(payload)
@@ -1307,26 +1340,48 @@ func TestPromptMentionsRemoteDefaultAndNoShellWriteFallback(t *testing.T) {
 }
 
 func TestWaveRunCommandSummaryGetsUsedForModelFacingText(t *testing.T) {
-	payload := map[string]any{"jobid": "job-123", "status": "done", "summary": "Command completed successfully (exit 0)."}
+	exitCode := 0
+	payload := waveRunCommandResultPayload("job-123", &wshrpc.CommandAgentGetCommandResultRtnData{
+		JobId:      "job-123",
+		Status:     "done",
+		ExitCode:   &exitCode,
+		DurationMs: 8,
+		Output:     "Command completed successfully (exit 0).\nextra detail",
+	})
+	modelText, ok := payload["modeltext"].(string)
+	if !ok {
+		t.Fatalf("expected modeltext string, got %#v", payload["modeltext"])
+	}
 	bytes, _ := json.Marshal(payload)
 	msgs, err := openaichat.ConvertToolResultsToNativeChatMessage([]uctypes.AIToolResult{{ToolUseID: "call-1", ToolName: "wave_run_command", Text: string(bytes)}})
 	if err != nil {
 		t.Fatalf("convert failed: %v", err)
 	}
 	stored := msgs[0].(*openaichat.StoredChatMessage)
-	if stored.Message.Content != "Command completed successfully (exit 0)." {
+	if stored.Message.Content != modelText {
 		t.Fatalf("unexpected output: %q", stored.Message.Content)
 	}
 }
 
 func TestWaveRunCommandSummaryGetsUsedForOpenAIResponses(t *testing.T) {
-	payload := map[string]any{"jobid": "job-123", "status": "done", "summary": "Command completed successfully (exit 0)."}
+	exitCode := 0
+	payload := waveRunCommandResultPayload("job-123", &wshrpc.CommandAgentGetCommandResultRtnData{
+		JobId:      "job-123",
+		Status:     "done",
+		ExitCode:   &exitCode,
+		DurationMs: 8,
+		Output:     "Command completed successfully (exit 0).\nextra detail",
+	})
+	modelText, ok := payload["modeltext"].(string)
+	if !ok {
+		t.Fatalf("expected modeltext string, got %#v", payload["modeltext"])
+	}
 	bytes, _ := json.Marshal(payload)
 	msgs, err := openai.ConvertToolResultsToOpenAIChatMessage([]uctypes.AIToolResult{{ToolUseID: "call-1", ToolName: "wave_run_command", Text: string(bytes)}})
 	if err != nil {
 		t.Fatalf("convert failed: %v", err)
 	}
-	if msgs[0].FunctionCallOutput.Output != "Command completed successfully (exit 0)." {
+	if msgs[0].FunctionCallOutput.Output != modelText {
 		t.Fatalf("unexpected output: %#v", msgs[0].FunctionCallOutput.Output)
 	}
 }

@@ -255,9 +255,9 @@ export const WidgetsVisualContent = memo(({ model }: WidgetVisualContentProps) =
         <div className="h-full overflow-y-auto bg-zinc-900 p-6">
             <div className="mx-auto max-w-4xl space-y-4">
                 <div className="mb-6">
-                    <h2 className="text-lg font-semibold text-zinc-200">Sidebar Widgets</h2>
+                    <h2 className="text-lg font-semibold text-zinc-200">侧边栏小组件</h2>
                     <p className="mt-1 text-sm text-zinc-500">
-                        Control which widgets appear in the sidebar, how they look, and how wide they open.
+                        控制哪些小组件会出现在侧边栏，以及它们的外观和展开宽度。
                     </p>
                 </div>
 

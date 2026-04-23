@@ -120,6 +120,39 @@ func TestParseWaveRunCommandToolInput_AcceptsStringArgs(t *testing.T) {
 	}
 }
 
+func TestParseWaveRunCommandToolInput_AcceptsCommandArray(t *testing.T) {
+	parsed, err := parseWaveRunCommandToolInput(map[string]any{
+		"connection": "root@example",
+		"command":    []any{"du", "-sh", "/var/lib/docker/overlay2"},
+	})
+	if err != nil {
+		t.Fatalf("parseWaveRunCommandToolInput returned error: %v", err)
+	}
+	if parsed.Command != "du" {
+		t.Fatalf("expected command du, got %q", parsed.Command)
+	}
+	if len(parsed.Args) != 2 || parsed.Args[0] != "-sh" || parsed.Args[1] != "/var/lib/docker/overlay2" {
+		t.Fatalf("expected args [-sh, /var/lib/docker/overlay2], got %#v", parsed.Args)
+	}
+}
+
+func TestParseWaveRunCommandToolInput_MergesCommandArrayWithExplicitArgs(t *testing.T) {
+	parsed, err := parseWaveRunCommandToolInput(map[string]any{
+		"connection": "root@example",
+		"command":    []any{"python3", "-c"},
+		"args":       []any{"print('ok')"},
+	})
+	if err != nil {
+		t.Fatalf("parseWaveRunCommandToolInput returned error: %v", err)
+	}
+	if parsed.Command != "python3" {
+		t.Fatalf("expected command python3, got %q", parsed.Command)
+	}
+	if len(parsed.Args) != 2 || parsed.Args[0] != "-c" || parsed.Args[1] != "print('ok')" {
+		t.Fatalf("expected merged args [-c, print('ok')], got %#v", parsed.Args)
+	}
+}
+
 func TestParseWaveRunCommandToolInput_UsesShellForPipeline(t *testing.T) {
 	parsed, err := parseWaveRunCommandToolInput(map[string]any{
 		"connection": "root@example",

@@ -104,17 +104,17 @@ const SkillCard = memo(({ skill, onToggle, onEdit, onDelete, onReadContent, isTo
                                 <span className="truncate text-sm font-medium text-zinc-100">{skill.name}</span>
                                 {skill.isbuiltin && (
                                     <span className="text-xs px-1.5 py-0.5 bg-zinc-700 text-zinc-400 rounded shrink-0">
-                                        Built-in
+                                        内置
                                     </span>
                                 )}
                                 {skill.isuser && !skill.isbuiltin && (
                                     <span className="text-xs px-1.5 py-0.5 bg-accent-600/30 text-accent-400 rounded shrink-0">
-                                        User
+                                        用户
                                     </span>
                                 )}
                             </div>
                             <div className="truncate text-xs text-zinc-500 mt-0.5">
-                                {skill.description || "No description"}
+                                {skill.description || "暂无说明"}
                             </div>
                         </div>
                     </div>
@@ -135,7 +135,7 @@ const SkillCard = memo(({ skill, onToggle, onEdit, onDelete, onReadContent, isTo
                     className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
                 >
                     <i className="fa-sharp fa-solid fa-eye mr-1" />
-                    View
+                    查看
                 </button>
                 {skill.isuser && !skill.isbuiltin && (
                     <>
@@ -144,14 +144,14 @@ const SkillCard = memo(({ skill, onToggle, onEdit, onDelete, onReadContent, isTo
                             className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 transition-colors hover:border-accent-500 hover:text-accent-400"
                         >
                             <i className="fa-sharp fa-solid fa-pen mr-1" />
-                            Edit
+                            编辑
                         </button>
                         <button
                             onClick={() => onDelete(skill)}
                             className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 transition-colors hover:border-red-500 hover:text-red-400"
                         >
                             <i className="fa-sharp fa-solid fa-trash mr-1" />
-                            Delete
+                            删除
                         </button>
                     </>
                 )}
@@ -179,9 +179,9 @@ const CreateSkillForm = memo(({ onSubmit, onCancel, isSubmitting }: CreateSkillF
 
     return (
         <div className="flex flex-col gap-4 p-6 bg-zinc-800/50 rounded-lg border border-zinc-700/60">
-            <h3 className="text-lg font-semibold text-zinc-200">Create New Skill</h3>
+            <h3 className="text-lg font-semibold text-zinc-200">创建新技能</h3>
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-zinc-300">Skill Name</label>
+                <label className="text-sm font-medium text-zinc-300">技能名称</label>
                 <input
                     type="text"
                     className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-sm text-zinc-200 focus:outline-none focus:border-accent-500"
@@ -190,21 +190,21 @@ const CreateSkillForm = memo(({ onSubmit, onCancel, isSubmitting }: CreateSkillF
                     placeholder="my-skill"
                     disabled={isSubmitting}
                 />
-                <span className="text-xs text-zinc-500">Lowercase letters, numbers, and hyphens</span>
+                <span className="text-xs text-zinc-500">使用小写字母、数字和连字符</span>
             </div>
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-zinc-300">Description</label>
+                <label className="text-sm font-medium text-zinc-300">描述</label>
                 <input
                     type="text"
                     className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-sm text-zinc-200 focus:outline-none focus:border-accent-500"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="A brief description of what this skill does"
+                    placeholder="简要说明这个技能的作用"
                     disabled={isSubmitting}
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-zinc-300">Content (Markdown)</label>
+                <label className="text-sm font-medium text-zinc-300">内容（Markdown）</label>
                 <textarea
                     className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-sm text-zinc-200 focus:outline-none focus:border-accent-500 font-mono resize-none"
                     value={content}
@@ -220,7 +220,7 @@ const CreateSkillForm = memo(({ onSubmit, onCancel, isSubmitting }: CreateSkillF
                     onClick={onCancel}
                     disabled={isSubmitting}
                 >
-                    Cancel
+                    取消
                 </button>
                 <button
                     className="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
@@ -230,10 +230,10 @@ const CreateSkillForm = memo(({ onSubmit, onCancel, isSubmitting }: CreateSkillF
                     {isSubmitting ? (
                         <>
                             <i className="fa-sharp fa-solid fa-spinner fa-spin" />
-                            Creating...
+                            创建中...
                         </>
                     ) : (
-                        "Create Skill"
+                        "创建技能"
                     )}
                 </button>
             </div>
@@ -262,21 +262,21 @@ const EditSkillForm = memo(({ skill, initialContent, onSubmit, onCancel, isSubmi
         <div className="flex flex-col gap-4 p-6 bg-zinc-800/50 rounded-lg border border-zinc-700/60">
             <div className="flex items-center gap-2">
                 <i className="fa-sharp fa-solid fa-pen text-accent-500" />
-                <h3 className="text-lg font-semibold text-zinc-200">Edit Skill: {skill.name}</h3>
+                <h3 className="text-lg font-semibold text-zinc-200">编辑技能：{skill.name}</h3>
             </div>
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-zinc-300">Description</label>
+                <label className="text-sm font-medium text-zinc-300">描述</label>
                 <input
                     type="text"
                     className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-sm text-zinc-200 focus:outline-none focus:border-accent-500"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="A brief description of what this skill does"
+                    placeholder="简要说明这个技能的作用"
                     disabled={isSubmitting}
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-zinc-300">Content (Markdown)</label>
+                <label className="text-sm font-medium text-zinc-300">内容（Markdown）</label>
                 <textarea
                     className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-sm text-zinc-200 focus:outline-none focus:border-accent-500 font-mono resize-none"
                     value={content}
@@ -291,7 +291,7 @@ const EditSkillForm = memo(({ skill, initialContent, onSubmit, onCancel, isSubmi
                     onClick={onCancel}
                     disabled={isSubmitting}
                 >
-                    Cancel
+                    取消
                 </button>
                 <button
                     className="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
@@ -301,10 +301,10 @@ const EditSkillForm = memo(({ skill, initialContent, onSubmit, onCancel, isSubmi
                     {isSubmitting ? (
                         <>
                             <i className="fa-sharp fa-solid fa-spinner fa-spin" />
-                            Saving...
+                            保存中...
                         </>
                     ) : (
-                        "Save Changes"
+                        "保存更改"
                     )}
                 </button>
             </div>
@@ -336,7 +336,7 @@ const SkillContentView = memo(({ skillName, content, onClose, onEdit, canEdit }:
                             className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-accent-500 hover:text-accent-400"
                         >
                             <i className="fa-sharp fa-solid fa-pen mr-1" />
-                            Edit
+                            编辑
                         </button>
                     )}
                     <button
@@ -344,7 +344,7 @@ const SkillContentView = memo(({ skillName, content, onClose, onEdit, canEdit }:
                         className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
                     >
                         <i className="fa-sharp fa-solid fa-xmark mr-1" />
-                        Close
+                        关闭
                     </button>
                 </div>
             </div>
@@ -371,11 +371,11 @@ const DeleteConfirm = memo(({ skillName, onConfirm, onCancel, isDeleting }: Dele
         <div className="flex flex-col gap-4 p-6 bg-zinc-800/50 rounded-lg border border-red-500/30">
             <div className="flex items-center gap-2">
                 <i className="fa-sharp fa-solid fa-triangle-exclamation text-red-400" />
-                <h3 className="text-lg font-semibold text-zinc-200">Delete Skill</h3>
+                <h3 className="text-lg font-semibold text-zinc-200">删除技能</h3>
             </div>
             <p className="text-sm text-zinc-400">
-                Are you sure you want to delete the skill <span className="text-zinc-200 font-mono">{skillName}</span>?
-                This action cannot be undone.
+                确定要删除技能 <span className="text-zinc-200 font-mono">{skillName}</span> 吗？
+                此操作无法撤销。
             </p>
             <div className="flex gap-2 justify-end">
                 <button
@@ -383,7 +383,7 @@ const DeleteConfirm = memo(({ skillName, onConfirm, onCancel, isDeleting }: Dele
                     onClick={onCancel}
                     disabled={isDeleting}
                 >
-                    Cancel
+                    取消
                 </button>
                 <button
                     className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
@@ -393,12 +393,12 @@ const DeleteConfirm = memo(({ skillName, onConfirm, onCancel, isDeleting }: Dele
                     {isDeleting ? (
                         <>
                             <i className="fa-sharp fa-solid fa-spinner fa-spin" />
-                            Deleting...
+                            删除中...
                         </>
                     ) : (
                         <>
                             <i className="fa-sharp fa-solid fa-trash" />
-                            Delete
+                            删除
                         </>
                     )}
                 </button>
@@ -417,10 +417,10 @@ const EmptyState = memo(({ onCreateSkill, onOpenFolder }: EmptyStateProps) => {
     return (
         <div className="flex flex-col items-center justify-center gap-4 py-12 bg-zinc-800/50 rounded-lg">
             <i className="fa-sharp fa-solid fa-wand-magic-sparkles text-4xl text-zinc-600" />
-            <h3 className="text-lg font-semibold text-zinc-400">No Skills Installed</h3>
+            <h3 className="text-lg font-semibold text-zinc-400">尚未安装技能</h3>
             <p className="text-zinc-500 text-center max-w-md">
-                Skills are AI-powered modules that help the assistant perform specialized tasks.
-                Create your own or import from a ZIP file.
+                技能是帮助助手执行专项任务的 AI 模块。
+                你可以自行创建，或从 ZIP 文件导入。
             </p>
             <div className="flex gap-3">
                 <button
@@ -428,14 +428,14 @@ const EmptyState = memo(({ onCreateSkill, onOpenFolder }: EmptyStateProps) => {
                     onClick={onCreateSkill}
                 >
                     <i className="fa-sharp fa-solid fa-plus" />
-                    <span className="font-medium text-sm">Create Skill</span>
+                    <span className="font-medium text-sm">创建技能</span>
                 </button>
                 <button
                     className="flex items-center gap-2 px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded cursor-pointer transition-colors"
                     onClick={onOpenFolder}
                 >
                     <i className="fa-sharp fa-solid fa-folder-open" />
-                    <span className="font-medium text-sm">Open Folder</span>
+                    <span className="font-medium text-sm">打开文件夹</span>
                 </button>
             </div>
         </div>
@@ -471,7 +471,7 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
             const result = await RpcApi.GetSkillsCommand(TabRpcClient);
             setSkills(result || []);
         } catch (err) {
-            setError(`Failed to load skills: ${err instanceof Error ? err.message : String(err)}`);
+            setError(`加载技能失败：${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setLoadingSkills(false);
         }
@@ -487,10 +487,10 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
         try {
             await RpcApi.SetSkillEnabledCommand(TabRpcClient, { name, enabled });
             setSkills((prev) => prev.map((s) => (s.name === name ? { ...s, enabled } : s)));
-            setSuccess(`Skill "${name}" ${enabled ? "enabled" : "disabled"}`);
+            setSuccess(`技能“${name}”已${enabled ? "启用" : "停用"}`);
             setTimeout(() => setSuccess(null), 3000);
         } catch (err) {
-            setError(`Failed to toggle skill: ${err instanceof Error ? err.message : String(err)}`);
+            setError(`切换技能状态失败：${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setTogglingSkill(null);
         }
@@ -501,12 +501,12 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
         setError(null);
         try {
             await RpcApi.CreateSkillCommand(TabRpcClient, { name, description, content });
-            setSuccess(`Skill "${name}" created successfully`);
+            setSuccess(`技能“${name}”创建成功`);
             setPanelView("list");
             await loadSkills();
             setTimeout(() => setSuccess(null), 3000);
         } catch (err) {
-            setError(`Failed to create skill: ${err instanceof Error ? err.message : String(err)}`);
+            setError(`创建技能失败：${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setActionLoading(false);
         }
@@ -521,7 +521,7 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
             setEditContent(content.content || "");
             setPanelView("edit");
         } catch (err) {
-            setError(`Failed to load skill content: ${err instanceof Error ? err.message : String(err)}`);
+            setError(`加载技能内容失败：${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setActionLoading(false);
         }
@@ -532,13 +532,13 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
         setError(null);
         try {
             await RpcApi.UpdateSkillCommand(TabRpcClient, { name, description, content });
-            setSuccess(`Skill "${name}" updated successfully`);
+            setSuccess(`技能“${name}”更新成功`);
             setPanelView("list");
             setEditingSkill(null);
             await loadSkills();
             setTimeout(() => setSuccess(null), 3000);
         } catch (err) {
-            setError(`Failed to update skill: ${err instanceof Error ? err.message : String(err)}`);
+            setError(`更新技能失败：${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setActionLoading(false);
         }
@@ -550,13 +550,13 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
         setError(null);
         try {
             await RpcApi.DeleteSkillCommand(TabRpcClient, { name: deletingSkill.name });
-            setSuccess(`Skill "${deletingSkill.name}" deleted successfully`);
+            setSuccess(`技能“${deletingSkill.name}”删除成功`);
             setPanelView("list");
             setDeletingSkill(null);
             await loadSkills();
             setTimeout(() => setSuccess(null), 3000);
         } catch (err) {
-            setError(`Failed to delete skill: ${err instanceof Error ? err.message : String(err)}`);
+            setError(`删除技能失败：${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setActionLoading(false);
         }
@@ -571,7 +571,7 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
             setViewingSkillName(name);
             setPanelView("view");
         } catch (err) {
-            setError(`Failed to load skill content: ${err instanceof Error ? err.message : String(err)}`);
+            setError(`加载技能内容失败：${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setActionLoading(false);
         }
@@ -582,7 +582,7 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
         try {
             await RpcApi.OpenSkillsFolderCommand(TabRpcClient);
         } catch (err) {
-            setError(`Failed to open skills folder: ${err instanceof Error ? err.message : String(err)}`);
+            setError(`打开技能文件夹失败：${err instanceof Error ? err.message : String(err)}`);
         }
     }, []);
 
@@ -591,10 +591,10 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
         try {
             await RpcApi.ReloadSkillsCommand(TabRpcClient);
             await loadSkills();
-            setSuccess("Skills reloaded successfully");
+            setSuccess("技能已重新加载");
             setTimeout(() => setSuccess(null), 3000);
         } catch (err) {
-            setError(`Failed to reload skills: ${err instanceof Error ? err.message : String(err)}`);
+            setError(`重新加载技能失败：${err instanceof Error ? err.message : String(err)}`);
         }
     }, [loadSkills]);
 
@@ -624,14 +624,14 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
                     overwrite: false,
                 });
                 if (result.success) {
-                    setSuccess(`Skill "${result.skillname}" imported successfully`);
+                    setSuccess(`技能“${result.skillname}”导入成功`);
                     await loadSkills();
                 } else {
-                    setError(`Import failed: ${result.error || "Unknown error"}`);
+                    setError(`导入失败：${result.error || "未知错误"}`);
                 }
                 setTimeout(() => setSuccess(null), 3000);
             } catch (err) {
-                setError(`Failed to import skill: ${err instanceof Error ? err.message : String(err)}`);
+                setError(`导入技能失败：${err instanceof Error ? err.message : String(err)}`);
             } finally {
                 setActionLoading(false);
             }
@@ -735,7 +735,7 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
             <div className="h-full overflow-y-auto bg-zinc-900 p-6">
                 <div className="flex flex-col items-center justify-center gap-3 py-12">
                     <i className="fa-sharp fa-solid fa-spinner fa-spin text-2xl text-zinc-400" />
-                    <span className="text-zinc-400">Loading skills...</span>
+                    <span className="text-zinc-400">正在加载技能...</span>
                 </div>
             </div>
         );
@@ -746,11 +746,11 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
             <div className="mx-auto max-w-4xl space-y-4">
                 <div className="flex items-start justify-between gap-4 mb-6">
                     <div>
-                        <h2 className="text-lg font-semibold text-zinc-200">AI Skills</h2>
+                        <h2 className="text-lg font-semibold text-zinc-200">AI 技能</h2>
                         <p className="mt-1 text-sm text-zinc-500">
-                            Manage AI skill modules that enhance the assistant's capabilities.
+                            管理可增强助手能力的 AI 技能模块。
                             {skills.length > 0 && (
-                                <span className="text-zinc-400"> {enabledCount} of {skills.length} enabled</span>
+                                <span className="text-zinc-400"> 已启用 {enabledCount} / {skills.length}</span>
                             )}
                         </p>
                     </div>
@@ -758,34 +758,34 @@ export const SkillsVisualContent = memo(({ model }: SkillsVisualContentProps) =>
                         <button
                             onClick={handleOpenFolder}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-xs text-zinc-300 transition-colors cursor-pointer"
-                            title="Open skills folder in file manager"
+                            title="在文件管理器中打开技能文件夹"
                         >
                             <i className="fa-sharp fa-solid fa-folder-open" />
-                            <span className="@max-w500:hidden">Open Folder</span>
+                            <span className="@max-w500:hidden">打开文件夹</span>
                         </button>
                         <button
                             onClick={handleReload}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-xs text-zinc-300 transition-colors cursor-pointer"
-                            title="Reload skills from disk"
+                            title="从磁盘重新加载技能"
                         >
                             <i className="fa-sharp fa-solid fa-arrows-rotate" />
-                            <span className="@max-w500:hidden">Reload</span>
+                            <span className="@max-w500:hidden">重新加载</span>
                         </button>
                         <button
                             onClick={handleImportZip}
                             disabled={actionLoading}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-xs text-zinc-300 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Import skill from ZIP file"
+                            title="从 ZIP 文件导入技能"
                         >
                             <i className="fa-sharp fa-solid fa-file-import" />
-                            <span className="@max-w500:hidden">Import ZIP</span>
+                            <span className="@max-w500:hidden">导入 ZIP</span>
                         </button>
                         <button
                             onClick={() => setPanelView("create")}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium text-white transition-colors cursor-pointer"
                         >
                             <i className="fa-sharp fa-solid fa-plus" />
-                            <span className="@max-w500:hidden">Create</span>
+                            <span className="@max-w500:hidden">创建</span>
                         </button>
                     </div>
                 </div>

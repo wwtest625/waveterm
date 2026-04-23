@@ -30,7 +30,7 @@ type WaveRunCommandToolInput struct {
 
 type waveRunCommandArgs []string
 
-var dangerousWaveCommandPattern = regexp.MustCompile(`(?i)(\|\s*(bash|sh|zsh|pwsh|powershell|cmd)(\s|$)|(^|\s)sudo(\s|$)|(^|\s)(rm|format|shutdown|reboot|halt|poweroff|init|killall|pkill|fuser|dd|mkfs|fdisk|parted|iptables|ufw|firewall-cmd|chmod|chown|mount|umount|truncate|drop|delete)(\s|$))`)
+var dangerousWaveCommandPattern = regexp.MustCompile(`(?i)(\|\s*(bash|sh|zsh|pwsh|powershell|cmd)(\s|$)|(^|\s)sudo(\s|$)|(^|\s)(rm|format|shutdown|reboot|halt|poweroff|init\s+[06]|killall|pkill|fuser|dd|mkfs|fdisk|parted|iptables|ufw|firewall-cmd|mount|umount)(\s|$))`)
 
 // criticalDangerousCommandPattern matches commands that should be blocked outright
 // (no approval flow) rather than merely requiring user approval.
@@ -58,9 +58,74 @@ func (a *waveRunCommandArgs) UnmarshalJSON(data []byte) error {
 	return fmt.Errorf("args must be a string or array of strings")
 }
 
+func collectWaveRunCommandStringList(value any) ([]string, bool) {
+	switch v := value.(type) {
+	case []string:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			trimmed := strings.TrimSpace(item)
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		return result, true
+	case []any:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			itemStr, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			trimmed := strings.TrimSpace(itemStr)
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		return result, true
+	default:
+		return nil, false
+	}
+}
+
+func normalizeWaveRunCommandInputShape(input any) any {
+	inputMap, ok := input.(map[string]any)
+	if !ok {
+		return input
+	}
+	commandParts, isArray := collectWaveRunCommandStringList(inputMap["command"])
+	if !isArray {
+		return input
+	}
+	normalized := make(map[string]any, len(inputMap))
+	for key, value := range inputMap {
+		normalized[key] = value
+	}
+	if len(commandParts) == 0 {
+		normalized["command"] = ""
+		delete(normalized, "args")
+		return normalized
+	}
+	normalized["command"] = commandParts[0]
+	mergedArgs := append([]string{}, commandParts[1:]...)
+	if existingArgs, ok := collectWaveRunCommandStringList(inputMap["args"]); ok {
+		mergedArgs = append(mergedArgs, existingArgs...)
+	} else if existingArg, ok := inputMap["args"].(string); ok {
+		trimmed := strings.TrimSpace(existingArg)
+		if trimmed != "" {
+			mergedArgs = append(mergedArgs, trimmed)
+		}
+	}
+	if len(mergedArgs) > 0 {
+		normalized["args"] = mergedArgs
+	} else {
+		delete(normalized, "args")
+	}
+	return normalized
+}
+
 func parseWaveRunCommandToolInput(input any) (*WaveRunCommandToolInput, error) {
 	result := &WaveRunCommandToolInput{}
-	inputBytes, err := json.Marshal(input)
+	inputBytes, err := json.Marshal(normalizeWaveRunCommandInputShape(input))
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal input: %w", err)
 	}
@@ -346,15 +411,47 @@ func waveRunCommandResultSummary(snapshot *wshrpc.CommandAgentGetCommandResultRt
 	return "Command finished."
 }
 
+func waveRunCommandResultModelText(snapshot *wshrpc.CommandAgentGetCommandResultRtnData) string {
+	if snapshot == nil {
+		return waveRunCommandResultSummary(nil)
+	}
+
+	lines := []string{waveRunCommandResultSummary(snapshot)}
+	if status := strings.TrimSpace(snapshot.Status); status != "" {
+		lines = append(lines, "status: "+status)
+	}
+	if snapshot.ExitCode != nil {
+		lines = append(lines, fmt.Sprintf("exitcode: %d", *snapshot.ExitCode))
+	}
+	if exitSignal := strings.TrimSpace(snapshot.ExitSignal); exitSignal != "" {
+		lines = append(lines, "exitsignal: "+exitSignal)
+	}
+	if snapshot.DurationMs > 0 {
+		lines = append(lines, fmt.Sprintf("durationms: %d", snapshot.DurationMs))
+	}
+	if output := strings.TrimSpace(snapshot.Output); output != "" {
+		lines = append(lines, "output:")
+		lines = append(lines, truncateToolOutputText(output))
+	}
+	if errorText := strings.TrimSpace(snapshot.Error); errorText != "" {
+		lines = append(lines, "error:")
+		lines = append(lines, truncateToolOutputText(errorText))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func waveRunCommandResultPayload(jobID string, snapshot *wshrpc.CommandAgentGetCommandResultRtnData) map[string]any {
 	resultPayload := map[string]any{"jobid": jobID}
 	if snapshot == nil {
 		resultPayload["status"] = "running"
 		resultPayload["summary"] = waveRunCommandResultSummary(nil)
+		resultPayload["modeltext"] = waveRunCommandResultModelText(nil)
 		return resultPayload
 	}
 	resultPayload["status"] = snapshot.Status
 	resultPayload["summary"] = waveRunCommandResultSummary(snapshot)
+	resultPayload["modeltext"] = waveRunCommandResultModelText(snapshot)
 	resultPayload["exitcode"] = snapshot.ExitCode
 	resultPayload["exitsignal"] = snapshot.ExitSignal
 	resultPayload["durationms"] = snapshot.DurationMs

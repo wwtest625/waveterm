@@ -334,6 +334,10 @@ export type AgentRuntimeState =
     | "cancelled"
     | "unavailable";
 
+export function isTerminalRuntimeState(state: AgentRuntimeState): boolean {
+    return state === "completed" || state === "success" || state === "failed_fatal" || state === "cancelled";
+}
+
 export type AgentRuntimeSnapshot = {
     visible: boolean;
     state: AgentRuntimeState;
@@ -531,6 +535,20 @@ export function inferToolHostScope(part: WaveUIMessagePart): ToolHostScope {
     return { type: "local", hostId: "waveai" };
 }
 
+const INTERNAL_ASSISTANT_TOOL_NAMES = new Set([
+    "waveai_todo_write",
+    "waveai_todo_read",
+    "waveai_use_skill",
+    "waveai_create_skill",
+]);
+
+export function isInternalAssistantToolName(toolName?: string): boolean {
+    if (!toolName) {
+        return false;
+    }
+    return INTERNAL_ASSISTANT_TOOL_NAMES.has(toolName);
+}
+
 export function getLatestTaskStatePart(message?: WaveUIMessage): (WaveUIMessagePart & { type: "data-taskstate" }) | null {
     const part = [...(message?.parts ?? [])].reverse().find((candidate) => candidate.type === "data-taskstate");
     return part?.type === "data-taskstate" ? part : null;
@@ -545,6 +563,25 @@ export function getLatestToolProgressPart(
     message?: WaveUIMessage
 ): (WaveUIMessagePart & { type: "data-toolprogress" }) | null {
     const part = [...(message?.parts ?? [])].reverse().find((candidate) => candidate.type === "data-toolprogress");
+    return part?.type === "data-toolprogress" ? part : null;
+}
+
+export function getLatestVisibleToolUsePart(message?: WaveUIMessage): (WaveUIMessagePart & { type: "data-tooluse" }) | null {
+    const part = [...(message?.parts ?? [])]
+        .reverse()
+        .find((candidate) => candidate.type === "data-tooluse" && !isInternalAssistantToolName(candidate.data?.toolname));
+    return part?.type === "data-tooluse" ? part : null;
+}
+
+export function getLatestVisibleToolProgressPart(
+    message?: WaveUIMessage
+): (WaveUIMessagePart & { type: "data-toolprogress" }) | null {
+    const part = [...(message?.parts ?? [])]
+        .reverse()
+        .find(
+            (candidate) =>
+                candidate.type === "data-toolprogress" && !isInternalAssistantToolName(candidate.data?.toolname)
+        );
     return part?.type === "data-toolprogress" ? part : null;
 }
 

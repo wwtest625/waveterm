@@ -30,8 +30,10 @@ import {
     WaveUIMessage,
     getLatestAskPart,
     getLatestTaskStatePart,
-    getLatestToolProgressPart,
-    getLatestToolUsePart,
+    getLatestVisibleToolProgressPart,
+    getLatestVisibleToolUsePart,
+    isInternalAssistantToolName,
+    isTerminalRuntimeState,
     toolCallFromPart,
     toolResultFromPart,
 } from "./aitypes";
@@ -388,12 +390,84 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
         }));
     }, [displaySessions]);
 
+    const exportChat = useCallback(() => {
+        if (!messages || messages.length === 0) {
+            return;
+        }
+        const title = activeSession?.title || "New Chat";
+        const safeTitle = title.slice(0, 30).replace(/[/\\?%*:|"<>]/g, "-").trim();
+        const header = `# ${title}\n\n> ${new Date().toLocaleString()} from Wave AI\n\n---\n\n`;
+        const body = messages
+            .map((msg) => {
+                const roleLabel = msg.role === "user" ? "User" : "Wave AI";
+                const textParts: string[] = [];
+                const toolParts: string[] = [];
+                for (const part of msg.parts ?? []) {
+                    if (part.type === "text" && typeof part.text === "string" && part.text.trim()) {
+                        textParts.push(part.text);
+                    }
+                    if (part.type === "data-tooluse" && !isInternalAssistantToolName(part.data?.toolname)) {
+                        const toolName = part.data?.toolname ?? "unknown";
+                        const status = part.data?.status ?? "";
+                        const output = part.data?.outputtext ?? "";
+                        const error = part.data?.errormessage ?? "";
+                        let toolLine = `**[${toolName}]** ${status}`;
+                        if (output) {
+                            toolLine += `\n\`\`\`\n${output}\n\`\`\``;
+                        }
+                        if (error) {
+                            toolLine += `\n\`\`\`\n${error}\n\`\`\``;
+                        }
+                        toolParts.push(toolLine);
+                    }
+                }
+                const sections: string[] = [];
+                if (textParts.length > 0) {
+                    sections.push(`**${roleLabel}:**\n\n${textParts.join("\n\n")}`);
+                }
+                if (toolParts.length > 0) {
+                    sections.push(toolParts.join("\n\n"));
+                }
+                return sections.length > 0 ? sections.join("\n\n") : "";
+            })
+            .filter(Boolean)
+            .join("\n\n---\n\n");
+        const markdown = header + body;
+        const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${safeTitle}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, [messages, activeSession?.title]);
+
     return (
         <div className="border-b border-white/[0.06] bg-black/10 px-3 py-2">
             <div className="flex items-center gap-2">
                 <AIModeDropdown />
                 <div className="ml-auto flex items-center gap-0.5" style={{ color: "#71717a" }}>
                     <span className="text-[10px]">{contextUsage.usedPercent}%</span>
+                    <button
+                        type="button"
+                        onClick={exportChat}
+                        disabled={!messages || messages.length === 0}
+                        className="flex items-center justify-center transition-colors hover:opacity-80 cursor-pointer"
+                        style={{
+                            width: 20,
+                            height: 20,
+                            borderRadius: 4,
+                            color: "#71717a",
+                            backgroundColor: "transparent",
+                            border: "none",
+                            opacity: (!messages || messages.length === 0) ? 0.3 : 1,
+                        }}
+                        aria-label="导出会话"
+                    >
+                        <i className="fa-solid fa-download" style={{ fontSize: 10 }} />
+                    </button>
                     <Popover placement="bottom-end">
                         <PopoverButton
                             className="ghost grey flex items-center justify-center cursor-pointer transition-opacity hover:opacity-80"
@@ -775,8 +849,11 @@ const AIPanelComponentInner = memo(() => {
         if (commandInteraction || agentRuntimeSnapshot.activeJobId) {
             return;
         }
+        if (isTerminalRuntimeState(agentRuntimeSnapshot.state) && !isTerminalRuntimeState(derivedAgentStatusSnapshot.state)) {
+            return;
+        }
         model.mergeAgentRuntimeSnapshot(derivedAgentStatusSnapshot);
-    }, [agentRuntimeSnapshot.activeJobId, commandInteraction, derivedAgentStatusSnapshot, model]);
+    }, [agentRuntimeSnapshot.activeJobId, agentRuntimeSnapshot.state, commandInteraction, derivedAgentStatusSnapshot, model]);
 
     useEffect(() => {
         const currentChatId = globalStore.get(model.chatId);
@@ -790,8 +867,8 @@ const AIPanelComponentInner = memo(() => {
         const taskId = globalStore.get(model.chatId) || "waveai";
         const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
         const latestTaskState = getLatestTaskStatePart(lastAssistantMessage);
-        const latestToolUse = getLatestToolUsePart(lastAssistantMessage);
-        const latestToolProgress = getLatestToolProgressPart(lastAssistantMessage);
+        const latestToolUse = getLatestVisibleToolUsePart(lastAssistantMessage);
+        const latestToolProgress = getLatestVisibleToolProgressPart(lastAssistantMessage);
         if (latestTaskState?.data) {
             const taskStateData = latestTaskState.data as AgentTaskState;
             globalStore.set(model.taskStateAtom, taskStateData);
@@ -803,6 +880,12 @@ const AIPanelComponentInner = memo(() => {
             }
             if (taskStateData.securityblocked) {
                 globalStore.set(model.securityBlockedAtom, true);
+            }
+            if (taskStateData.status === "completed" && status !== "streaming" && !commandInteraction) {
+                const currentRuntime = globalStore.get(model.agentRuntimeAtom);
+                if (!isTerminalRuntimeState(currentRuntime.state)) {
+                    model.dispatchAgentEvent({ type: "VERIFY_FINISHED", ok: true });
+                }
             }
         }
         const currentInteraction = globalStore.get(model.commandInteractionAtom);

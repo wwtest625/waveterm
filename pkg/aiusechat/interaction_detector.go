@@ -378,6 +378,12 @@ func detectInteractionWithLLMFallback(commandText string, output string, snapsho
 }
 
 func detectCommandInteraction(commandText string, snapshot *wshrpc.CommandAgentGetCommandResultRtnData) *detectedInteraction {
+	if snapshot != nil && snapshot.Output != "" {
+		altScreenInteraction := detectAlternateScreenInteraction(commandText, snapshot.Output)
+		if altScreenInteraction != nil {
+			return altScreenInteraction
+		}
+	}
 	fromSnapshot := interactionFromSnapshot(snapshot)
 	if fromSnapshot != nil {
 		return fromSnapshot
@@ -390,4 +396,42 @@ func detectCommandInteraction(commandText string, snapshot *wshrpc.CommandAgentG
 		return byRules
 	}
 	return detectInteractionWithLLMFallback(commandText, snapshot.Output, snapshot)
+}
+
+func detectAlternateScreenInteraction(commandText string, rawOutput string) *detectedInteraction {
+	enteredAltScreen := containsAnySeq(rawOutput, alternateScreenEnterSeqs)
+	if !enteredAltScreen {
+		return nil
+	}
+	exitedAltScreen := containsAnySeq(rawOutput, alternateScreenExitSeqs)
+	if exitedAltScreen {
+		return nil
+	}
+	if isPagerOutput(rawOutput) {
+		exitKey, exitAppend := detectExitKey(rawOutput)
+		return normalizeDetectedInteraction(&detectedInteraction{
+			AwaitingInput:     true,
+			PromptHint:        "Pager output detected -- press q to exit",
+			Interaction:       string(InteractionPager),
+			ExitKey:           exitKey,
+			ExitAppendNewline: exitAppend,
+			Source:            "alternate-screen",
+		})
+	}
+	category := classifyTuiCommand(commandText)
+	if category == TuiCategoryAlways || category == TuiCategoryConditional {
+		return normalizeDetectedInteraction(&detectedInteraction{
+			TuiDetected: true,
+			PromptHint:  "Interactive TUI program detected",
+			Interaction: "tui",
+			TuiCategory: category,
+			Source:      "alternate-screen",
+		})
+	}
+	return normalizeDetectedInteraction(&detectedInteraction{
+		AwaitingInput: true,
+		PromptHint:    "Program entered alternate screen mode",
+		Interaction:   "freeform",
+		Source:        "alternate-screen",
+	})
 }

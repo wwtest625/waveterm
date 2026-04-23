@@ -9,7 +9,16 @@ import { memo, startTransition, useEffect, useRef, useState } from "react";
 import { formatModeLabel, isThinkingPhaseLabel } from "./agentstatus";
 import { AIModeDropdown } from "./aimode";
 import { AIToolUseGroup, getToolDisplayName } from "./aitooluse";
-import { type AgentRuntimeSnapshot, type WaveUIMessage, type WaveUIMessagePart, AI_CODE_FONT_FAMILY, isTextPart, isToolDetailPart } from "./aitypes";
+import {
+    type AgentRuntimeState,
+    type AgentRuntimeSnapshot,
+    type WaveUIMessage,
+    type WaveUIMessagePart,
+    AI_CODE_FONT_FAMILY,
+    isInternalAssistantToolName,
+    isTextPart,
+    isToolDetailPart,
+} from "./aitypes";
 import { getFirstExecutableCommandFromMessage, isSafeToAutoExecute } from "./autoexecute-util";
 import { formatCommandDuration } from "./command-duration";
 import { WaveAIModel } from "./waveai-model";
@@ -57,6 +66,10 @@ type TaskChainDisplayState = {
 const RAW_OUTPUT_COLLAPSE_LINES = 5;
 const TASK_CHAIN_OUTPUT_COLLAPSE_LINES = 3;
 const THINKING_OUTPUT_COLLAPSE_LINES = 4;
+
+export function shouldFollowLatestOutput(status: string, runtimeState: AgentRuntimeState, activeJobId?: string | null): boolean {
+    return status === "streaming" || runtimeState === "executing" || Boolean(activeJobId);
+}
 
 function normalizeAssistantText(text: string): string {
     const trimmed = text.trim();
@@ -180,6 +193,12 @@ function getToolParts(
     messages: WaveUIMessage[]
 ): Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }> {
     return messages.flatMap((message) => (message.parts ?? []).filter(isToolDetailPart));
+}
+
+function getVisibleToolParts(
+    messages: WaveUIMessage[]
+): Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }> {
+    return getToolParts(messages).filter((part) => !isInternalAssistantToolName(part.data?.toolname));
 }
 
 function getLatestRawToolOutput(messages: WaveUIMessage[]): string {
@@ -639,7 +658,7 @@ export function shouldRenderTaskChainBlockedReason(reason?: string): boolean {
 
 const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRuntimeSnapshot | null }) => {
     const [expandedOutputSteps, setExpandedOutputSteps] = useState<Record<string, boolean>>({});
-    const toolParts = getToolParts(turn.assistantMessages);
+    const toolParts = getVisibleToolParts(turn.assistantMessages);
     const toolUseCount = toolParts.filter((part) => part.type === "data-tooluse").length;
     const steps = buildTaskChainSteps(toolParts, turn.isStreaming);
     const displayGroups = getTaskChainDisplayGroups(steps);
@@ -938,7 +957,7 @@ TaskChain.displayName = "TaskChain";
 export function getPendingApprovalToolUses(
     messages: WaveUIMessage[]
 ): Array<WaveUIMessagePart & { type: "data-tooluse" }> {
-    return getToolParts(messages).filter(
+    return getVisibleToolParts(messages).filter(
         (part): part is WaveUIMessagePart & { type: "data-tooluse" } =>
             part.type === "data-tooluse" && part.data.approval === "needs-approval"
     );
@@ -998,7 +1017,7 @@ const TaskChainApprovalActions = memo(({ turn }: { turn: TaskTurn }) => {
 TaskChainApprovalActions.displayName = "TaskChainApprovalActions";
 
 export function shouldShowTurnTaskChain(turn: TaskTurn): boolean {
-    return buildTaskChainSteps(getToolParts(turn.assistantMessages), turn.isStreaming).length > 0;
+    return buildTaskChainSteps(getVisibleToolParts(turn.assistantMessages), turn.isStreaming).length > 0;
 }
 
 export function getTurnExitCode(messages: WaveUIMessage[]): number | undefined {
@@ -1251,7 +1270,7 @@ AssistantRail.displayName = "AssistantRail";
 
 const ToolTrace = memo(({ turn }: { turn: TaskTurn }) => {
     const [open, setOpen] = useState(false);
-    const toolParts = getToolParts(turn.assistantMessages);
+    const toolParts = getVisibleToolParts(turn.assistantMessages);
 
     useEffect(() => {
         if (turn.isStreaming) {
@@ -1490,6 +1509,10 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
     const isPanelOpen = useAtomValue(model.getPanelVisibleAtom());
     const autoExecute = useAtomValue(model.autoExecuteAtom);
     const runtime = useAtomValue(model.agentRuntimeAtom);
+    const runtimeState = runtime.state;
+    const runtimeActiveJobId = runtime.activeJobId;
+    const runtimeLastToolStdout = runtime.lastToolResult?.stdout?.trim() ?? "";
+    const runtimeLastToolStderr = runtime.lastToolResult?.stderr?.trim() ?? "";
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const prevStatusRef = useRef<string>(status);
     const seenAssistantMessageIdsRef = useRef<Set<string>>(new Set());
@@ -1497,7 +1520,7 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
     const autoExecuteReadyRef = useRef(false);
     const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
     const turns = useBufferedTaskTurns(messages, status);
-    const runtimeLastToolStdout = runtime.lastToolResult?.stdout?.trim() ?? "";
+    const followLatestOutput = shouldFollowLatestOutput(status, runtimeState, runtimeActiveJobId);
 
     const checkIfAtBottom = () => {
         const container = messagesContainerRef.current;
@@ -1534,10 +1557,16 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
     }, [model]);
 
     useEffect(() => {
+        if (followLatestOutput) {
+            requestAnimationFrame(() => {
+                scrollToBottom();
+            });
+            return;
+        }
         if (shouldAutoScroll) {
             scrollToBottom();
         }
-    }, [turns, shouldAutoScroll]);
+    }, [turns, shouldAutoScroll, followLatestOutput, runtimeLastToolStdout, runtimeLastToolStderr]);
 
     useEffect(() => {
         if (isPanelOpen) {
@@ -1557,6 +1586,15 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
 
         prevStatusRef.current = status;
     }, [status]);
+
+    useEffect(() => {
+        if (!followLatestOutput) {
+            return;
+        }
+        requestAnimationFrame(() => {
+            scrollToBottom();
+        });
+    }, [followLatestOutput, runtimeLastToolStdout, runtimeLastToolStderr]);
 
     useEffect(() => {
         const assistantMessages = messages.filter((message) => message.role === "assistant");
