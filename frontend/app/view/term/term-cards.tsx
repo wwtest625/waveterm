@@ -9,7 +9,7 @@ import { getBlockMetaKeyAtom } from "@/store/global";
 import { fireAndForget, useAtomValueSafe } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import * as React from "react";
-import { TermQuickInputCompletion } from "./term-quickinput-completion";
+import { TermQuickInputBar } from "./term-quick-input-bar";
 import type { TermWrap } from "./termwrap";
 
 type TermCardsViewProps = {
@@ -359,49 +359,20 @@ export function TermCardsView({ blockId, model, termWrap }: TermCardsViewProps) 
                     })
                 )}
             </div>
-            <div className="term-cards-inputbar" onMouseDown={(e) => e.stopPropagation()}>
-                <div className="term-cards-inputbar-editor">
-                    <div className="term-quick-input-shell">
-                        <div className="term-quick-input-completion">
-                            <TermQuickInputCompletion
-                                model={model}
-                                value={quickInputValue}
-                                onChange={(value) => model.setQuickInputValue(value)}
-                                onSubmit={onSend}
-                                placeholder="Enter a command. Ctrl+Enter sends it."
-                                className="term-quick-input-field text-sm"
-                            />
-                        </div>
-                        <button
-                            type="button"
-                            className={cn("term-quick-input-notify-toggle", {
-                                active: quickInputNotifyEnabled,
-                                disabled: !quickInputNotifyAvailable,
-                            })}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                                if (!quickInputNotifyAvailable) {
-                                    return;
-                                }
-                                setQuickInputNotifyEnabled(!quickInputNotifyEnabled);
-                            }}
-                            disabled={!quickInputNotifyAvailable}
-                            title={model.getQuickInputCompletionNotificationTitle()}
-                        >
-                            <i className="fa-solid fa-bell text-[10px]" />
-                            <span>通知</span>
-                        </button>
-                    </div>
-                </div>
-                <Button
-                    className="!h-[36px] !px-3 !text-xs"
-                    onClick={onSend}
-                    disabled={quickInputValue.trim() === ""}
-                    title="Send (Ctrl+Enter)"
-                >
-                    Send
-                </Button>
-            </div>
+            <TermQuickInputBar
+                model={model}
+                value={quickInputValue}
+                onChange={(value) => model.setQuickInputValue(value)}
+                onSubmit={onSend}
+                notifyEnabled={quickInputNotifyEnabled}
+                setNotifyEnabled={(enabled) => setQuickInputNotifyEnabled(enabled)}
+                notifyAvailable={quickInputNotifyAvailable}
+                placeholder="Enter a command. Ctrl+Enter sends it."
+                submitLabel="Send"
+                submitTitle="Send (Ctrl+Enter)"
+                className="term-cards-inputbar"
+                compact
+            />
         </div>
     );
 }

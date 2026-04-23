@@ -64,14 +64,58 @@
 
     .term-quick-input {
         display: flex;
-        flex-direction: row;
-        align-items: flex-end;
-        gap: 10px;
-        padding: 8px 10px 10px;
+        flex-direction: column;
+        gap: 6px;
+        padding: 12px 10px 8px;
         border-top: 1px solid var(--border-color);
         flex-shrink: 0;
         position: relative;
         z-index: 1;
+        background-color: color-mix(in srgb, var(--main-bg-color) 88%, transparent);
+    }
+
+    .term-quick-input-main {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-end;
+        gap: 8px;
+        min-width: 0;
+    }
+
+    .term-quick-input-compact {
+        gap: 5px;
+        padding-top: 10px;
+        padding-bottom: 7px;
+    }
+
+    .term-quick-input-collapse-toggle {
+        position: absolute;
+        top: -11px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 20px;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--border-color) 68%, transparent);
+        background-color: color-mix(in srgb, var(--main-bg-color) 94%, transparent);
+        color: var(--text-secondary-color);
+        box-shadow: 0 1px 6px rgba(0, 0, 0, 0.16);
+        transition:
+            background-color 120ms ease,
+            border-color 120ms ease,
+            color 120ms ease,
+            transform 120ms ease;
+        z-index: 2;
+
+        &:hover {
+            color: var(--main-text-color);
+            border-color: color-mix(in srgb, var(--accent-color) 42%, var(--border-color));
+            background-color: color-mix(in srgb, var(--accent-color) 8%, var(--main-bg-color));
+            transform: translateX(-50%) translateY(-1px);
+        }
     }
 
     .term-quick-input-editor {
@@ -85,13 +129,13 @@
         gap: 6px;
         width: 100%;
         min-width: 0;
-        padding: 6px;
-        border: 1px solid var(--border-color);
-        border-radius: 6px;
-        background-color: color-mix(in srgb, var(--main-bg-color) 82%, transparent);
+        padding: 5px;
+        border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+        border-radius: 8px;
+        background-color: color-mix(in srgb, var(--main-bg-color) 78%, transparent);
 
         &:focus-within {
-            border-color: color-mix(in srgb, var(--accent-color) 55%, var(--border-color));
+            border-color: color-mix(in srgb, var(--accent-color) 42%, var(--border-color));
         }
     }
 
@@ -102,8 +146,8 @@
 
     .term-quick-input-field {
         width: 100%;
-        min-height: 36px;
-        padding: 8px 10px;
+        min-height: 32px;
+        padding: 6px 10px;
         background-color: transparent;
         border: none;
         box-shadow: none;
@@ -114,19 +158,25 @@
         }
     }
 
+    .term-quick-input-field-compact {
+        min-height: 30px;
+        padding-top: 5px;
+        padding-bottom: 5px;
+    }
+
     .term-quick-input-notify-toggle {
         display: inline-flex;
         flex-shrink: 0;
         align-items: center;
         gap: 5px;
         align-self: flex-end;
-        height: 36px;
-        padding: 0 10px;
+        height: 32px;
+        padding: 0 9px;
         border-radius: 999px;
-        border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
-        background-color: color-mix(in srgb, var(--main-bg-color) 94%, transparent);
+        border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+        background-color: color-mix(in srgb, var(--main-bg-color) 90%, transparent);
         color: var(--text-secondary-color);
-        font-size: 11px;
+        font-size: 10px;
         line-height: 1;
         transition:
             background-color 120ms ease,
@@ -135,24 +185,54 @@
 
         &:hover {
             color: var(--main-text-color);
-            border-color: color-mix(in srgb, var(--accent-color) 38%, var(--border-color));
-            background-color: color-mix(in srgb, var(--accent-color) 10%, var(--main-bg-color));
+            border-color: color-mix(in srgb, var(--accent-color) 32%, var(--border-color));
+            background-color: color-mix(in srgb, var(--accent-color) 8%, var(--main-bg-color));
         }
 
         &.active {
             color: var(--main-text-color);
-            border-color: color-mix(in srgb, var(--accent-color) 70%, var(--border-color));
-            background-color: color-mix(in srgb, var(--accent-color) 18%, var(--main-bg-color));
+            border-color: color-mix(in srgb, var(--accent-color) 60%, var(--border-color));
+            background-color: color-mix(in srgb, var(--accent-color) 14%, var(--main-bg-color));
         }
 
         &.disabled,
         &:disabled {
             color: var(--text-tertiary-color);
-            border-color: color-mix(in srgb, var(--border-color) 70%, transparent);
-            background-color: color-mix(in srgb, var(--main-bg-color) 96%, transparent);
+            border-color: color-mix(in srgb, var(--border-color) 64%, transparent);
+            background-color: color-mix(in srgb, var(--main-bg-color) 94%, transparent);
             cursor: not-allowed;
             opacity: 0.6;
         }
+    }
+
+    .term-quick-input-send {
+        flex-shrink: 0;
+        height: 32px;
+        min-width: 96px;
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .term-quick-input-send-compact {
+        min-width: 84px;
+        height: 30px;
+    }
+
+    .term-quick-input-collapsed {
+        justify-content: center;
+        padding-top: 9px;
+        padding-bottom: 7px;
+
+        .term-quick-input-editor,
+        .term-quick-input-shell,
+        .term-quick-input-completion,
+        .term-quick-input-notify-toggle {
+            display: none;
+        }
+    }
+
+    .term-quick-input-collapsed-hint {
+        min-height: 2px;
     }
 
     .term-htmlelem {
@@ -200,7 +280,7 @@
         .term-htmlelem {
             display: none;
         }
-        .term-quick-input {
+        .term-quick-input:not(.term-cards-inputbar) {
             display: none;
         }
     }
@@ -357,21 +437,9 @@
     }
 
     .term-cards-inputbar {
-        display: flex;
-        flex-direction: row;
-        align-items: flex-end;
-        gap: 10px;
-        padding: 8px 10px 10px;
-        border-top: 1px solid var(--border-color);
-        flex-shrink: 0;
-        position: relative;
         z-index: 3;
-        background-color: color-mix(in srgb, var(--main-bg-color) 92%, transparent);
-    }
-
-    .term-cards-inputbar-editor {
-        flex: 1;
-        min-width: 0;
+        padding-top: 10px;
+        background-color: color-mix(in srgb, var(--main-bg-color) 90%, transparent);
     }
 
     .term-stickers {

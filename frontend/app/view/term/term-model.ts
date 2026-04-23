@@ -218,6 +218,7 @@ export class TermViewModel implements ViewModel {
     quickInputValueAtom: jotai.PrimitiveAtom<string>;
     quickInputHistoryAtom: jotai.PrimitiveAtom<string[]>;
     quickInputHistoryIndexAtom: jotai.PrimitiveAtom<number | null>;
+    quickInputCollapsedAtom: jotai.PrimitiveAtom<boolean>;
     quickInputNotifyEnabledAtom: jotai.PrimitiveAtom<boolean>;
     quickInputNotificationQueueAtom: jotai.PrimitiveAtom<PendingCompletionNotification[]>;
     quickInputPendingDispatchQueueAtom: jotai.PrimitiveAtom<QueuedQuickInputDispatch[]>;
@@ -279,6 +280,10 @@ export class TermViewModel implements ViewModel {
 
     setQuickInputNotifyEnabled(enabled: boolean) {
         globalStore.set(this.quickInputNotifyEnabledAtom, enabled);
+    }
+
+    setQuickInputCollapsed(collapsed: boolean) {
+        globalStore.set(this.quickInputCollapsedAtom, collapsed);
     }
 
     isQuickInputCompletionNotificationAvailable(): boolean {
@@ -811,6 +816,9 @@ export class TermViewModel implements ViewModel {
         this.quickInputHistoryIndexAtom = useBlockAtom(blockId, "termquickinputhistoryindex", () =>
             jotai.atom<number | null>(null)
         ) as jotai.PrimitiveAtom<number | null>;
+        this.quickInputCollapsedAtom = useBlockAtom(blockId, "termquickinputcollapsed", () =>
+            jotai.atom(true)
+        ) as jotai.PrimitiveAtom<boolean>;
         this.quickInputNotifyEnabledAtom = useBlockAtom(blockId, "termquickinputnotifyenabled", () =>
             jotai.atom(false)
         ) as jotai.PrimitiveAtom<boolean>;
@@ -1073,7 +1081,7 @@ export class TermViewModel implements ViewModel {
                 if (!hasIntegration) {
                     globalStore.set(this.quickInputNotifyEnabledAtom, false);
                 }
-                globalStore.set(this.autoTermModeAtom, hasIntegration ? "cards" : "term");
+                globalStore.set(this.autoTermModeAtom, "term");
             })
         );
 
@@ -1091,7 +1099,7 @@ export class TermViewModel implements ViewModel {
                 if (!hasIntegration) {
                     globalStore.set(this.quickInputNotifyEnabledAtom, false);
                 }
-                globalStore.set(this.autoTermModeAtom, hasIntegration ? "cards" : "term");
+                globalStore.set(this.autoTermModeAtom, "term");
                 if (status === "running-command") {
                     const termMode = globalStore.get(this.termMode);
                     if (termMode !== "cards") {
@@ -1146,7 +1154,7 @@ export class TermViewModel implements ViewModel {
         }
 
         globalStore.set(this.shellIntegrationAvailableAtom, true);
-        globalStore.set(this.autoTermModeAtom, "cards");
+        globalStore.set(this.autoTermModeAtom, "term");
 
         const lastCommand = globalStore.get(termWrap.lastCommandAtom);
         const inAltBuffer = termWrap.terminal?.buffer?.active?.type === "alternate";
@@ -1349,7 +1357,6 @@ export class TermViewModel implements ViewModel {
     }
 
     supportsQuickInput(): boolean {
-        const termMode = globalStore.get(this.termMode);
         const blockData = globalStore.get(this.blockAtom);
         return blockData?.meta?.controller != "cmd";
     }
@@ -1399,6 +1406,7 @@ export class TermViewModel implements ViewModel {
         if (!this.supportsQuickInput()) {
             return false;
         }
+        this.setQuickInputCollapsed(false);
         this.nodeModel.focusNode();
         const inputElem = this.quickInputRef.current;
         if (inputElem == null) {
@@ -1426,6 +1434,7 @@ export class TermViewModel implements ViewModel {
         });
         globalStore.set(this.quickInputNotifyEnabledAtom, false);
         this.setQuickInputValueInternal("", null);
+        this.setQuickInputCollapsed(true);
         return true;
     }
 

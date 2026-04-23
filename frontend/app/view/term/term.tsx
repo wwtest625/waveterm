@@ -1,7 +1,6 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Button } from "@/app/element/button";
 import { NullErrorBoundary } from "@/app/element/errorboundary";
 import { Search, useSearch } from "@/app/element/search";
 import { ContextMenuModel } from "@/app/store/contextmenu";
@@ -15,7 +14,7 @@ import clsx from "clsx";
 import * as jotai from "jotai";
 import * as React from "react";
 import { TermCardsView } from "./term-cards";
-import { TermQuickInputCompletion } from "./term-quickinput-completion";
+import { TermQuickInputBar } from "./term-quick-input-bar";
 import { TermLinkTooltip } from "./term-tooltip";
 import { TermStickers } from "./termsticker";
 import { TermThemeUpdater } from "./termtheme";
@@ -68,7 +67,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const isMI = jotai.useAtomValue(tabModel.isTermMultiInput);
     const isBasicTerm = blockData?.meta?.controller != "cmd"; // needs to match isBasicTerm
     const quickInputValue = jotai.useAtomValue(model.quickInputValueAtom);
-    const [quickInputNotifyEnabled, setQuickInputNotifyEnabled] = jotai.useAtom(model.quickInputNotifyEnabledAtom);
+    const quickInputNotifyEnabled = jotai.useAtomValue(model.quickInputNotifyEnabledAtom);
     const quickInputNotifyAvailable = jotai.useAtomValue(model.shellIntegrationAvailableAtom);
 
     // search
@@ -272,14 +271,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         [model]
     );
 
-    const handleQuickInputSend = React.useCallback(() => {
-        model.submitQuickInput();
-    }, [model]);
-
-    const handleQuickInputFocus = React.useCallback(() => {
-        model.nodeModel.focusNode();
-    }, [model]);
-
     return (
         <div className={clsx("view-term", "term-mode-" + termMode)} ref={viewRef} onContextMenu={handleContextMenu}>
             {termBg && <div key="term-bg" className="absolute inset-0 z-0 pointer-events-none" style={termBg} />}
@@ -291,50 +282,18 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
                 <TermCardsView blockId={blockId} model={model} termWrap={termWrapInst} />
             ) : null}
             {isBasicTerm && termMode !== "cards" ? (
-                <div className="term-quick-input" onMouseDown={(e) => e.stopPropagation()}>
-                    <div className="term-quick-input-editor">
-                        <div className="term-quick-input-shell">
-                            <div className="term-quick-input-completion">
-                                <TermQuickInputCompletion
-                                    model={model}
-                                    value={quickInputValue}
-                                    onChange={(value) => model.setQuickInputValue(value)}
-                                    onSubmit={handleQuickInputSend}
-                                    onFocus={handleQuickInputFocus}
-                                    placeholder="Enter a command. Ctrl+Enter sends it."
-                                    className="term-quick-input-field text-sm"
-                                />
-                            </div>
-                            <button
-                                type="button"
-                                className={clsx("term-quick-input-notify-toggle", {
-                                    active: quickInputNotifyEnabled,
-                                    disabled: !quickInputNotifyAvailable,
-                                })}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                    if (!quickInputNotifyAvailable) {
-                                        return;
-                                    }
-                                    setQuickInputNotifyEnabled(!quickInputNotifyEnabled);
-                                }}
-                                disabled={!quickInputNotifyAvailable}
-                                title={model.getQuickInputCompletionNotificationTitle()}
-                            >
-                                <i className="fa-solid fa-bell text-[10px]" />
-                                <span>通知</span>
-                            </button>
-                        </div>
-                    </div>
-                    <Button
-                        className="!h-[36px] !px-3 !text-xs"
-                        onClick={handleQuickInputSend}
-                        disabled={quickInputValue.trim() === ""}
-                        title="发送 (Ctrl+Enter)"
-                    >
-                        发送 (Ctrl+Enter)
-                    </Button>
-                </div>
+                <TermQuickInputBar
+                    model={model}
+                    value={quickInputValue}
+                    onChange={(value) => model.setQuickInputValue(value)}
+                    onSubmit={() => model.submitQuickInput()}
+                    notifyEnabled={quickInputNotifyEnabled}
+                    setNotifyEnabled={(enabled) => model.setQuickInputNotifyEnabled(enabled)}
+                    notifyAvailable={quickInputNotifyAvailable}
+                    placeholder="Enter a command. Ctrl+Enter sends it."
+                    submitLabel="发送 (Ctrl+Enter)"
+                    submitTitle="发送 (Ctrl+Enter)"
+                />
             ) : null}
             <NullErrorBoundary debugName="TermLinkTooltip">
                 <TermLinkTooltip termWrap={termWrapInst} />
