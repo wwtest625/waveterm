@@ -13,7 +13,6 @@ import { ISearchOptions } from "@xterm/addon-search";
 import clsx from "clsx";
 import * as jotai from "jotai";
 import * as React from "react";
-import { TermCardsView } from "./term-cards";
 import { TermQuickInputBar } from "./term-quick-input-bar";
 import { TermLinkTooltip } from "./term-tooltip";
 import { TermStickers } from "./termsticker";
@@ -56,8 +55,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const [blockData] = WOS.useWaveObjectValue<Block>(WOS.makeORef("block", blockId));
     const termSettingsAtom = getSettingsPrefixAtom("term");
     const termSettings = jotai.useAtomValue(termSettingsAtom);
-    const termMode = jotai.useAtomValue(model.termMode);
-    const termModeRef = React.useRef(termMode);
 
     const tabModel = useTabModel();
     const termFontSize = jotai.useAtomValue(model.fontSizeAtom);
@@ -83,7 +80,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     const wholeWord = useAtomValueSafe<boolean>(searchProps.wholeWord);
     const regex = useAtomValueSafe<boolean>(searchProps.regex);
     const searchVal = jotai.useAtomValue<string>(searchProps.searchValue);
-    const cardsRuntimeReady = useAtomValueSafe<boolean>(termWrapInst?.runtimeInfoReadyAtom);
     const searchDecorations = React.useMemo(
         () => ({
             matchOverviewRuler: "#000000",
@@ -189,7 +185,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
                 keydownHandler: model.handleTerminalKeydown.bind(model),
                 useWebGl: !termSettings?.["term:disablewebgl"],
                 sendDataHandler: model.sendDataToController.bind(model),
-                controllerOutputHandler: model.handleControllerOutputChunk.bind(model),
                 nodeModel: model.nodeModel,
             }
         );
@@ -229,17 +224,6 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     }, [blockId, termSettings, termFontSize, connFontFamily]);
 
     React.useEffect(() => {
-        termModeRef.current = termMode;
-    }, [termMode]);
-
-    React.useEffect(() => {
-        if (!isBasicTerm || termMode !== "cards" || termWrapInst == null) {
-            return;
-        }
-        model.prepareCardsMode(termWrapInst);
-    }, [cardsRuntimeReady, isBasicTerm, model, termMode, termWrapInst]);
-
-    React.useEffect(() => {
         if (isMI && isBasicTerm && isFocused && model.termRef.current != null) {
             model.termRef.current.multiInputCallback = (data: string) => {
                 model.multiInputHandler(data);
@@ -272,16 +256,13 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     );
 
     return (
-        <div className={clsx("view-term", "term-mode-" + termMode)} ref={viewRef} onContextMenu={handleContextMenu}>
+        <div className={clsx("view-term", "term-mode-term")} ref={viewRef} onContextMenu={handleContextMenu}>
             {termBg && <div key="term-bg" className="absolute inset-0 z-0 pointer-events-none" style={termBg} />}
             <TermResyncHandler blockId={blockId} model={model} />
             <TermThemeUpdater blockId={blockId} model={model} termRef={model.termRef} />
             <TermStickers config={stickerConfig} />
             <div key="connect-elem" className="term-connectelem" ref={connectElemRef} />
-            {isBasicTerm && termMode === "cards" ? (
-                <TermCardsView blockId={blockId} model={model} termWrap={termWrapInst} />
-            ) : null}
-            {isBasicTerm && termMode !== "cards" ? (
+            {isBasicTerm ? (
                 <TermQuickInputBar
                     model={model}
                     value={quickInputValue}

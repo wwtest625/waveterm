@@ -40,9 +40,6 @@ var SystemPromptText_StrictToolAddOn = `When a file write/edit tool call is need
 // 只给文件编辑工具的短提示，提醒模型先看最新内容，再做小步修改。
 var SystemPromptText_EditWorkflowAddOn = `For file edits, prefer the latest file content, keep each change small, and retry with fewer replacements when one misses.`
 
-// read_text_file 工具的使用指导
-var SystemPromptText_ReadFileWorkflowAddOn = `For reading files, use read_text_file instead of shell commands like "cat". When reading large files, use offset and limit parameters to read specific portions. For logs or command output, reading from the tail (offset = total_lines - limit) is often more useful than reading from the beginning.`
-
 // 单一澄清策略：只在缺关键执行参数时提问，信息足够就直接执行。
 var SystemPromptText_ExecutionPolicyAddOn = `Clarification policy: when critical execution parameters are missing and the implementation outcome would change, use the waveai_ask_user tool to ask the user. Do NOT ask questions in plain text — always use the tool. Ask at most 3 questions per turn. If the user explicitly requests a modification and required parameters are already provided, execute immediately using available tools. Do not ask about reversible minor preferences or ask whether to continue required next steps.`
 
@@ -72,9 +69,6 @@ func getToolCapabilityPrompt(tools []uctypes.ToolDefinition) string {
 	}
 	if available["write_text_file"] || available["edit_text_file"] || available["delete_text_file"] {
 		lines = append(lines, "- file tools: write, edit, or delete local files when the user explicitly asks for file changes.")
-	}
-	if available["read_text_file"] {
-		lines = append(lines, "- read_text_file: read local files with offset/limit support. Preferred over shell commands like 'cat' for file inspection.")
 	}
 	if available["capture_screenshot"] {
 		lines = append(lines, "- capture_screenshot: inspect the visible widget when visual context is needed.")

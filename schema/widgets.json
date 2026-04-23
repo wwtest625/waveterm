@@ -126,9 +126,6 @@
             "term:fontfamily": {
               "type": "string"
             },
-            "term:mode": {
-              "type": "string"
-            },
             "term:theme": {
               "type": "string"
             },

@@ -18,7 +18,6 @@ const BackupRetentionDays = 5;
 
 const ToolDisplayNames: Record<string, string> = {
     wave_run_command: "执行命令",
-    read_text_file: "读取文件",
     read_dir: "读取目录",
     write_text_file: "写入文件",
     edit_text_file: "精准编辑",
@@ -126,7 +125,7 @@ export function summarizeToolGroup(
         if (toolNames.some((toolName) => toolName === "write_text_file")) {
             return "文件写入";
         }
-        if (toolNames.some((toolName) => toolName === "read_text_file" || toolName === "read_dir")) {
+        if (toolNames.some((toolName) => toolName === "read_dir")) {
             return "文件读取";
         }
         return getToolDisplayName(lastToolUse?.data.toolname ?? firstToolUse?.data.toolname);
@@ -720,7 +719,7 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
 
     const isFileOp = (part: WaveUIMessagePart & { type: "data-tooluse" }) => {
         const toolName = part.data?.toolname;
-        return toolName === "read_text_file" || toolName === "read_dir";
+        return toolName === "read_dir";
     };
 
     const needsApproval = (part: WaveUIMessagePart & { type: "data-tooluse" }) => {

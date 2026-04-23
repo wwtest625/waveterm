@@ -98,7 +98,6 @@ export class TermWrap {
     lastCommandAtom: jotai.PrimitiveAtom<string | null>;
     lastCommandExitCodeAtom: jotai.PrimitiveAtom<number | null>;
     promptVersionAtom: jotai.PrimitiveAtom<number>;
-    contextLabelAtom: jotai.PrimitiveAtom<string>;
     nodeModel: BlockNodeModel; // this can be null
     hoveredLinkUri: string | null = null;
     onLinkHover?: (uri: string | null, mouseX: number, mouseY: number) => void;
@@ -166,7 +165,6 @@ export class TermWrap {
         this.lastCommandAtom = jotai.atom(null) as jotai.PrimitiveAtom<string | null>;
         this.lastCommandExitCodeAtom = jotai.atom(null) as jotai.PrimitiveAtom<number | null>;
         this.promptVersionAtom = jotai.atom(0) as jotai.PrimitiveAtom<number>;
-        this.contextLabelAtom = jotai.atom("") as jotai.PrimitiveAtom<string>;
         this.terminal = new Terminal(options);
         this.fitAddon = new FitAddon();
         this.serializeAddon = new SerializeAddon();
@@ -445,9 +443,6 @@ export class TermWrap {
 
                 const lastExitCode = rtInfo ? (rtInfo["shell:lastcmdexitcode"] as number) : null;
                 globalStore.set(this.lastCommandExitCodeAtom, lastExitCode ?? null);
-
-                const contextLabel = rtInfo ? (rtInfo["term:contextlabel"] as string) : null;
-                globalStore.set(this.contextLabelAtom, contextLabel ?? "");
             } catch (e) {
                 console.log("Error loading runtime info:", e);
                 const integrationRuntimeState = resolveShellIntegrationRuntimeState(null);

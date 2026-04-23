@@ -1319,7 +1319,6 @@ declare global {
         "term:*"?: boolean;
         "term:fontsize"?: number;
         "term:fontfamily"?: string;
-        "term:mode"?: string;
         "term:theme"?: string;
         "term:localshellpath"?: string;
         "term:localshellopts"?: string[];
@@ -1467,7 +1466,6 @@ declare global {
         "shell:lastcmd"?: string;
         "shell:lastcmdexitcode"?: number;
         "term:lastuserinputts"?: number;
-        "term:contextlabel"?: string;
         "builder:layout"?: {[key: string]: number};
         "builder:appid"?: string;
         "builder:env"?: {[key: string]: string};

@@ -39,26 +39,9 @@ import * as jotai from "jotai";
 import * as React from "react";
 import type { ShellIntegrationStatus } from "./osc-handlers";
 import { getBlockingCommand } from "./shellblocking";
-import { buildBackfilledTermCard } from "./term-cards-backfill";
 import { normalizeQuickInputForSend } from "./term-quickinput";
 import { computeTheme, DefaultTermTheme } from "./termutil";
 import { TermWrap } from "./termwrap";
-
-type TermCardState = "pending" | "streaming" | "done";
-
-type TermCard = {
-    id: string;
-    cmdText: string;
-    cwd?: string | null;
-    createdTs: number;
-    startTs: number | null;
-    endTs: number | null;
-    exitCode: number | null;
-    state: TermCardState;
-    output: string;
-    outputLines: string[];
-    collapsed: boolean;
-};
 
 type PendingCompletionNotification = {
     startTs: number | null;
@@ -136,63 +119,6 @@ function getNotificationElapsedMs(startTs: number | null | undefined): number | 
     return Math.max(0, Date.now() - startTs);
 }
 
-function makeCardId(ts: number): string {
-    return `card-${ts}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function sanitizeAnsiForCards(input: string): string {
-    if (!input) {
-        return "";
-    }
-    // remove OSC sequences (including our OSC 16162/7)
-    // eslint-disable-next-line no-control-regex
-    input = input.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
-    // drop CSI sequences except SGR (m)
-    // eslint-disable-next-line no-control-regex
-    input = input.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, (seq) => (seq.endsWith("m") ? seq : ""));
-    // drop other single-character ESC sequences
-    // eslint-disable-next-line no-control-regex
-    input = input.replace(/\x1b[@-Z\\-_]/g, "");
-    input = input.replace(/\r/g, "\n");
-    return input;
-}
-
-function stripAnsiForCardText(input: string): string {
-    // eslint-disable-next-line no-control-regex
-    return input.replace(/\x1b\[[0-9;]*m/g, "");
-}
-
-function trimLeadingCommandEcho(lines: string[], cmdText: string): string[] {
-    if (lines.length === 0 || !cmdText?.trim()) {
-        return lines;
-    }
-    const firstLine = stripAnsiForCardText(lines[0]).trim();
-    const normalizedCmd = cmdText.trim();
-    if (firstLine === normalizedCmd || firstLine.endsWith(` ${normalizedCmd}`) || firstLine.includes(normalizedCmd)) {
-        return lines.slice(1);
-    }
-    return lines;
-}
-
-function isLikelyShellPromptLine(line: string): boolean {
-    const text = stripAnsiForCardText(line).trim();
-    if (text === "") {
-        return false;
-    }
-    return /^[^\s@]+@[^\s:]+:[^\r\n]*[#$]$/.test(text) || /^[^\s]+[#$>]$/.test(text) || /^[A-Za-z]:\\.*>$/.test(text);
-}
-
-function normalizeCardOutputLines(lines: string[], cmdText: string, isDone: boolean): string[] {
-    const nextLines = trimLeadingCommandEcho([...lines], cmdText);
-    while (nextLines.length > 0 && nextLines[nextLines.length - 1] === "") {
-        nextLines.pop();
-    }
-    if (isDone && nextLines.length > 0 && isLikelyShellPromptLine(nextLines[nextLines.length - 1])) {
-        nextLines.pop();
-    }
-    return nextLines;
-}
-
 export class TermViewModel implements ViewModel {
     viewType: string;
     nodeModel: BlockNodeModel;
@@ -201,8 +127,6 @@ export class TermViewModel implements ViewModel {
     termRef: React.RefObject<TermWrap> = { current: null };
     quickInputRef: React.RefObject<HTMLTextAreaElement> = { current: null };
     blockAtom: jotai.Atom<Block>;
-    termMode: jotai.Atom<string>;
-    autoTermModeAtom: jotai.PrimitiveAtom<"term" | "cards">;
     shellIntegrationAvailableAtom: jotai.PrimitiveAtom<boolean>;
     blockId: string;
     viewIcon: jotai.Atom<IconButtonDecl>;
@@ -243,17 +167,6 @@ export class TermViewModel implements ViewModel {
     termConfigedDurable: jotai.Atom<null | boolean>;
     searchAtoms?: SearchAtoms;
     lastUserActivityUpdateTs: number = 0;
-
-    cardsAtom: jotai.PrimitiveAtom<TermCard[]>;
-    cardsSearchAtom: jotai.PrimitiveAtom<string>;
-    cardsContextLabelAtom: jotai.PrimitiveAtom<string>;
-    private cardOutputRemainder = "";
-    private cardCaptureEnabled = false;
-    private cardsUnsubFns: Array<() => void> = [];
-    private cardsTextDecoder = new TextDecoder("utf-8", { fatal: false });
-    private cardFallbackFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
-    private cardFallbackNoOutputTimer: ReturnType<typeof setTimeout> | null = null;
-    private lastCardOutputTs = 0;
 
     private getCurrentWorkingDir(): string {
         const blockData = globalStore.get(this.blockAtom);
@@ -629,37 +542,11 @@ export class TermViewModel implements ViewModel {
         DefaultRouter.registerRoute(makeFeBlockRouteId(blockId), this.termWshClient);
         this.nodeModel = nodeModel;
         this.blockAtom = WOS.getWaveObjectAtom<Block>(`block:${blockId}`);
-        this.autoTermModeAtom = useBlockAtom(blockId, "termautomode", () =>
-            jotai.atom<"term" | "cards">("term")
-        ) as jotai.PrimitiveAtom<"term" | "cards">;
         this.shellIntegrationAvailableAtom = useBlockAtom(blockId, "termshellintegrationavailable", () =>
             jotai.atom<boolean>(false)
         ) as jotai.PrimitiveAtom<boolean>;
-        this.termMode = jotai.atom((get) => {
-            const blockData = get(this.blockAtom);
-            const configured = blockData?.meta?.["term:mode"];
-            if (configured != null) {
-                if (configured === "term" || configured === "cards") {
-                    // Auto-downgrade: cards mode requires shell integration.
-                    // If integration isn't available, show the normal terminal.
-                    if (configured === "cards" && !get(this.shellIntegrationAvailableAtom)) {
-                        return "term";
-                    }
-                    return configured;
-                }
-                return "term";
-            }
-            if (blockData?.meta?.controller === "cmd") {
-                return "term";
-            }
-            return get(this.autoTermModeAtom);
-        });
         this.isRestarting = jotai.atom(false);
         this.viewIcon = jotai.atom((get) => {
-            const termMode = get(this.termMode);
-            if (termMode == "cards") {
-                return { elemtype: "iconbutton", icon: "comment-dots" };
-            }
             return { elemtype: "iconbutton", icon: "terminal" };
         });
         this.viewName = jotai.atom((get) => {
@@ -670,26 +557,8 @@ export class TermViewModel implements ViewModel {
             return "";
         });
         this.viewText = jotai.atom((get) => {
-            const termMode = get(this.termMode);
             const rtn: HeaderElem[] = [];
             const isCmd = get(this.isCmdController);
-            if (!isCmd) {
-                if (termMode === "cards") {
-                    rtn.push({
-                        elemtype: "iconbutton",
-                        icon: "terminal",
-                        title: "切换到普通终端",
-                        click: () => this.setTermMode("term"),
-                    });
-                } else {
-                    rtn.push({
-                        elemtype: "iconbutton",
-                        icon: "comment-dots",
-                        title: "切换到卡片终端",
-                        click: () => this.setTermMode("cards"),
-                    });
-                }
-            }
             if (isCmd) {
                 const blockMeta = get(this.blockAtom)?.meta;
                 let cmdText = blockMeta?.["cmd"];
@@ -832,15 +701,6 @@ export class TermViewModel implements ViewModel {
             jotai.atom<PendingCompletionNotification | null>(null)
         ) as jotai.PrimitiveAtom<PendingCompletionNotification | null>;
 
-        this.cardsAtom = useBlockAtom(blockId, "termcards", () => jotai.atom<TermCard[]>([])) as jotai.PrimitiveAtom<
-            TermCard[]
-        >;
-        this.cardsSearchAtom = useBlockAtom(blockId, "termcardssearch", () =>
-            jotai.atom("")
-        ) as jotai.PrimitiveAtom<string>;
-        this.cardsContextLabelAtom = useBlockAtom(blockId, "termcardscontextlabel", () =>
-            jotai.atom("")
-        ) as jotai.PrimitiveAtom<string>;
         this.noPadding = jotai.atom(true);
         this.endIconButtons = jotai.atom((get) => {
             const blockData = get(this.blockAtom);
@@ -1034,33 +894,16 @@ export class TermViewModel implements ViewModel {
     }
 
     attachToTermWrap(termWrap: TermWrap | null) {
-        this.cardsUnsubFns.forEach((fn) => fn());
-        this.cardsUnsubFns = [];
-        this.cardOutputRemainder = "";
-        this.cardCaptureEnabled = false;
-        if (this.cardFallbackFinalizeTimer) {
-            clearTimeout(this.cardFallbackFinalizeTimer);
-            this.cardFallbackFinalizeTimer = null;
-        }
-        if (this.cardFallbackNoOutputTimer) {
-            clearTimeout(this.cardFallbackNoOutputTimer);
-            this.cardFallbackNoOutputTimer = null;
-        }
+        this._attachUnsubFns.forEach((fn) => fn());
+        this._attachUnsubFns = [];
 
         if (!termWrap) {
             return;
         }
 
-        globalStore.set(this.cardsContextLabelAtom, globalStore.get(termWrap.contextLabelAtom) ?? "");
+        const unsubFns: Array<() => void> = [];
 
-        this.cardsUnsubFns.push(
-            globalStore.sub(termWrap.contextLabelAtom, () => {
-                const nextLabel = globalStore.get(termWrap.contextLabelAtom) ?? "";
-                globalStore.set(this.cardsContextLabelAtom, nextLabel);
-            })
-        );
-
-        this.cardsUnsubFns.push(
+        unsubFns.push(
             globalStore.sub(termWrap.runtimeInfoReadyAtom, () => {
                 if (globalStore.get(termWrap.runtimeInfoReadyAtom)) {
                     this.tryFlushQueuedQuickInputDispatches("runtime-ready", termWrap);
@@ -1068,7 +911,7 @@ export class TermViewModel implements ViewModel {
             })
         );
 
-        this.cardsUnsubFns.push(
+        unsubFns.push(
             globalStore.sub(termWrap.shellIntegrationKnownAtom, () => {
                 this.tryFlushQueuedQuickInputDispatches("shell-known-change", termWrap);
                 const integrationKnown = globalStore.get(termWrap.shellIntegrationKnownAtom);
@@ -1081,11 +924,10 @@ export class TermViewModel implements ViewModel {
                 if (!hasIntegration) {
                     globalStore.set(this.quickInputNotifyEnabledAtom, false);
                 }
-                globalStore.set(this.autoTermModeAtom, "term");
             })
         );
 
-        this.cardsUnsubFns.push(
+        unsubFns.push(
             globalStore.sub(termWrap.shellIntegrationStatusAtom, () => {
                 const status = globalStore.get(termWrap.shellIntegrationStatusAtom);
                 this.handleQuickInputStatusChange(status, termWrap);
@@ -1099,33 +941,11 @@ export class TermViewModel implements ViewModel {
                 if (!hasIntegration) {
                     globalStore.set(this.quickInputNotifyEnabledAtom, false);
                 }
-                globalStore.set(this.autoTermModeAtom, "term");
-                if (status === "running-command") {
-                    const termMode = globalStore.get(this.termMode);
-                    if (termMode !== "cards") {
-                        return;
-                    }
-                    const inAltBuffer = termWrap.terminal?.buffer?.active?.type === "alternate";
-                    const lastCommand = globalStore.get(termWrap.lastCommandAtom);
-                    const blockingCmd = getBlockingCommand(lastCommand, inAltBuffer);
-                    if (blockingCmd) {
-                        this.markLastPendingCardAsInteractive(blockingCmd);
-                        this.setTermMode("term");
-                        return;
-                    }
-                    this.beginCardFromShellIntegration();
-                    this.cardCaptureEnabled = true;
-                    return;
-                }
-                if (status === "ready") {
-                    this.finalizeActiveCard();
-                    this.cardCaptureEnabled = false;
-                }
             })
         );
 
         let previousExitCode = globalStore.get(termWrap.lastCommandExitCodeAtom);
-        this.cardsUnsubFns.push(
+        unsubFns.push(
             globalStore.sub(termWrap.lastCommandExitCodeAtom, () => {
                 const nextExitCode = globalStore.get(termWrap.lastCommandExitCodeAtom);
                 this.handleQuickInputExitCodeChange(previousExitCode, nextExitCode, termWrap);
@@ -1134,227 +954,11 @@ export class TermViewModel implements ViewModel {
         );
 
         this.tryFlushQueuedQuickInputDispatches("attach-termwrap", termWrap);
+
+        this._attachUnsubFns = unsubFns;
     }
 
-    prepareCardsMode(termWrap: TermWrap) {
-        if (!globalStore.get(termWrap.runtimeInfoReadyAtom)) {
-            return;
-        }
-
-        if (!globalStore.get(termWrap.shellIntegrationKnownAtom)) {
-            return;
-        }
-
-        const integrationStatus = globalStore.get(termWrap.shellIntegrationStatusAtom);
-        if (integrationStatus == null) {
-            globalStore.set(this.shellIntegrationAvailableAtom, false);
-            globalStore.set(this.quickInputNotifyEnabledAtom, false);
-            globalStore.set(this.autoTermModeAtom, "term");
-            return;
-        }
-
-        globalStore.set(this.shellIntegrationAvailableAtom, true);
-        globalStore.set(this.autoTermModeAtom, "term");
-
-        const lastCommand = globalStore.get(termWrap.lastCommandAtom);
-        const inAltBuffer = termWrap.terminal?.buffer?.active?.type === "alternate";
-        const blockingCmd = getBlockingCommand(lastCommand, inAltBuffer);
-        if (blockingCmd) {
-            this.markLastPendingCardAsInteractive(blockingCmd);
-            this.setTermMode("term");
-            return;
-        }
-
-        const cards = globalStore.get(this.cardsAtom) ?? [];
-        if (cards.length > 0) {
-            this.cardCaptureEnabled = integrationStatus === "running-command";
-            return;
-        }
-
-        const backfilledCard = buildBackfilledTermCard({
-            buffer: termWrap.terminal.buffer.active,
-            cmdText: lastCommand,
-            cwd: this.getCurrentWorkingDir(),
-            createdTs: Date.now(),
-            exitCode: globalStore.get(termWrap.lastCommandExitCodeAtom),
-            promptMarkers: termWrap.promptMarkers,
-            shellIntegrationStatus: integrationStatus,
-        });
-        if (backfilledCard == null) {
-            return;
-        }
-
-        globalStore.set(this.cardsAtom, [backfilledCard]);
-        if (integrationStatus === "running-command") {
-            this.cardCaptureEnabled = true;
-            this.lastCardOutputTs = Date.now();
-        }
-    }
-
-    private markLastPendingCardAsInteractive(blockingCmd: string) {
-        const cards = globalStore.get(this.cardsAtom) ?? [];
-        const lastIdx = cards.length - 1;
-        if (lastIdx < 0 || cards[lastIdx].state !== "pending") {
-            return;
-        }
-        const now = Date.now();
-        const card = cards[lastIdx];
-        const next: TermCard = {
-            ...card,
-            startTs: now,
-            endTs: now,
-            state: "done",
-            output: `\nEntered interactive mode (${blockingCmd}). Switched back to the normal terminal.\n`,
-            outputLines: [`Entered interactive mode (${blockingCmd}). Switched back to the normal terminal.`],
-        };
-        const nextCards = [...cards];
-        nextCards[lastIdx] = next;
-        globalStore.set(this.cardsAtom, nextCards);
-    }
-
-    handleControllerOutputChunk(data: Uint8Array) {
-        if (globalStore.get(this.termMode) !== "cards") {
-            return;
-        }
-        const activeId = this.getActiveCardId();
-        if (!this.cardCaptureEnabled && activeId == null) {
-            return;
-        }
-        const targetCardId = activeId;
-        if (!targetCardId) {
-            return;
-        }
-
-        const text = this.cardsTextDecoder.decode(data, { stream: true });
-        const sanitized = sanitizeAnsiForCards(text);
-        if (!sanitized) {
-            return;
-        }
-        this.lastCardOutputTs = Date.now();
-        this.appendOutputToCard(targetCardId, sanitized);
-
-        const termWrap = this.termRef.current;
-        const integrationStatus = termWrap ? globalStore.get(termWrap.shellIntegrationStatusAtom) : null;
-        if (integrationStatus == null) {
-            this.scheduleFallbackFinalize();
-        }
-    }
-
-    private scheduleFallbackFinalize() {
-        if (this.cardFallbackFinalizeTimer) {
-            clearTimeout(this.cardFallbackFinalizeTimer);
-        }
-        this.cardFallbackFinalizeTimer = setTimeout(() => {
-            this.cardFallbackFinalizeTimer = null;
-            const termWrap = this.termRef.current;
-            const integrationStatus = termWrap ? globalStore.get(termWrap.shellIntegrationStatusAtom) : null;
-            if (integrationStatus != null) {
-                return;
-            }
-            if (Date.now() - this.lastCardOutputTs < 650) {
-                this.scheduleFallbackFinalize();
-                return;
-            }
-            this.finalizeActiveCard();
-            this.cardCaptureEnabled = false;
-        }, 650);
-    }
-
-    private getActiveCardId(): string | null {
-        const cards = globalStore.get(this.cardsAtom) ?? [];
-        for (let i = cards.length - 1; i >= 0; i--) {
-            const c = cards[i];
-            if (c.state === "streaming" || c.state === "pending") {
-                return c.id;
-            }
-        }
-        return null;
-    }
-
-    private beginCardFromShellIntegration() {
-        const termWrap = this.termRef.current;
-        const cmdText = termWrap ? globalStore.get(termWrap.lastCommandAtom) : null;
-        const now = Date.now();
-        const cards = globalStore.get(this.cardsAtom) ?? [];
-
-        const lastIdx = cards.length - 1;
-        if (lastIdx >= 0 && cards[lastIdx].state === "pending") {
-            const pending = cards[lastIdx];
-            const next: TermCard = {
-                ...pending,
-                cmdText: cmdText ?? pending.cmdText,
-                startTs: now,
-                state: "streaming",
-            };
-            const nextCards = [...cards];
-            nextCards[lastIdx] = next;
-            globalStore.set(this.cardsAtom, nextCards);
-            return;
-        }
-
-        const card: TermCard = {
-            id: makeCardId(now),
-            cmdText: cmdText ?? "",
-            cwd: this.getCurrentWorkingDir(),
-            createdTs: now,
-            startTs: now,
-            endTs: null,
-            exitCode: null,
-            state: "streaming",
-            output: "",
-            outputLines: [],
-            collapsed: true,
-        };
-        globalStore.set(this.cardsAtom, [...cards, card]);
-    }
-
-    private finalizeActiveCard() {
-        const termWrap = this.termRef.current;
-        const exitCode = termWrap ? globalStore.get(termWrap.lastCommandExitCodeAtom) : null;
-        const now = Date.now();
-        const cards = globalStore.get(this.cardsAtom) ?? [];
-        const idx = [...cards].reverse().findIndex((c) => c.state === "streaming");
-        if (idx === -1) {
-            return;
-        }
-        const realIdx = cards.length - 1 - idx;
-        const card = cards[realIdx];
-        const normalizedOutputLines = normalizeCardOutputLines(card.outputLines, card.cmdText, true);
-        const next: TermCard = {
-            ...card,
-            endTs: now,
-            exitCode: exitCode ?? null,
-            state: "done",
-            output: normalizedOutputLines.join("\n"),
-            outputLines: normalizedOutputLines,
-        };
-        const nextCards = [...cards];
-        nextCards[realIdx] = next;
-        globalStore.set(this.cardsAtom, nextCards);
-    }
-
-    private appendOutputToCard(cardId: string, chunk: string) {
-        const cards = globalStore.get(this.cardsAtom) ?? [];
-        const idx = cards.findIndex((c) => c.id === cardId);
-        if (idx === -1) {
-            return;
-        }
-        const card = cards[idx];
-        const combined = card.output + chunk;
-        const lines = combined.split("\n");
-        const normalizedLines = normalizeCardOutputLines(lines, card.cmdText, false);
-        const cappedLines =
-            normalizedLines.length > 2000 ? normalizedLines.slice(normalizedLines.length - 2000) : normalizedLines;
-        const cappedOutput = cappedLines.join("\n");
-        const next: TermCard = {
-            ...card,
-            output: cappedOutput,
-            outputLines: cappedLines,
-        };
-        const nextCards = [...cards];
-        nextCards[idx] = next;
-        globalStore.set(this.cardsAtom, nextCards);
-    }
+    private _attachUnsubFns: Array<() => void> = [];
 
     supportsQuickInput(): boolean {
         const blockData = globalStore.get(this.blockAtom);
@@ -1438,71 +1042,6 @@ export class TermViewModel implements ViewModel {
         return true;
     }
 
-    setTermMode(mode: "term" | "cards") {
-        RpcApi.SetMetaCommand(TabRpcClient, {
-            oref: WOS.makeORef("block", this.blockId),
-            meta: { "term:mode": mode },
-        });
-    }
-
-    setCardsContextLabel(label: string) {
-        const next = label ?? "";
-        globalStore.set(this.cardsContextLabelAtom, next);
-        if (this.termRef.current?.contextLabelAtom) {
-            globalStore.set(this.termRef.current.contextLabelAtom, next);
-        }
-        RpcApi.SetRTInfoCommand(TabRpcClient, {
-            oref: WOS.makeORef("block", this.blockId),
-            data: { "term:contextlabel": next } as any,
-        });
-    }
-
-    createPendingCard(cmdText: string) {
-        if (!cmdText?.trim()) {
-            return;
-        }
-        const now = Date.now();
-        const card: TermCard = {
-            id: makeCardId(now),
-            cmdText,
-            cwd: this.getCurrentWorkingDir(),
-            createdTs: now,
-            startTs: null,
-            endTs: null,
-            exitCode: null,
-            state: "pending",
-            output: "",
-            outputLines: [],
-            collapsed: true,
-        };
-        const cards = globalStore.get(this.cardsAtom) ?? [];
-        globalStore.set(this.cardsAtom, [...cards, card]);
-        this.cardCaptureEnabled = true;
-        this.lastCardOutputTs = now;
-
-        const termWrap = this.termRef.current;
-        const integrationStatus = termWrap ? globalStore.get(termWrap.shellIntegrationStatusAtom) : null;
-        if (integrationStatus == null) {
-            if (this.cardFallbackNoOutputTimer) {
-                clearTimeout(this.cardFallbackNoOutputTimer);
-            }
-            this.cardFallbackNoOutputTimer = setTimeout(() => {
-                this.cardFallbackNoOutputTimer = null;
-                const activeId = this.getActiveCardId();
-                if (!activeId) {
-                    return;
-                }
-                const cards = globalStore.get(this.cardsAtom) ?? [];
-                const active = cards.find((c) => c.id === activeId);
-                if (active?.outputLines?.length) {
-                    return;
-                }
-                this.finalizeActiveCard();
-                this.cardCaptureEnabled = false;
-            }, 2500);
-        }
-    }
-
     triggerRestartAtom() {
         globalStore.set(this.isRestarting, true);
         setTimeout(() => {
@@ -1536,7 +1075,7 @@ export class TermViewModel implements ViewModel {
 
     dispose() {
         DefaultRouter.unregisterRoute(makeFeBlockRouteId(this.blockId));
-        this.cardsUnsubFns.forEach((fn) => fn());
+        this._attachUnsubFns.forEach((fn) => fn());
         this.shellProcStatusUnsubFn?.();
         this.blockJobStatusUnsubFn?.();
         this.termBPMUnsubFn?.();
@@ -1549,12 +1088,9 @@ export class TermViewModel implements ViewModel {
             console.log("search is open, not giving focus");
             return true;
         }
-        const termMode = globalStore.get(this.termMode);
-        if (termMode == "term") {
-            if (this.termRef?.current?.terminal) {
-                this.termRef.current.terminal.focus();
-                return true;
-            }
+        if (this.termRef?.current?.terminal) {
+            this.termRef.current.terminal.focus();
+            return true;
         }
         return false;
     }
@@ -1567,12 +1103,6 @@ export class TermViewModel implements ViewModel {
             }
             // just for telemetry, we allow this keybinding through, back to the terminal
             return false;
-        }
-        if (keyutil.checkKeyPressed(waveEvent, "Cmd:Escape")) {
-            const termMode = globalStore.get(this.termMode);
-            const newMode = termMode === "cards" ? "term" : "cards";
-            this.setTermMode(newMode);
-            return true;
         }
         if (keyutil.checkKeyPressed(waveEvent, "Shift:End")) {
             if (this.termRef?.current?.terminal) {

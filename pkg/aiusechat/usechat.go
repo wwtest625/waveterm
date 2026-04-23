@@ -56,7 +56,7 @@ func getSystemPrompt(model string, isBuilder bool, agentMode AgentMode) []string
 	}
 	modelLower := strings.ToLower(model)
 	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek)\b`, modelLower)
-	basePrompt := strings.TrimSpace(SystemPromptText_OpenAI + " " + SystemPromptText_ReadFileWorkflowAddOn + " " + SystemPromptText_EditWorkflowAddOn)
+	basePrompt := strings.TrimSpace(SystemPromptText_OpenAI + " " + SystemPromptText_EditWorkflowAddOn)
 	if !needsStrictToolAddOn {
 		basePrompt = strings.TrimSpace(basePrompt + " " + SystemPromptText_ExecutionPolicyAddOn)
 	}
@@ -1118,14 +1118,14 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 				origIndex := uniqueIndices[idx]
 				key := dedupKeys[origIndex]
 				seenResultsByKey[key] = result
-			if taskState != nil {
-				advanceTaskStateForToolResult(taskState, result)
-				chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
-					TaskState: taskState,
-					LastState: string(taskState.Status),
-				})
-				_ = sseHandler.AiMsgData("data-taskstate", taskState.PlanId, *taskState)
-			}
+				if taskState != nil {
+					advanceTaskStateForToolResult(taskState, result)
+					chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
+						TaskState: taskState,
+						LastState: string(taskState.Status),
+					})
+					_ = sseHandler.AiMsgData("data-taskstate", taskState.PlanId, *taskState)
+				}
 				toolResults[origIndex] = result
 				processed[origIndex] = true
 				for dupIndex := group.Start; dupIndex < group.End; dupIndex++ {

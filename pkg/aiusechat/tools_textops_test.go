@@ -942,6 +942,18 @@ func TestGenerateTabStateAndTools_WithoutWidgetAccessStillExposesWriteTool(t *te
 	}
 }
 
+func TestGenerateTabStateAndTools_WithoutWidgetAccessOmitsReadTool(t *testing.T) {
+	_, tools, err := GenerateTabStateAndTools(t.Context(), "", false, nil)
+	if err != nil {
+		t.Fatalf("GenerateTabStateAndTools returned error: %v", err)
+	}
+	for _, tool := range tools {
+		if tool.Name == "read_text_file" {
+			t.Fatalf("did not expect read_text_file tool, got %#v", tools)
+		}
+	}
+}
+
 func TestGenerateTabStateAndTools_WithoutWidgetAccessStillExposesEditTool(t *testing.T) {
 	_, tools, err := GenerateTabStateAndTools(t.Context(), "", false, nil)
 	if err != nil {

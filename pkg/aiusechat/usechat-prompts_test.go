@@ -64,7 +64,6 @@ func TestGetToolCapabilityPrompt(t *testing.T) {
 		{Name: "wave_run_command"},
 		{Name: "waveai_todo_write"},
 		{Name: "waveai_todo_read"},
-		{Name: "read_text_file"},
 	}
 	prompt := getToolCapabilityPrompt(tools)
 	if !strings.Contains(prompt, "waveai_todo_write") {
@@ -78,6 +77,9 @@ func TestGetToolCapabilityPrompt(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "wave_run_command") {
 		t.Fatalf("expected tool capability prompt to mention wave_run_command")
+	}
+	if strings.Contains(prompt, "read_text_file") {
+		t.Fatalf("expected tool capability prompt to omit read_text_file, got %q", prompt)
 	}
 }
 

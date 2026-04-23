@@ -220,7 +220,6 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 	// for debugging
 	// log.Printf("TABPROMPT %s\n", tabState)
 	var tools []uctypes.ToolDefinition
-	tools = append(tools, GetReadTextFileToolDefinition())
 	tools = append(tools, GetWriteTextFileToolDefinition())
 	tools = append(tools, GetEditTextFileToolDefinition())
 	tools = append(tools, GetDeleteTextFileToolDefinition())

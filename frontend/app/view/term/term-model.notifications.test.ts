@@ -9,7 +9,6 @@ type FakeTermWrap = {
     shellIntegrationStatusAtom: PrimitiveAtom<"ready" | "running-command" | null>;
     lastCommandAtom: PrimitiveAtom<string | null>;
     lastCommandExitCodeAtom: PrimitiveAtom<number | null>;
-    contextLabelAtom: PrimitiveAtom<string>;
     terminal: { buffer: { active: { type: string } } };
     promptMarkers: any[];
 };
@@ -77,7 +76,6 @@ async function loadTermModelModule() {
         stringToBase64: (value: string) => value,
     }));
     vi.doMock("./shellblocking", () => ({ getBlockingCommand: vi.fn(() => null) }));
-    vi.doMock("./term-cards-backfill", () => ({ buildBackfilledTermCard: vi.fn(() => null) }));
     vi.doMock("./term-quickinput", () => ({ normalizeQuickInputForSend: vi.fn((value: string) => value) }));
     vi.doMock("./termutil", () => ({ DefaultTermTheme: {}, computeTheme: vi.fn(() => ({})) }));
     vi.doMock("./termwrap", () => ({ TermWrap: class {} }));
@@ -92,14 +90,12 @@ function makeTermWrap(store: ReturnType<typeof createStore>): FakeTermWrap {
     const shellIntegrationStatusAtom = atom<"ready" | "running-command" | null>(null);
     const lastCommandAtom = atom<string | null>(null);
     const lastCommandExitCodeAtom = atom<number | null>(null);
-    const contextLabelAtom = atom("");
 
     store.set(runtimeInfoReadyAtom, false);
     store.set(shellIntegrationKnownAtom, false);
     store.set(shellIntegrationStatusAtom, null);
     store.set(lastCommandAtom, null);
     store.set(lastCommandExitCodeAtom, null);
-    store.set(contextLabelAtom, "");
 
     return {
         runtimeInfoReadyAtom,
@@ -107,7 +103,6 @@ function makeTermWrap(store: ReturnType<typeof createStore>): FakeTermWrap {
         shellIntegrationStatusAtom,
         lastCommandAtom,
         lastCommandExitCodeAtom,
-        contextLabelAtom,
         terminal: { buffer: { active: { type: "normal" } } },
         promptMarkers: [],
     };
@@ -120,22 +115,13 @@ function makeModel(mod: LoadedModule, blockId: string) {
     model.quickInputNotificationQueueAtom = atom([]);
     model.quickInputPendingDispatchQueueAtom = atom([]);
     model.pendingCmdNotificationAtom = atom(null);
-    model.cardsContextLabelAtom = atom("");
     model.shellIntegrationAvailableAtom = atom(false);
-    model.autoTermModeAtom = atom<"term" | "cards">("term");
-    model.termMode = atom("term");
-    model.cardsAtom = atom([]);
     model.blockAtom = atom({ meta: {} });
     model.tabModel = { isTermMultiInput: atom(false) };
     model.sendDataToController = vi.fn();
     model.multiInputHandler = vi.fn();
     model.supportsQuickInput = vi.fn(() => false);
-    model.finalizeActiveCard = vi.fn();
-    model.beginCardFromShellIntegration = vi.fn();
-    model.markLastPendingCardAsInteractive = vi.fn();
-    model.setTermMode = vi.fn();
     model.sendCompletionNotification = vi.fn().mockResolvedValue(undefined);
-    model.cardsUnsubFns = [];
     return model;
 }
 

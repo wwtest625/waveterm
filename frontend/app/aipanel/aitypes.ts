@@ -513,7 +513,6 @@ export function agentRuntimeSnapshotEquals(left: AgentRuntimeSnapshot, right: Ag
 
 export function inferToolCapability(toolName?: string): ToolCapability {
     switch (toolName) {
-        case "read_text_file":
         case "read_dir":
         case "term_command_output":
             return "read";

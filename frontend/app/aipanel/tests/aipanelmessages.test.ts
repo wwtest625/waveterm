@@ -765,7 +765,6 @@ describe("aipanel task turns", () => {
     it("hides command result progress lines from tool progress cards", () => {
         expect(shouldHideProgressStatusLines("wave_run_command")).toBe(false);
         expect(shouldHideProgressStatusLines("term_command_output")).toBe(true);
-        expect(shouldHideProgressStatusLines("read_text_file")).toBe(false);
     });
 
     it("renders streaming assistant text as plain text while keeping final text markdown", () => {
