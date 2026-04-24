@@ -17,12 +17,12 @@ type todoWriteSubtaskInput struct {
 }
 
 type todoWriteTaskInput struct {
-	ID          string                   `json:"id"`
-	Content     string                   `json:"content"`
-	Description string                   `json:"description,omitempty"`
-	Status      string                   `json:"status"`
-	Priority    string                   `json:"priority"`
-	Subtasks    []todoWriteSubtaskInput  `json:"subtasks,omitempty"`
+	ID          string                  `json:"id"`
+	Content     string                  `json:"content"`
+	Description string                  `json:"description,omitempty"`
+	Status      string                  `json:"status"`
+	Priority    string                  `json:"priority"`
+	Subtasks    []todoWriteSubtaskInput `json:"subtasks,omitempty"`
 }
 
 type todoWriteInput struct {
@@ -265,12 +265,12 @@ func GetTodoWriteToolDefinition(chatId string, aiOpts *uctypes.AIOptsType) uctyp
 										"content":     map[string]any{"type": "string"},
 										"description": map[string]any{"type": "string"},
 									},
-									"required":             []string{"id", "content"},
+									"required":             []string{"id", "content", "description"},
 									"additionalProperties": false,
 								},
 							},
 						},
-						"required":             []string{"id", "content", "status", "priority"},
+						"required":             []string{"id", "content", "description", "status", "priority"},
 						"additionalProperties": false,
 					},
 				},
@@ -327,8 +327,8 @@ func GetTodoReadToolDefinition(chatId string, aiOpts *uctypes.AIOptsType) uctype
 			meta := chatstore.DefaultChatStore.GetSession(chatId)
 			if meta == nil || meta.TaskState == nil || len(meta.TaskState.Tasks) == 0 {
 				return map[string]any{
-					"todos":  []any{},
-					"hint":   "No task list exists. Use waveai_todo_write to create one for complex multi-step tasks (≥3 steps).",
+					"todos": []any{},
+					"hint":  "No task list exists. Use waveai_todo_write to create one for complex multi-step tasks (≥3 steps).",
 				}, nil
 			}
 			state := meta.TaskState.Clone()
@@ -347,9 +347,9 @@ func GetTodoReadToolDefinition(chatId string, aiOpts *uctypes.AIOptsType) uctype
 					hint = "仅有 1-2 个任务，无需维护清单，直接执行并报告结果即可。"
 				}
 				return map[string]any{
-					"todos":  state.Tasks,
-					"state":  state,
-					"hint":   hint,
+					"todos": state.Tasks,
+					"state": state,
+					"hint":  hint,
 				}, nil
 			}
 			var sb strings.Builder
@@ -370,11 +370,11 @@ func GetTodoReadToolDefinition(chatId string, aiOpts *uctypes.AIOptsType) uctype
 				sb.WriteString(fmt.Sprintf("%s [%s] %s%s\n", statusIcon, task.Priority, task.Title, focusMark))
 			}
 			resultMap := map[string]any{
-				"todos":       state.Tasks,
-				"state":       state,
-				"focuschain":  state.FocusChain,
-				"summary":     state.Summary,
-				"formatted":   sb.String(),
+				"todos":      state.Tasks,
+				"state":      state,
+				"focuschain": state.FocusChain,
+				"summary":    state.Summary,
+				"formatted":  sb.String(),
 			}
 			if suggestNewTask {
 				resultMap["context_warning"] = suggestReason

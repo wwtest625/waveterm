@@ -23,19 +23,12 @@ const config = {
         "package.json",
         "!**/node_modules{,/**/*}", // Only runtime artifacts from dist should be packaged; production dependencies are already bundled.
         "!dist/win-unpacked{,/**/*}",
-        "!dist/tsunamiscaffold/**/*",
         "!**/*.map",
         "!dist/builder-*.yml",
         "!dist/builder-*.yaml",
         "!dist/latest.yml",
         "!dist/alpha.yml",
         "!dist/beta.yml",
-    ],
-    extraResources: [
-        {
-            from: "dist/tsunamiscaffold",
-            to: "tsunamiscaffold",
-        },
     ],
     directories: {
         output: process.env.WAVETERM_ELECTRON_BUILDER_OUTPUT_DIR || "make",

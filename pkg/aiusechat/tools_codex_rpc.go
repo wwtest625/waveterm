@@ -474,7 +474,7 @@ func waveRunCommandResultPayload(jobID string, snapshot *wshrpc.CommandAgentGetC
 }
 
 func isWaveCommandTerminalTool(toolName string) bool {
-	return toolName == "wave_run_command" || toolName == "term_command_output"
+	return toolName == "wave_run_command"
 }
 
 func getWaveCommandResultToolName(toolName string) string {

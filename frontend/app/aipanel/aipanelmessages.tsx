@@ -10,17 +10,19 @@ import { formatModeLabel, isThinkingPhaseLabel } from "./agentstatus";
 import { AIModeDropdown } from "./aimode";
 import { AIToolUseGroup, getToolDisplayName } from "./aitooluse";
 import {
-    type AgentRuntimeState,
     type AgentRuntimeSnapshot,
+    type AgentRuntimeState,
+    type AgentTaskState,
     type WaveUIMessage,
     type WaveUIMessagePart,
     AI_CODE_FONT_FAMILY,
+    getLatestTaskStatePart,
     isInternalAssistantToolName,
     isTextPart,
     isToolDetailPart,
 } from "./aitypes";
-import { getFirstExecutableCommandFromMessage, isSafeToAutoExecute } from "./autoexecute-util";
 import { formatCommandDuration } from "./command-duration";
+import { TaskProgressPanel } from "./taskprogresspanel";
 import { WaveAIModel } from "./waveai-model";
 
 export { formatCommandDuration } from "./command-duration";
@@ -66,8 +68,13 @@ type TaskChainDisplayState = {
 const RAW_OUTPUT_COLLAPSE_LINES = 5;
 const TASK_CHAIN_OUTPUT_COLLAPSE_LINES = 3;
 const THINKING_OUTPUT_COLLAPSE_LINES = 4;
+const COMMAND_OUTPUT_STEP_TOOL = "command_output";
 
-export function shouldFollowLatestOutput(status: string, runtimeState: AgentRuntimeState, activeJobId?: string | null): boolean {
+export function shouldFollowLatestOutput(
+    status: string,
+    runtimeState: AgentRuntimeState,
+    activeJobId?: string | null
+): boolean {
     return status === "streaming" || runtimeState === "executing" || Boolean(activeJobId);
 }
 
@@ -364,6 +371,7 @@ function formatStepDetail(
         if (toolName === "wave_run_command") {
             return extractCommandFromToolDesc(part.data.tooldesc);
         }
+        // Historical messages may still contain this old model-facing tool.
         if (toolName === "term_command_output") {
             if (toolName === "term_command_output" && part.data.status === "running") {
                 const outputPreview = getMeaningfulOutputPreview(part.data.outputtext, 3);
@@ -467,10 +475,10 @@ export function buildTaskChainSteps(
             ) {
                 appendStep({
                     id: `${part.data.toolcallid}:output`,
-                    title: getToolStepTitle("term_command_output"),
+                    title: getToolStepTitle(COMMAND_OUTPUT_STEP_TOOL),
                     detail: commandOutput,
                     status: toolUseStatus,
-                    toolName: "term_command_output",
+                    toolName: COMMAND_OUTPUT_STEP_TOOL,
                 });
             }
             continue;
@@ -498,7 +506,7 @@ export function buildTaskChainSteps(
 }
 
 function isOutputLikeStep(step: TaskChainStep): boolean {
-    return step.toolName === "term_command_output";
+    return step.toolName === COMMAND_OUTPUT_STEP_TOOL || step.toolName === "term_command_output";
 }
 
 export function getTaskChainDisplayGroups(steps: TaskChainStep[]): TaskChainDisplayGroup[] {
@@ -678,7 +686,7 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium tracking-[0.06em]">
-                        <span className="text-zinc-200">任务链</span>
+                        <span className="text-zinc-200">执行步骤</span>
                         {displayState.statusLabel && (
                             <span className="rounded-full border border-white/[0.06] bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-normal tracking-[0.1em] text-zinc-300 uppercase">
                                 {displayState.statusLabel}
@@ -750,7 +758,7 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                         ×{step.duplicateCount}
                                     </span>
                                 )}
-                                {step.status === "running" && step.toolName === "term_command_output" && (
+                                {step.status === "running" && isOutputLikeStep(step) && (
                                     <span className="rounded-full border border-yellow-400/15 bg-yellow-400/[0.05] px-2 py-0.5 text-[10px] font-medium tracking-[0.06em] text-yellow-200/70">
                                         后台刷新中
                                     </span>
@@ -910,23 +918,23 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                                         </pre>
                                                         {outputDisplay.shouldCollapse && (
                                                             <button
-                                                            type="button"
-                                                            className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-white/[0.06] bg-black/20 px-1.5 py-0.5 text-[10px] text-zinc-400 transition hover:bg-black/35"
-                                                            onClick={() =>
-                                                                setExpandedOutputSteps((prev) => ({
-                                                                    ...prev,
-                                                                    [secondary.id]: !isExpanded,
-                                                                }))
-                                                            }
-                                                        >
-                                                            <span>更多</span>
-                                                            <i
-                                                                className={cn(
-                                                                    "fa-solid text-[9px]",
-                                                                    isExpanded ? "fa-chevron-up" : "fa-chevron-down"
-                                                                )}
-                                                            />
-                                                        </button>
+                                                                type="button"
+                                                                className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-white/[0.06] bg-black/20 px-1.5 py-0.5 text-[10px] text-zinc-400 transition hover:bg-black/35"
+                                                                onClick={() =>
+                                                                    setExpandedOutputSteps((prev) => ({
+                                                                        ...prev,
+                                                                        [secondary.id]: !isExpanded,
+                                                                    }))
+                                                                }
+                                                            >
+                                                                <span>更多</span>
+                                                                <i
+                                                                    className={cn(
+                                                                        "fa-solid text-[9px]",
+                                                                        isExpanded ? "fa-chevron-up" : "fa-chevron-down"
+                                                                    )}
+                                                                />
+                                                            </button>
                                                         )}
                                                     </div>
                                                 </div>
@@ -936,10 +944,10 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
                                         <div className="mt-0.5 flex flex-wrap items-center gap-2 pl-5 text-[11px] text-zinc-400">
                                             {secondary.durationLabel && <span>{secondary.durationLabel}</span>}
                                             {formatExitCodeLabel(secondary.exitCode) && (
-                                                    <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
-                                                        {formatExitCodeLabel(secondary.exitCode)}
-                                                    </span>
-                                                )}
+                                                <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                                                    {formatExitCodeLabel(secondary.exitCode)}
+                                                </span>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -992,7 +1000,7 @@ const TaskChainApprovalActions = memo(({ turn }: { turn: TaskTurn }) => {
                 <span>{label}</span>
             </div>
             <div className="mt-1 text-[11px] text-amber-50/60">
-                这一步需要确认后才能继续。审批按钮已直接显示在任务链里。
+                这一步需要确认后才能继续。审批按钮已直接显示在执行步骤里。
             </div>
             <div className="mt-2 flex gap-2">
                 <button
@@ -1020,13 +1028,24 @@ export function shouldShowTurnTaskChain(turn: TaskTurn): boolean {
     return buildTaskChainSteps(getVisibleToolParts(turn.assistantMessages), turn.isStreaming).length > 0;
 }
 
+function getTurnTaskPlan(turn: TaskTurn): AgentTaskState | null {
+    for (const message of [...turn.assistantMessages].reverse()) {
+        const latestTaskState = getLatestTaskStatePart(message);
+        const taskState = latestTaskState?.data as AgentTaskState | undefined;
+        if (taskState?.source === "model-generated") {
+            return taskState;
+        }
+    }
+    return null;
+}
+
 export function getTurnExitCode(messages: WaveUIMessage[]): number | undefined {
     const latestToolUse = [...getToolParts(messages)]
         .reverse()
         .find(
             (part) =>
                 part.type === "data-tooluse" &&
-                (part.data.toolname === "wave_run_command" || part.data.toolname === "term_command_output") &&
+                part.data.toolname === "wave_run_command" &&
                 (part.data.status === "completed" || part.data.status === "error")
         );
     if (latestToolUse?.type !== "data-tooluse") {
@@ -1474,6 +1493,7 @@ const TaskTurnCard = memo(
     ({ turn, fallbackOutput, isLatestTurn }: { turn: TaskTurn; fallbackOutput?: string; isLatestTurn: boolean }) => {
         const model = WaveAIModel.getInstance();
         const runtime = useAtomValue(model.agentRuntimeAtom);
+        const taskPlan = getTurnTaskPlan(turn);
 
         if (!turn.userMessage && turn.assistantMessages.length === 0) {
             return null;
@@ -1483,6 +1503,12 @@ const TaskTurnCard = memo(
                 <UserPromptCard message={turn.userMessage} />
                 {shouldShowTurnTaskChain(turn) && <TaskChain turn={turn} runtime={isLatestTurn ? runtime : null} />}
                 <AssistantOutputCard turn={turn} fallbackOutput={fallbackOutput} />
+                {taskPlan && (
+                    <TaskProgressPanel
+                        taskState={taskPlan}
+                        className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3"
+                    />
+                )}
             </div>
         );
     }
@@ -1507,7 +1533,6 @@ export function resolveTurnFallbackOutput(turn: TaskTurn, isLastTurn: boolean, r
 export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPanelMessagesProps) => {
     const model = WaveAIModel.getInstance();
     const isPanelOpen = useAtomValue(model.getPanelVisibleAtom());
-    const autoExecute = useAtomValue(model.autoExecuteAtom);
     const runtime = useAtomValue(model.agentRuntimeAtom);
     const runtimeState = runtime.state;
     const runtimeActiveJobId = runtime.activeJobId;
@@ -1515,9 +1540,6 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
     const runtimeLastToolStderr = runtime.lastToolResult?.stderr?.trim() ?? "";
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const prevStatusRef = useRef<string>(status);
-    const seenAssistantMessageIdsRef = useRef<Set<string>>(new Set());
-    const pendingAutoExecuteMessageIdRef = useRef<string | null>(null);
-    const autoExecuteReadyRef = useRef(false);
     const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
     const turns = useBufferedTaskTurns(messages, status);
     const followLatestOutput = shouldFollowLatestOutput(status, runtimeState, runtimeActiveJobId);
@@ -1595,69 +1617,6 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
             scrollToBottom();
         });
     }, [followLatestOutput, runtimeLastToolStdout, runtimeLastToolStderr]);
-
-    useEffect(() => {
-        const assistantMessages = messages.filter((message) => message.role === "assistant");
-
-        if (!autoExecuteReadyRef.current) {
-            for (const message of assistantMessages) {
-                seenAssistantMessageIdsRef.current.add(message.id);
-            }
-            autoExecuteReadyRef.current = true;
-            return;
-        }
-
-        for (const message of assistantMessages) {
-            if (!seenAssistantMessageIdsRef.current.has(message.id)) {
-                seenAssistantMessageIdsRef.current.add(message.id);
-                pendingAutoExecuteMessageIdRef.current = message.id;
-            }
-        }
-    }, [messages]);
-
-    useEffect(() => {
-        if (status === "streaming") {
-            return;
-        }
-
-        if (!autoExecute) {
-            console.log("[waveai:autoexecute] disabled by setting");
-            pendingAutoExecuteMessageIdRef.current = null;
-            return;
-        }
-
-        const pendingMessageId = pendingAutoExecuteMessageIdRef.current;
-        if (!pendingMessageId) {
-            return;
-        }
-
-        const pendingMessage = messages.find((message) => message.id === pendingMessageId);
-        pendingAutoExecuteMessageIdRef.current = null;
-        if (!pendingMessage || pendingMessage.role !== "assistant") {
-            console.log("[waveai:autoexecute] pending message missing or not assistant", {
-                pendingMessageId,
-            });
-            return;
-        }
-
-        const command = getFirstExecutableCommandFromMessage(pendingMessage);
-        if (!command || !isSafeToAutoExecute(command)) {
-            console.log("[waveai:autoexecute] command not executable", {
-                pendingMessageId,
-                hasCommand: Boolean(command),
-                command,
-                safe: command ? isSafeToAutoExecute(command) : false,
-            });
-            return;
-        }
-
-        const executed = model.executeCommandInTerminal(command, { source: "auto" });
-        console.log("[waveai:autoexecute] execute result", {
-            pendingMessageId,
-            executed,
-            command,
-        });
-    }, [messages, status, autoExecute, model]);
 
     return (
         <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-2" onContextMenu={onContextMenu}>

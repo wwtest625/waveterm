@@ -1,7 +1,13 @@
 import { cn } from "@/util/util";
-import { AgentTaskState, ContextThresholdLevel, getContextLevelBgColor, getContextLevelColor, getContextLevelLabel } from "./aitypes";
-import { TaskProgressItemViewModel, deriveTaskProgressViewModel } from "./taskprogress";
 import { useState } from "react";
+import {
+    AgentTaskState,
+    ContextThresholdLevel,
+    getContextLevelBgColor,
+    getContextLevelColor,
+    getContextLevelLabel,
+} from "./aitypes";
+import { TaskProgressItemViewModel, deriveTaskProgressViewModel } from "./taskprogress";
 
 function getTaskTone(status: string, isCurrent: boolean, isFocused: boolean): string {
     if (status !== "completed" && (isCurrent || isFocused)) {
@@ -61,17 +67,39 @@ function getPriorityBadgeClass(priority: "high" | "medium" | "low" | undefined):
     }
 }
 
-function TaskItemRow({ item, expanded, onToggle }: { item: TaskProgressItemViewModel; expanded: boolean; onToggle: () => void }) {
+function TaskItemRow({
+    item,
+    expanded,
+    onToggle,
+}: {
+    item: TaskProgressItemViewModel;
+    expanded: boolean;
+    onToggle: () => void;
+}) {
     const hasSubtasks = item.subtasks && item.subtasks.length > 0;
     return (
         <div>
             <div className="flex items-center gap-2 text-sm">
-                <i className={cn(getTaskIcon(item.status, item.isCurrent, item.isFocused), getTaskTone(item.status, item.isCurrent, item.isFocused), "w-4 text-center")} />
-                <span className={cn("truncate flex-1", getTaskTone(item.status, item.isCurrent, item.isFocused))} title={item.title}>
+                <i
+                    className={cn(
+                        getTaskIcon(item.status, item.isCurrent, item.isFocused),
+                        getTaskTone(item.status, item.isCurrent, item.isFocused),
+                        "w-4 text-center"
+                    )}
+                />
+                <span
+                    className={cn("truncate flex-1", getTaskTone(item.status, item.isCurrent, item.isFocused))}
+                    title={item.title}
+                >
                     {item.title}
                 </span>
                 {item.priority && (
-                    <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-mono", getPriorityBadgeClass(item.priority))}>
+                    <span
+                        className={cn(
+                            "text-[10px] px-1.5 py-0.5 rounded font-mono",
+                            getPriorityBadgeClass(item.priority)
+                        )}
+                    >
                         {getPriorityBadge(item.priority)}
                     </span>
                 )}
@@ -79,11 +107,13 @@ function TaskItemRow({ item, expanded, onToggle }: { item: TaskProgressItemViewM
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent">聚焦</span>
                 )}
                 {hasSubtasks && (
-                    <button
-                        onClick={onToggle}
-                        className="text-zinc-500 hover:text-zinc-300 transition-colors ml-1"
-                    >
-                        <i className={cn("fa-solid fa-chevron-down text-[10px] transition-transform", expanded && "rotate-180")} />
+                    <button onClick={onToggle} className="text-zinc-500 hover:text-zinc-300 transition-colors ml-1">
+                        <i
+                            className={cn(
+                                "fa-solid fa-chevron-down text-[10px] transition-transform",
+                                expanded && "rotate-180"
+                            )}
+                        />
                     </button>
                 )}
             </div>
@@ -118,14 +148,20 @@ function ContextUsageIndicator({ percent, level }: { percent: number; level: Con
             <span className={cn("text-[10px] font-mono min-w-[36px] text-right", getContextLevelColor(level))}>
                 {percent}%
             </span>
-            <span className={cn("text-[10px]", getContextLevelColor(level))}>
-                {getContextLevelLabel(level)}
-            </span>
+            <span className={cn("text-[10px]", getContextLevelColor(level))}>{getContextLevelLabel(level)}</span>
         </div>
     );
 }
 
-export function TaskProgressPanel({ taskState }: { taskState: AgentTaskState | null | undefined }) {
+export function TaskProgressPanel({
+    taskState,
+    compact = false,
+    className,
+}: {
+    taskState: AgentTaskState | null | undefined;
+    compact?: boolean;
+    className?: string;
+}) {
     const viewModel = deriveTaskProgressViewModel(taskState);
     const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
 
@@ -146,10 +182,10 @@ export function TaskProgressPanel({ taskState }: { taskState: AgentTaskState | n
     };
 
     return (
-        <div className="mx-3 mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
+        <div className={cn(className ?? "mx-3 mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3")}>
             <div className="flex items-center justify-between gap-3">
                 <div>
-                    <div className="text-xs text-zinc-400">任务进度</div>
+                    <div className="text-xs text-zinc-400">{compact ? "当前任务" : "任务计划"}</div>
                     <div className="mt-1 text-sm font-medium text-zinc-100">
                         {viewModel.completedLabel}
                         <span className="ml-2 text-zinc-400">({viewModel.percent}%)</span>
@@ -162,12 +198,20 @@ export function TaskProgressPanel({ taskState }: { taskState: AgentTaskState | n
                         </div>
                     )}
                     {viewModel.currentTaskDescription && (
-                        <div className="truncate text-[10px] text-zinc-500 mt-0.5" title={viewModel.currentTaskDescription}>
+                        <div
+                            className="truncate text-[10px] text-zinc-500 mt-0.5"
+                            title={viewModel.currentTaskDescription}
+                        >
                             {viewModel.currentTaskDescription}
                         </div>
                     )}
                     {viewModel.currentTaskPriority && (
-                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-mono inline-block mt-0.5", getPriorityBadgeClass(viewModel.currentTaskPriority))}>
+                        <span
+                            className={cn(
+                                "text-[10px] px-1.5 py-0.5 rounded font-mono inline-block mt-0.5",
+                                getPriorityBadgeClass(viewModel.currentTaskPriority)
+                            )}
+                        >
                             {getPriorityBadge(viewModel.currentTaskPriority)}
                         </span>
                     )}
@@ -178,47 +222,70 @@ export function TaskProgressPanel({ taskState }: { taskState: AgentTaskState | n
                 <div className="h-full bg-accent/60 transition-all" style={{ width: `${viewModel.percent}%` }} />
             </div>
 
-            {viewModel.contextUsagePercent > 0 && (
-                <div className="mt-2">
-                    <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-zinc-500">上下文用量</span>
-                    </div>
-                    <ContextUsageIndicator percent={viewModel.contextUsagePercent} level={viewModel.contextLevel} />
-                </div>
-            )}
-
-            {viewModel.chainProgress > 0 && viewModel.focusedTaskId && (
-                <div className="mt-2 flex items-center gap-2 text-[10px] text-zinc-500">
-                    <span>聚焦链进度</span>
-                    <div className="flex-1 h-0.5 overflow-hidden rounded-full bg-white/[0.04]">
-                        <div className="h-full bg-blue-400 transition-all" style={{ width: `${viewModel.chainProgress}%` }} />
-                    </div>
-                    <span className="font-mono">{viewModel.chainProgress}%</span>
-                </div>
-            )}
-
-            <div className="mt-3 space-y-2">
-                {viewModel.tasks.map((item) => (
-                    <TaskItemRow
-                        key={item.id}
-                        item={item}
-                        expanded={expandedTasks.has(item.id)}
-                        onToggle={() => toggleExpand(item.id)}
-                    />
-                ))}
-            </div>
-
-            {viewModel.securityBlocked && (
-                <div className="mt-3 rounded-lg border border-red-500/12 bg-red-500/[0.04] px-3 py-2 text-xs text-red-300/70">
-                    <i className="fa-solid fa-shield-halved mr-1.5" />
-                    命令被安全机制阻止，已停止所有处理
-                </div>
-            )}
-
-            {viewModel.blockedReason && !viewModel.securityBlocked && (
-                <div className="mt-3 truncate text-xs text-amber-300" title={viewModel.blockedReason}>
+            {compact && viewModel.blockedReason && !viewModel.securityBlocked && (
+                <div className="mt-2 truncate text-xs text-amber-300" title={viewModel.blockedReason}>
                     阻塞：{viewModel.blockedReason}
                 </div>
+            )}
+
+            {compact && viewModel.securityBlocked && (
+                <div className="mt-2 text-xs text-red-300/70">
+                    <i className="fa-solid fa-shield-halved mr-1.5" />
+                    命令被安全机制阻止
+                </div>
+            )}
+
+            {!compact && (
+                <>
+                    {viewModel.contextUsagePercent > 0 && (
+                        <div className="mt-2">
+                            <div className="flex items-center justify-between mb-1">
+                                <span className="text-[10px] text-zinc-500">上下文用量</span>
+                            </div>
+                            <ContextUsageIndicator
+                                percent={viewModel.contextUsagePercent}
+                                level={viewModel.contextLevel}
+                            />
+                        </div>
+                    )}
+
+                    {viewModel.chainProgress > 0 && viewModel.focusedTaskId && (
+                        <div className="mt-2 flex items-center gap-2 text-[10px] text-zinc-500">
+                            <span>聚焦链进度</span>
+                            <div className="flex-1 h-0.5 overflow-hidden rounded-full bg-white/[0.04]">
+                                <div
+                                    className="h-full bg-blue-400 transition-all"
+                                    style={{ width: `${viewModel.chainProgress}%` }}
+                                />
+                            </div>
+                            <span className="font-mono">{viewModel.chainProgress}%</span>
+                        </div>
+                    )}
+
+                    <div className="mt-3 space-y-2">
+                        {viewModel.tasks.map((item) => (
+                            <TaskItemRow
+                                key={item.id}
+                                item={item}
+                                expanded={expandedTasks.has(item.id)}
+                                onToggle={() => toggleExpand(item.id)}
+                            />
+                        ))}
+                    </div>
+
+                    {viewModel.securityBlocked && (
+                        <div className="mt-3 rounded-lg border border-red-500/12 bg-red-500/[0.04] px-3 py-2 text-xs text-red-300/70">
+                            <i className="fa-solid fa-shield-halved mr-1.5" />
+                            命令被安全机制阻止，已停止所有处理
+                        </div>
+                    )}
+
+                    {viewModel.blockedReason && !viewModel.securityBlocked && (
+                        <div className="mt-3 truncate text-xs text-amber-300" title={viewModel.blockedReason}>
+                            阻塞：{viewModel.blockedReason}
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );

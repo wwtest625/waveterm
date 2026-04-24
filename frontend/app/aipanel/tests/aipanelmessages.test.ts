@@ -441,7 +441,7 @@ describe("aipanel task turns", () => {
         expect(groups[0].primary.detail).toBe("ls -ld /app/polyglot");
         expect(groups[0].primary.exitCode).toBe(2);
         expect(groups[0].primary.durationLabel).toBe("耗时 200ms");
-        expect(groups[0].secondary?.title).toBe("读取终端输出");
+        expect(groups[0].secondary?.title).toBe("命令输出");
         expect(groups[0].secondary?.detail).toBe("ls: cannot access '/app/polyglot': No such file or directory");
     });
 

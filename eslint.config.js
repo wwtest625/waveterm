@@ -24,7 +24,6 @@ export default [
             "**/dist/**",
             "**/build/**",
             "**/make/**",
-            "tsunami/frontend/scaffold/**",
             "docs/.docusaurus/**",
         ],
     },

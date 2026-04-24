@@ -71,17 +71,12 @@ func resolveAgentMode(raw string) AgentMode {
 }
 
 var readOnlyAgentTools = map[string]bool{
-	"capture_screenshot":  true,
-	"term_command_output": true,
-	"builder_list_files":  true,
+	"builder_list_files": true,
 }
 
 func isReadOnlyAgentTool(toolName string) bool {
 	if toolName == "" {
 		return false
-	}
-	if strings.HasPrefix(toolName, "tsunami_getdata_") || strings.HasPrefix(toolName, "tsunami_getconfig_") {
-		return true
 	}
 	return readOnlyAgentTools[toolName]
 }

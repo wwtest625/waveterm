@@ -157,12 +157,6 @@ func mergeTaskStateForToolCalls(existing *uctypes.UITaskProgressState, fallback 
 	if existing != nil && len(existing.Tasks) > 0 && existing.Source == "model-generated" {
 		return existing.Clone()
 	}
-	if fallback != nil {
-		return fallback.Clone()
-	}
-	if existing != nil {
-		return existing.Clone()
-	}
 	return nil
 }
 

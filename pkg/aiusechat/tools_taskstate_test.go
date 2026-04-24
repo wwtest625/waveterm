@@ -29,6 +29,40 @@ func TestGetTodoWriteToolDefinition_UsesOpenAICompatibleStrictSchema(t *testing.
 	if _, exists := properties["todos"]; !exists {
 		t.Fatalf("expected 'todos' property in schema")
 	}
+	todosSchema, ok := properties["todos"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected todos schema map, got %#v", properties["todos"])
+	}
+	itemsSchema, ok := todosSchema["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected todos items schema map, got %#v", todosSchema["items"])
+	}
+	todoRequired, ok := itemsSchema["required"].([]string)
+	if !ok {
+		t.Fatalf("expected todo item required []string, got %#v", itemsSchema["required"])
+	}
+	if !slices.Contains(todoRequired, "description") {
+		t.Fatalf("expected todo description to be required, got %#v", todoRequired)
+	}
+	todoProperties, ok := itemsSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected todo item properties map, got %#v", itemsSchema["properties"])
+	}
+	subtasksSchema, ok := todoProperties["subtasks"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected subtasks schema map, got %#v", todoProperties["subtasks"])
+	}
+	subtaskItemsSchema, ok := subtasksSchema["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected subtask items schema map, got %#v", subtasksSchema["items"])
+	}
+	subtaskRequired, ok := subtaskItemsSchema["required"].([]string)
+	if !ok {
+		t.Fatalf("expected subtask required []string, got %#v", subtaskItemsSchema["required"])
+	}
+	if !slices.Contains(subtaskRequired, "description") {
+		t.Fatalf("expected subtask description to be required, got %#v", subtaskRequired)
+	}
 	if _, exists := properties["auto_focus"]; !exists {
 		t.Fatalf("expected 'auto_focus' property in schema")
 	}

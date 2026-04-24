@@ -64,14 +64,8 @@ func getToolCapabilityPrompt(tools []uctypes.ToolDefinition) string {
 	if available["wave_run_command"] {
 		lines = append(lines, "- wave_run_command: execute shell commands on the current Wave connection or current terminal target.")
 	}
-	if available["term_command_output"] {
-		lines = append(lines, "- terminal output tools: inspect terminal scrollback and recent command output (start with a small recent slice, do not fetch full history by default).")
-	}
 	if available["write_text_file"] || available["edit_text_file"] || available["delete_text_file"] {
 		lines = append(lines, "- file tools: write, edit, or delete local files when the user explicitly asks for file changes.")
-	}
-	if available["capture_screenshot"] {
-		lines = append(lines, "- capture_screenshot: inspect the visible widget when visual context is needed.")
 	}
 	if available["waveai_todo_write"] {
 		lines = append(lines, "- waveai_todo_write: create and manage structured task lists for multi-step work (≥3 steps). Each task needs id, content, status, and priority.")

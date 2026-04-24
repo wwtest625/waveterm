@@ -17,16 +17,12 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
-	"github.com/wavetermdev/waveterm/pkg/tsunamiutil"
 	"github.com/wavetermdev/waveterm/pkg/utilds"
 	"github.com/wavetermdev/waveterm/pkg/waveappstore"
-	"github.com/wavetermdev/waveterm/pkg/waveapputil"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/tsunami/build"
 )
 
 const (
@@ -191,114 +187,20 @@ func (bc *BuilderController) Start(ctx context.Context, appId string, builderEnv
 }
 
 func (bc *BuilderController) buildAndRun(ctx context.Context, appId string, builderEnv map[string]string, resultCh chan<- *BuildResult) {
-	appNS, _, err := waveappstore.ParseAppId(appId)
-	if err != nil {
-		bc.handleBuildError(fmt.Errorf("failed to parse app id: %w", err), resultCh)
-		return
-	}
-
 	appPath, err := waveappstore.GetAppDir(appId)
 	if err != nil {
 		bc.handleBuildError(fmt.Errorf("failed to get app directory: %w", err), resultCh)
 		return
 	}
 
-	cachePath, err := GetBuilderAppExecutablePath(appPath)
+	_, err = GetBuilderAppExecutablePath(appPath)
 	if err != nil {
 		bc.handleBuildError(fmt.Errorf("failed to get builder executable path: %w", err), resultCh)
 		return
 	}
 
-	nodePath := wavebase.GetWaveAppElectronExecPath()
-	if nodePath == "" {
-		bc.handleBuildError(fmt.Errorf("electron executable path not set"), resultCh)
-		return
-	}
-
-	scaffoldPath := waveapputil.GetTsunamiScaffoldPath()
-	settings := wconfig.GetWatcher().GetFullConfig().Settings
-	sdkReplacePath := settings.TsunamiSdkReplacePath
-	sdkVersion := settings.TsunamiSdkVersion
-	if sdkVersion == "" {
-		sdkVersion = waveapputil.DefaultTsunamiSdkVersion
-	}
-	goPath := settings.TsunamiGoPath
-
-	outputCapture := build.MakeOutputCapture()
-	_, err = build.TsunamiBuildInternal(build.BuildOpts{
-		AppPath:        appPath,
-		AppNS:          appNS,
-		Verbose:        true,
-		Open:           false,
-		KeepTemp:       false,
-		OutputFile:     cachePath,
-		ScaffoldPath:   scaffoldPath,
-		SdkReplacePath: sdkReplacePath,
-		SdkVersion:     sdkVersion,
-		NodePath:       nodePath,
-		GoPath:         goPath,
-		OutputCapture:  outputCapture,
-		MoveFileBack:   true,
-	})
-
-	for _, line := range outputCapture.GetLines() {
-		bc.outputBuffer.AddLine(line)
-	}
-
-	if err != nil {
-		bc.handleBuildError(fmt.Errorf("build failed: %w", err), resultCh)
-		return
-	}
-
-	info, err := os.Stat(cachePath)
-	if err != nil {
-		bc.handleBuildError(fmt.Errorf("build output not found: %w", err), resultCh)
-		return
-	}
-
-	if runtime.GOOS != "windows" && info.Mode()&0111 == 0 {
-		bc.handleBuildError(fmt.Errorf("build output is not executable"), resultCh)
-		return
-	}
-
-	process, err := bc.runBuilderApp(ctx, appId, cachePath, builderEnv)
-	if err != nil {
-		bc.handleBuildError(fmt.Errorf("failed to run app: %w", err), resultCh)
-		return
-	}
-
-	bc.lock.Lock()
-	bc.process = process
-	bc.setStatus_nolock(BuilderStatus_Running, process.Port, 0, "")
-	bc.lock.Unlock()
-
-	time.Sleep(1 * time.Second)
-
-	if resultCh != nil {
-		buildOutput := ""
-		if bc.outputBuffer != nil {
-			lines := bc.outputBuffer.GetLines()
-			buildOutput = strings.Join(lines, "\n")
-		}
-		select {
-		case resultCh <- &BuildResult{
-			Success:     true,
-			BuildOutput: buildOutput,
-		}:
-		default:
-		}
-	}
-
-	go func() {
-		<-process.WaitCh
-		bc.lock.Lock()
-		if bc.process == process {
-			bc.process = nil
-			exitCode := exitCodeFromWaitErr(process.WaitRtn)
-			bc.setStatus_nolock(BuilderStatus_Stopped, 0, exitCode, "")
-		}
-		bc.lock.Unlock()
-	}()
+	// Tsunami build is not available
+	bc.handleBuildError(fmt.Errorf("tsunami build is not available"), resultCh)
 }
 
 func (bc *BuilderController) runBuilderApp(ctx context.Context, appId string, appBinPath string, builderEnv map[string]string) (*BuilderProcess, error) {
@@ -325,11 +227,7 @@ func (bc *BuilderController) runBuilderApp(ctx context.Context, appId string, ap
 	}
 
 	cmd := exec.Command(appBinPath)
-	cmd.Env = append(os.Environ(), "TSUNAMI_CLOSEONSTDIN=1")
-
-	if wavebase.IsDevMode() {
-		cmd.Env = append(cmd.Env, "TSUNAMI_CORS="+tsunamiutil.DevModeCorsOrigins)
-	}
+	cmd.Env = os.Environ()
 
 	for key, value := range builderEnv {
 		cmd.Env = append(cmd.Env, key+"="+value)
@@ -351,15 +249,8 @@ func (bc *BuilderController) runBuilderApp(ctx context.Context, appId string, ap
 	}
 
 	portChan := make(chan int, 1)
-	portFound := false
 
 	bc.outputBuffer.SetLineCallback(func(line string) {
-		if !portFound {
-			if port := build.ParseTsunamiPort(line); port > 0 {
-				portFound = true
-				portChan <- port
-			}
-		}
 		bc.publishOutputLine(line, false)
 	})
 

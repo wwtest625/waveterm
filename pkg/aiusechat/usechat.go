@@ -311,7 +311,7 @@ func extractToolOutputText(toolName string, resultText string) string {
 	if trimmedResult == "" {
 		return ""
 	}
-	if toolName == "wave_run_command" || toolName == "wave_get_command_result" || toolName == "term_command_output" {
+	if toolName == "wave_run_command" || toolName == "wave_get_command_result" {
 		var outputMap map[string]any
 		if err := json.Unmarshal([]byte(trimmedResult), &outputMap); err == nil {
 			for _, key := range []string{"output", "text", "stdout", "content"} {

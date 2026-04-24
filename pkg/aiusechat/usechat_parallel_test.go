@@ -20,11 +20,11 @@ func makeToolCallForPlan(name string, approval string) uctypes.WaveToolCall {
 
 func TestBuildToolExecutionPlan(t *testing.T) {
 	toolCalls := []uctypes.WaveToolCall{
-		makeToolCallForPlan("capture_screenshot", uctypes.ApprovalAutoApproved),
+		makeToolCallForPlan("builder_list_files", uctypes.ApprovalAutoApproved),
 		makeToolCallForPlan("wave_run_command", uctypes.ApprovalAutoApproved),
 		makeToolCallForPlan("write_text_file", uctypes.ApprovalNeedsApproval),
 		makeToolCallForPlan("wave_get_command_result", uctypes.ApprovalAutoApproved),
-		makeToolCallForPlan("term_command_output", uctypes.ApprovalNeedsApproval),
+		makeToolCallForPlan("edit_text_file", uctypes.ApprovalNeedsApproval),
 	}
 
 	plan := buildToolExecutionPlan(toolCalls)

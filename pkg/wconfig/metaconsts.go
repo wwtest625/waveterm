@@ -118,11 +118,5 @@ const (
 	ConfigKey_DebugClear                     = "debug:*"
 	ConfigKey_DebugPprofPort                 = "debug:pprofport"
 	ConfigKey_DebugPprofMemProfileRate       = "debug:pprofmemprofilerate"
-
-	ConfigKey_TsunamiClear                   = "tsunami:*"
-	ConfigKey_TsunamiScaffoldPath            = "tsunami:scaffoldpath"
-	ConfigKey_TsunamiSdkReplacePath          = "tsunami:sdkreplacepath"
-	ConfigKey_TsunamiSdkVersion              = "tsunami:sdkversion"
-	ConfigKey_TsunamiGoPath                  = "tsunami:gopath"
 )
 

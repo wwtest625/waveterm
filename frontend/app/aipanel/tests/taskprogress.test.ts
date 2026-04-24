@@ -50,11 +50,30 @@ describe("deriveTaskProgressViewModel", () => {
             status: "active",
             currenttaskid: "task-2",
             tasks: [
-                { id: "task-1", title: "安装 MySQL", description: "使用 apt 安装", status: "completed", priority: "high" },
-                { id: "task-2", title: "配置 my.cnf", description: "调整 buffer pool", status: "in_progress", priority: "high", isfocused: true },
+                {
+                    id: "task-1",
+                    title: "安装 MySQL",
+                    description: "使用 apt 安装",
+                    status: "completed",
+                    priority: "high",
+                },
+                {
+                    id: "task-2",
+                    title: "配置 my.cnf",
+                    description: "调整 buffer pool",
+                    status: "in_progress",
+                    priority: "high",
+                    isfocused: true,
+                },
             ],
             summary: { total: 2, completed: 1, inprogress: 1, pending: 0, blocked: 0, percent: 50 },
-            focuschain: { focusedtodoid: "task-2", chainprogress: 50, totaltodos: 2, completedtodos: 1, currentcontextusage: 35 },
+            focuschain: {
+                focusedtodoid: "task-2",
+                chainprogress: 50,
+                totaltodos: 2,
+                completedtodos: 1,
+                currentcontextusage: 35,
+            },
         });
 
         expect(viewModel.currentTaskTitle).toBe("配置 my.cnf");
@@ -87,9 +106,7 @@ describe("deriveTaskProgressViewModel", () => {
 
     it("derives context level from usage percent when not in focuschain", () => {
         const viewModel = deriveTaskProgressViewModel({
-            tasks: [
-                { id: "task-1", title: "Task A", status: "in_progress", isfocused: true, contextusagepercent: 85 },
-            ],
+            tasks: [{ id: "task-1", title: "Task A", status: "in_progress", isfocused: true, contextusagepercent: 85 }],
             summary: { total: 1, completed: 0, percent: 0 },
         });
 
@@ -178,5 +195,19 @@ describe("deriveTaskProgressViewModel", () => {
         });
 
         expect(viewModel.visible).toBe(false);
+    });
+
+    it("hides system-updated tool fallback states", () => {
+        const viewModel = deriveTaskProgressViewModel({
+            source: "system-updated",
+            tasks: [
+                { id: "tool-1", title: "执行命令", status: "in_progress" },
+                { id: "tool-2", title: "读取输出", status: "pending" },
+            ],
+            summary: { total: 2, completed: 0, percent: 0 },
+        });
+
+        expect(viewModel.visible).toBe(false);
+        expect(viewModel.tasks).toHaveLength(0);
     });
 });

@@ -514,7 +514,6 @@ export function agentRuntimeSnapshotEquals(left: AgentRuntimeSnapshot, right: Ag
 export function inferToolCapability(toolName?: string): ToolCapability {
     switch (toolName) {
         case "read_dir":
-        case "term_command_output":
             return "read";
         case "write_text_file":
         case "delete_text_file":
@@ -548,7 +547,9 @@ export function isInternalAssistantToolName(toolName?: string): boolean {
     return INTERNAL_ASSISTANT_TOOL_NAMES.has(toolName);
 }
 
-export function getLatestTaskStatePart(message?: WaveUIMessage): (WaveUIMessagePart & { type: "data-taskstate" }) | null {
+export function getLatestTaskStatePart(
+    message?: WaveUIMessage
+): (WaveUIMessagePart & { type: "data-taskstate" }) | null {
     const part = [...(message?.parts ?? [])].reverse().find((candidate) => candidate.type === "data-taskstate");
     return part?.type === "data-taskstate" ? part : null;
 }
@@ -565,10 +566,14 @@ export function getLatestToolProgressPart(
     return part?.type === "data-toolprogress" ? part : null;
 }
 
-export function getLatestVisibleToolUsePart(message?: WaveUIMessage): (WaveUIMessagePart & { type: "data-tooluse" }) | null {
+export function getLatestVisibleToolUsePart(
+    message?: WaveUIMessage
+): (WaveUIMessagePart & { type: "data-tooluse" }) | null {
     const part = [...(message?.parts ?? [])]
         .reverse()
-        .find((candidate) => candidate.type === "data-tooluse" && !isInternalAssistantToolName(candidate.data?.toolname));
+        .find(
+            (candidate) => candidate.type === "data-tooluse" && !isInternalAssistantToolName(candidate.data?.toolname)
+        );
     return part?.type === "data-tooluse" ? part : null;
 }
 
@@ -828,8 +833,6 @@ export function isToolDetailPart(
     return part.type === "data-tooluse" || part.type === "data-toolprogress";
 }
 
-export function isTextPart(
-    part: WaveUIMessagePart
-): part is WaveUIMessagePart & { type: "text"; text: string } {
+export function isTextPart(part: WaveUIMessagePart): part is WaveUIMessagePart & { type: "text"; text: string } {
     return part.type === "text" && typeof part.text === "string";
 }

@@ -70,14 +70,11 @@ func TestMergeToolTaskStatePrefersExistingSemanticPlan(t *testing.T) {
 	}
 }
 
-func TestMergeToolTaskStateUsesFallbackWhenNoSemanticPlanExists(t *testing.T) {
+func TestMergeToolTaskStateReturnsNilWhenNoSemanticPlanExists(t *testing.T) {
 	fallback := buildTaskStateFromToolCalls([]uctypes.WaveToolCall{{ID: "tool-1", Name: "wave_run_command"}})
 	merged := mergeTaskStateForToolCalls(nil, fallback)
-	if merged == nil {
-		t.Fatal("expected fallback task state")
-	}
-	if len(merged.Tasks) != 1 {
-		t.Fatalf("expected one fallback task, got %d", len(merged.Tasks))
+	if merged != nil {
+		t.Fatalf("expected no task progress without a semantic plan, got %#v", merged)
 	}
 }
 
@@ -216,12 +213,12 @@ func TestMergeToolTaskStateUsesExistingNonEmptyPlanEvenWhenFallbackPresent(t *te
 	existing := &uctypes.UITaskProgressState{
 		PlanId: "plan-1",
 		Source: "model-generated",
-		Tasks: []uctypes.UITaskItem{{ID: "plan-task-1", Title: "运行并验证输出", Status: uctypes.TaskItemStatusInProgress}},
+		Tasks:  []uctypes.UITaskItem{{ID: "plan-task-1", Title: "运行并验证输出", Status: uctypes.TaskItemStatusInProgress}},
 	}
 	fallback := &uctypes.UITaskProgressState{
 		PlanId: "fallback-1",
 		Source: "system-updated",
-		Tasks: []uctypes.UITaskItem{{ID: "tool-1", Title: "执行命令", Status: uctypes.TaskItemStatusInProgress}},
+		Tasks:  []uctypes.UITaskItem{{ID: "tool-1", Title: "执行命令", Status: uctypes.TaskItemStatusInProgress}},
 	}
 	merged := mergeTaskStateForToolCalls(existing, fallback)
 	if merged.PlanId != "plan-1" {
@@ -249,7 +246,7 @@ func TestAdvanceTaskStateForToolResult_DoesNothingWhenToolIdIsUnknown(t *testing
 		Source:        "model-generated",
 		Status:        uctypes.TaskProgressStatusActive,
 		CurrentTaskId: "plan-task-1",
-		Tasks: []uctypes.UITaskItem{{ID: "plan-task-1", Title: "创建 Python 脚本", Status: uctypes.TaskItemStatusInProgress, ToolCalls: []uctypes.UIToolCall{{ID: "tool-a"}}}},
+		Tasks:         []uctypes.UITaskItem{{ID: "plan-task-1", Title: "创建 Python 脚本", Status: uctypes.TaskItemStatusInProgress, ToolCalls: []uctypes.UIToolCall{{ID: "tool-a"}}}},
 	}
 	advanceTaskStateForToolResult(state, uctypes.AIToolResult{ToolUseID: "unknown-tool"})
 	if got := state.Tasks[0].Status; got != uctypes.TaskItemStatusInProgress {
@@ -279,7 +276,7 @@ func TestAdvanceTaskStateForToolResult_CompletesPlanWhenLastSemanticTaskFinishes
 		Source:        "model-generated",
 		Status:        uctypes.TaskProgressStatusActive,
 		CurrentTaskId: "plan-task-1",
-		Tasks: []uctypes.UITaskItem{{ID: "plan-task-1", Title: "运行并验证输出", Status: uctypes.TaskItemStatusInProgress, ToolCalls: []uctypes.UIToolCall{{ID: "tool-a"}}}},
+		Tasks:         []uctypes.UITaskItem{{ID: "plan-task-1", Title: "运行并验证输出", Status: uctypes.TaskItemStatusInProgress, ToolCalls: []uctypes.UIToolCall{{ID: "tool-a"}}}},
 	}
 	advanceTaskStateForToolResult(state, uctypes.AIToolResult{ToolUseID: "tool-a"})
 	if got := state.Status; got != uctypes.TaskProgressStatusCompleted {
@@ -291,12 +288,12 @@ func TestMergeToolTaskStateKeepsSemanticTitlesEvenIfFallbackHasDifferentTitles(t
 	existing := &uctypes.UITaskProgressState{
 		PlanId: "plan-1",
 		Source: "model-generated",
-		Tasks: []uctypes.UITaskItem{{ID: "plan-task-1", Title: "创建 Python 脚本", Status: uctypes.TaskItemStatusInProgress}},
+		Tasks:  []uctypes.UITaskItem{{ID: "plan-task-1", Title: "创建 Python 脚本", Status: uctypes.TaskItemStatusInProgress}},
 	}
 	fallback := &uctypes.UITaskProgressState{
 		PlanId: "fallback-1",
 		Source: "system-updated",
-		Tasks: []uctypes.UITaskItem{{ID: "tool-1", Title: "执行命令", Status: uctypes.TaskItemStatusInProgress}},
+		Tasks:  []uctypes.UITaskItem{{ID: "tool-1", Title: "执行命令", Status: uctypes.TaskItemStatusInProgress}},
 	}
 	merged := mergeTaskStateForToolCalls(existing, fallback)
 	if got := merged.Tasks[0].Title; got != "创建 Python 脚本" {
@@ -379,7 +376,7 @@ func TestMergeToolTaskStatePreservesSemanticPlanStatus(t *testing.T) {
 		PlanId: "plan-1",
 		Source: "model-generated",
 		Status: uctypes.TaskProgressStatusBlocked,
-		Tasks: []uctypes.UITaskItem{{ID: "plan-task-1", Title: "运行并验证输出", Status: uctypes.TaskItemStatusBlocked}},
+		Tasks:  []uctypes.UITaskItem{{ID: "plan-task-1", Title: "运行并验证输出", Status: uctypes.TaskItemStatusBlocked}},
 	}
 	fallback := buildTaskStateFromToolCalls([]uctypes.WaveToolCall{{ID: "tool-1", Name: "wave_run_command"}})
 	merged := mergeTaskStateForToolCalls(existing, fallback)
@@ -424,7 +421,7 @@ func TestMergeToolTaskStateKeepsSemanticPlanEvenWhenFallbackHasMoreTasks(t *test
 	existing := &uctypes.UITaskProgressState{
 		PlanId: "plan-1",
 		Source: "model-generated",
-		Tasks: []uctypes.UITaskItem{{ID: "plan-task-1", Title: "创建 Python 脚本", Status: uctypes.TaskItemStatusInProgress}},
+		Tasks:  []uctypes.UITaskItem{{ID: "plan-task-1", Title: "创建 Python 脚本", Status: uctypes.TaskItemStatusInProgress}},
 	}
 	fallback := &uctypes.UITaskProgressState{
 		PlanId: "fallback-1",
@@ -622,11 +619,11 @@ func TestAdvanceTaskStateForToolResult_DoesNotOverrideSemanticDescriptionOrPrior
 	}
 }
 
-func TestMergeTaskStateForToolCalls_SystemUpdatedSourceUsesFallback(t *testing.T) {
+func TestMergeTaskStateForToolCalls_SystemUpdatedSourceIsNotPromoted(t *testing.T) {
 	existing := &uctypes.UITaskProgressState{
 		PlanId: "plan-1",
 		Source: "system-updated",
-		Tasks: []uctypes.UITaskItem{{ID: "tool-1", Title: "执行命令", Status: uctypes.TaskItemStatusInProgress}},
+		Tasks:  []uctypes.UITaskItem{{ID: "tool-1", Title: "执行命令", Status: uctypes.TaskItemStatusInProgress}},
 	}
 	fallback := &uctypes.UITaskProgressState{
 		PlanId: "fallback-1",
@@ -637,7 +634,7 @@ func TestMergeTaskStateForToolCalls_SystemUpdatedSourceUsesFallback(t *testing.T
 		},
 	}
 	merged := mergeTaskStateForToolCalls(existing, fallback)
-	if merged.PlanId != "fallback-1" {
-		t.Fatalf("expected fallback to win when existing is not model-generated, got %q", merged.PlanId)
+	if merged != nil {
+		t.Fatalf("expected system-updated state to stay out of task progress, got %#v", merged)
 	}
 }

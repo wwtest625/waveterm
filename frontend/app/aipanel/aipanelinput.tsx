@@ -27,9 +27,13 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     const isThinking = runtime.state === "submitting" || runtime.state === "planning";
     const isFocused = useAtomValue(model.isWaveAIFocusedAtom);
     const isChatEmpty = useAtomValue(model.isChatEmptyAtom);
+    const droppedFiles = useAtomValue(model.droppedFiles);
+    const queuedSubmissions = useAtomValue(model.queuedSubmissionsAtom);
+    const terminalTarget = useAtomValue(model.terminalTargetAtom);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isPanelOpen = useAtomValue(model.getPanelVisibleAtom());
+    const canSubmit = Boolean(input.trim()) || droppedFiles.length > 0;
 
     let placeholder: string;
     if (!isChatEmpty) {
@@ -103,6 +107,17 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
         }
     }, [isPanelOpen, resizeTextarea]);
 
+    useEffect(() => {
+        if (!isPanelOpen) {
+            return;
+        }
+        model.refreshTerminalTargetInfo();
+        const intervalId = window.setInterval(() => {
+            model.refreshTerminalTargetInfo();
+        }, 1000);
+        return () => window.clearInterval(intervalId);
+    }, [isPanelOpen, model]);
+
     const handleUploadClick = () => {
         fileInputRef.current?.click();
     };
@@ -149,17 +164,38 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
             />
             <form onSubmit={onSubmit}>
                 <div className="mb-2 flex items-center justify-between gap-3 text-[10px] text-zinc-500">
-                    <div className="truncate">{isChatEmpty ? "Ask, edit, run, verify" : "Continue the session"}</div>
+                    <div className="min-w-0 flex items-center gap-1.5 truncate">
+                        <span className="shrink-0 text-zinc-500">Agent targets</span>
+                        <span
+                            className={cn(
+                                "min-w-0 truncate rounded-md border px-1.5 py-0.5",
+                                terminalTarget
+                                    ? "border-lime-300/10 bg-lime-300/[0.04] text-zinc-300"
+                                    : "border-red-300/10 bg-red-300/[0.04] text-red-200/70"
+                            )}
+                            title={
+                                terminalTarget
+                                    ? `${terminalTarget.connName}${terminalTarget.cwd ? ` - ${terminalTarget.cwd}` : ""}`
+                                    : "No terminal target"
+                            }
+                        >
+                            {terminalTarget
+                                ? `${terminalTarget.connName}${terminalTarget.cwd ? ` - ${terminalTarget.cwd}` : ""}`
+                                : "no terminal"}
+                        </span>
+                    </div>
                     <div className="shrink-0">
-                        {isThinking
-                            ? "Thinking"
-                            : runtime.state === "executing" ||
-                                runtime.state === "awaiting_approval" ||
-                                runtime.state === "interacting"
-                              ? "Executing"
-                              : status === "streaming"
-                                ? "Responding"
-                                : "Ready"}
+                        {queuedSubmissions.length > 0
+                            ? `Queued ${queuedSubmissions.length}`
+                            : isThinking
+                              ? "Thinking"
+                              : runtime.state === "executing" ||
+                                  runtime.state === "awaiting_approval" ||
+                                  runtime.state === "interacting"
+                                ? "Executing"
+                                : status === "streaming"
+                                  ? "Responding"
+                                  : "Ready"}
                     </div>
                 </div>
                 <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-black/15">
@@ -245,10 +281,10 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                             <Tooltip content="Send message (Enter)" placement="top">
                                 <button
                                     type="submit"
-                                    disabled={status !== "ready" || !input.trim()}
+                                    disabled={!canSubmit}
                                     className={cn(
                                         "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-                                        status !== "ready" || !input.trim()
+                                        !canSubmit
                                             ? "bg-white/[0.02] text-zinc-600"
                                             : "cursor-pointer bg-lime-300/[0.08] text-lime-200/80 hover:bg-lime-300/12 hover:text-lime-100"
                                     )}

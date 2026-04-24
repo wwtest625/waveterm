@@ -117,25 +117,19 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	}
 
 	toolCapabilityPrompt := getToolCapabilityPrompt([]uctypes.ToolDefinition{
-		GetTermCommandOutputToolDefinition("tab-1"),
 		GetWaveRunCommandToolDefinition(),
 		GetWriteTextFileToolDefinition(),
 	})
 	if !strings.Contains(toolCapabilityPrompt, "wave_run_command: execute shell commands") {
 		t.Fatalf("expected tool capability prompt to describe command execution when wave_run_command is present, got %q", toolCapabilityPrompt)
 	}
-	if !strings.Contains(toolCapabilityPrompt, "terminal output tools: inspect terminal scrollback") {
-		t.Fatalf("expected tool capability prompt to describe terminal output inspection, got %q", toolCapabilityPrompt)
-	}
 	if !strings.Contains(toolCapabilityPrompt, "file tools: write, edit, or delete local files") {
 		t.Fatalf("expected tool capability prompt to describe file tools, got %q", toolCapabilityPrompt)
 	}
 
-	scrollbackOnlyPrompt := getToolCapabilityPrompt([]uctypes.ToolDefinition{
-		GetTermCommandOutputToolDefinition("tab-1"),
-	})
-	if strings.Contains(scrollbackOnlyPrompt, "execute shell commands") {
-		t.Fatalf("expected scrollback-only prompt not to claim command execution, got %q", scrollbackOnlyPrompt)
+	legacyOutputPrompt := getToolCapabilityPrompt([]uctypes.ToolDefinition{{Name: "term_command_output"}})
+	if strings.Contains(legacyOutputPrompt, "terminal output tools") {
+		t.Fatalf("expected legacy terminal output tool to stay out of capability prompt, got %q", legacyOutputPrompt)
 	}
 
 }

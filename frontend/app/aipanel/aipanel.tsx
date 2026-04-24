@@ -85,7 +85,6 @@ AIDragOverlay.displayName = "AIDragOverlay";
 const AIWelcomeMessage = memo(() => {
     return (
         <div className="flex flex-col items-center justify-center py-16 text-zinc-400">
-
             <p className="text-sm font-medium text-zinc-200">欢迎使用 Wiz AI</p>
         </div>
     );
@@ -334,7 +333,13 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
             blockedby: cheatsheet?.blockedby ?? "",
             nextstep: cheatsheet?.nextstep ?? "",
         });
-    }, [activeSession?.chatid, activeSession?.cheatsheet?.blockedby, activeSession?.cheatsheet?.completed, activeSession?.cheatsheet?.currentwork, activeSession?.cheatsheet?.nextstep]);
+    }, [
+        activeSession?.chatid,
+        activeSession?.cheatsheet?.blockedby,
+        activeSession?.cheatsheet?.completed,
+        activeSession?.cheatsheet?.currentwork,
+        activeSession?.cheatsheet?.nextstep,
+    ]);
 
     const filteredSessions = sessions.filter((session) => {
         if (hiddenSessionIds.includes(session.chatid)) {
@@ -371,11 +376,14 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
         const todayStartTs = today.getTime();
         for (const session of displaySessions) {
             const sessionTs = getSessionSortTs(session);
-            const bucketTs = sessionTs > 0 ? (() => {
-                const bucketDate = new Date(sessionTs);
-                bucketDate.setHours(0, 0, 0, 0);
-                return bucketDate.getTime();
-            })() : 0;
+            const bucketTs =
+                sessionTs > 0
+                    ? (() => {
+                          const bucketDate = new Date(sessionTs);
+                          bucketDate.setHours(0, 0, 0, 0);
+                          return bucketDate.getTime();
+                      })()
+                    : 0;
             const bucket = groups.get(bucketTs);
             if (bucket) {
                 bucket.push(session);
@@ -395,7 +403,10 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
             return;
         }
         const title = activeSession?.title || "New Chat";
-        const safeTitle = title.slice(0, 30).replace(/[/\\?%*:|"<>]/g, "-").trim();
+        const safeTitle = title
+            .slice(0, 30)
+            .replace(/[/\\?%*:|"<>]/g, "-")
+            .trim();
         const header = `# ${title}\n\n> ${new Date().toLocaleString()} from Wave AI\n\n---\n\n`;
         const body = messages
             .map((msg) => {
@@ -462,7 +473,7 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
                             color: "#71717a",
                             backgroundColor: "transparent",
                             border: "none",
-                            opacity: (!messages || messages.length === 0) ? 0.3 : 1,
+                            opacity: !messages || messages.length === 0 ? 0.3 : 1,
                         }}
                         aria-label="导出会话"
                     >
@@ -478,80 +489,90 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
                             <i className="fa-solid fa-note-sticky" style={{ fontSize: 10 }} />
                         </PopoverButton>
                         <PopoverContent className="flex min-h-0 w-[360px] max-w-[calc(100vw-24px)] flex-col gap-0 rounded-xl border border-white/10 bg-zinc-900/96 p-3 shadow-2xl backdrop-blur">
-                        <div className="mb-3">
-                            <div className="text-sm font-medium text-white">会话小抄</div>
-                            <div className="mt-1 text-[11px] text-zinc-400">这四项会重新注入模型请求，用户可以手动修正。</div>
-                        </div>
-                        <div className="space-y-3">
-                            <label className="block">
-                                <div className="mb-1 text-[11px] text-zinc-400">现在在做什么</div>
-                                <input
-                                    value={cheatsheetDraft.currentwork}
-                                    onChange={(e) => setCheatsheetDraft((prev) => ({ ...prev, currentwork: e.target.value }))}
-                                    className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                    placeholder="当前任务"
-                                />
-                            </label>
-                            <label className="block">
-                                <div className="mb-1 text-[11px] text-zinc-400">已经完成什么</div>
-                                <input
-                                    value={cheatsheetDraft.completed}
-                                    onChange={(e) => setCheatsheetDraft((prev) => ({ ...prev, completed: e.target.value }))}
-                                    className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                    placeholder="已完成项"
-                                />
-                            </label>
-                            <label className="block">
-                                <div className="mb-1 text-[11px] text-zinc-400">当前卡点</div>
-                                <input
-                                    value={cheatsheetDraft.blockedby}
-                                    onChange={(e) => setCheatsheetDraft((prev) => ({ ...prev, blockedby: e.target.value }))}
-                                    className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                    placeholder="阻塞点"
-                                />
-                            </label>
-                            <label className="block">
-                                <div className="mb-1 text-[11px] text-zinc-400">下一步</div>
-                                <input
-                                    value={cheatsheetDraft.nextstep}
-                                    onChange={(e) => setCheatsheetDraft((prev) => ({ ...prev, nextstep: e.target.value }))}
-                                    className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                    placeholder="下一步动作"
-                                />
-                            </label>
-                        </div>
-                        <div className="mt-3 flex w-full shrink-0 justify-end gap-2 border-t border-white/8 pt-3">
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    setCheatsheetDraft({
-                                        currentwork: activeSession?.cheatsheet?.currentwork ?? "",
-                                        completed: activeSession?.cheatsheet?.completed ?? "",
-                                        blockedby: activeSession?.cheatsheet?.blockedby ?? "",
-                                        nextstep: activeSession?.cheatsheet?.nextstep ?? "",
-                                    })
-                                }
-                                className="inline-flex h-9 min-w-16 items-center justify-center rounded-lg border border-white/8 bg-white/5 px-3 py-1.5 text-xs text-zinc-300 whitespace-nowrap hover:bg-white/8"
-                            >
-                                重置
-                            </button>
-                            <button
-                                type="button"
-                                disabled={!activeSession?.chatid}
-                                onClick={() =>
-                                    void model.updateSessionCheatsheet(activeSession?.chatid ?? "", cheatsheetDraft)
-                                }
-                                className={cn(
-                                    "inline-flex h-9 min-w-16 items-center justify-center rounded-lg px-3 py-1.5 text-xs whitespace-nowrap",
-                                    activeSession?.chatid
-                                        ? "bg-cyan-300/15 text-cyan-100 hover:bg-cyan-300/20"
-                                        : "bg-white/5 text-zinc-500"
-                                )}
-                            >
-                                保存
-                            </button>
-                        </div>
-                    </PopoverContent>
+                            <div className="mb-3">
+                                <div className="text-sm font-medium text-white">会话小抄</div>
+                                <div className="mt-1 text-[11px] text-zinc-400">
+                                    这四项会重新注入模型请求，用户可以手动修正。
+                                </div>
+                            </div>
+                            <div className="space-y-3">
+                                <label className="block">
+                                    <div className="mb-1 text-[11px] text-zinc-400">现在在做什么</div>
+                                    <input
+                                        value={cheatsheetDraft.currentwork}
+                                        onChange={(e) =>
+                                            setCheatsheetDraft((prev) => ({ ...prev, currentwork: e.target.value }))
+                                        }
+                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                                        placeholder="当前任务"
+                                    />
+                                </label>
+                                <label className="block">
+                                    <div className="mb-1 text-[11px] text-zinc-400">已经完成什么</div>
+                                    <input
+                                        value={cheatsheetDraft.completed}
+                                        onChange={(e) =>
+                                            setCheatsheetDraft((prev) => ({ ...prev, completed: e.target.value }))
+                                        }
+                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                                        placeholder="已完成项"
+                                    />
+                                </label>
+                                <label className="block">
+                                    <div className="mb-1 text-[11px] text-zinc-400">当前卡点</div>
+                                    <input
+                                        value={cheatsheetDraft.blockedby}
+                                        onChange={(e) =>
+                                            setCheatsheetDraft((prev) => ({ ...prev, blockedby: e.target.value }))
+                                        }
+                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                                        placeholder="阻塞点"
+                                    />
+                                </label>
+                                <label className="block">
+                                    <div className="mb-1 text-[11px] text-zinc-400">下一步</div>
+                                    <input
+                                        value={cheatsheetDraft.nextstep}
+                                        onChange={(e) =>
+                                            setCheatsheetDraft((prev) => ({ ...prev, nextstep: e.target.value }))
+                                        }
+                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
+                                        placeholder="下一步动作"
+                                    />
+                                </label>
+                            </div>
+                            <div className="mt-3 flex w-full shrink-0 justify-end gap-2 border-t border-white/8 pt-3">
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setCheatsheetDraft({
+                                            currentwork: activeSession?.cheatsheet?.currentwork ?? "",
+                                            completed: activeSession?.cheatsheet?.completed ?? "",
+                                            blockedby: activeSession?.cheatsheet?.blockedby ?? "",
+                                            nextstep: activeSession?.cheatsheet?.nextstep ?? "",
+                                        })
+                                    }
+                                    className="inline-flex h-9 min-w-16 items-center justify-center rounded-lg border border-white/8 bg-white/5 px-3 py-1.5 text-xs text-zinc-300 whitespace-nowrap hover:bg-white/8"
+                                >
+                                    重置
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={!activeSession?.chatid}
+                                    onClick={() =>
+                                        void model.updateSessionCheatsheet(activeSession?.chatid ?? "", cheatsheetDraft)
+                                    }
+                                    className={cn(
+                                        "inline-flex h-9 min-w-16 items-center justify-center rounded-lg px-3 py-1.5 text-xs whitespace-nowrap",
+                                        activeSession?.chatid
+                                            ? "bg-cyan-300/15 text-cyan-100 hover:bg-cyan-300/20"
+                                            : "bg-white/5 text-zinc-500"
+                                    )}
+                                >
+                                    保存
+                                </button>
+                            </div>
+                        </PopoverContent>
                     </Popover>
                     <Popover className="min-w-0" placement="bottom-end" onDismiss={() => setQuery("")}>
                         <PopoverButton
@@ -574,7 +595,10 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
                             </div>
                             <div className="mt-2 w-full max-h-[420px] overflow-y-auto pr-1">
                                 {groupedHistorySessions.map((group) => (
-                                    <div key={group.label} className="border-b border-white/8 py-2 last:border-b-0 last:pb-0">
+                                    <div
+                                        key={group.label}
+                                        className="border-b border-white/8 py-2 last:border-b-0 last:pb-0"
+                                    >
                                         <div className="mb-2 px-1 text-[11px] text-zinc-500">{group.label}</div>
                                         <div className="flex flex-col">
                                             {group.sessions.map((session) => (
@@ -582,7 +606,9 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
                                                     key={session.chatid}
                                                     className={cn(
                                                         "group flex items-center gap-2 rounded-md px-2 py-1 transition-colors",
-                                                        session.chatid === activeChatId ? "bg-white/8" : "hover:bg-white/6"
+                                                        session.chatid === activeChatId
+                                                            ? "bg-white/8"
+                                                            : "hover:bg-white/6"
                                                     )}
                                                 >
                                                     <button
@@ -590,7 +616,9 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
                                                         onClick={() => void model.switchSession(session.chatid)}
                                                         className={cn(
                                                             "min-w-0 flex-1 truncate text-left text-[13px] font-medium transition-colors",
-                                                            session.chatid === activeChatId ? "text-white" : "text-zinc-200 hover:text-white"
+                                                            session.chatid === activeChatId
+                                                                ? "text-white"
+                                                                : "text-zinc-200 hover:text-white"
                                                         )}
                                                         title={session.summary || session.title || "New Chat"}
                                                     >
@@ -599,14 +627,19 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
                                                     <div
                                                         className={cn(
                                                             "flex items-center gap-0.5 transition-opacity",
-                                                            session.chatid === activeChatId ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                                                            session.chatid === activeChatId
+                                                                ? "opacity-100"
+                                                                : "opacity-0 group-hover:opacity-100"
                                                         )}
                                                     >
                                                         <button
                                                             type="button"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                const nextTitle = window.prompt("Rename this session", session.title ?? "New Chat");
+                                                                const nextTitle = window.prompt(
+                                                                    "Rename this session",
+                                                                    session.title ?? "New Chat"
+                                                                );
                                                                 if (nextTitle && nextTitle.trim()) {
                                                                     void model.renameSession(session.chatid, nextTitle);
                                                                 }
@@ -621,7 +654,11 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
                                                             type="button"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                if (window.confirm(`Delete "${session.title || "New Chat"}" permanently?`)) {
+                                                                if (
+                                                                    window.confirm(
+                                                                        `Delete "${session.title || "New Chat"}" permanently?`
+                                                                    )
+                                                                ) {
                                                                     void model.deleteSession(session.chatid);
                                                                 }
                                                             }}
@@ -647,7 +684,14 @@ const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
                         type="button"
                         onClick={() => model.clearChat()}
                         className="flex items-center justify-center transition-colors hover:opacity-80 cursor-pointer"
-                        style={{ width: 20, height: 20, borderRadius: 4, color: "#71717a", backgroundColor: "transparent", border: "none" }}
+                        style={{
+                            width: 20,
+                            height: 20,
+                            borderRadius: 4,
+                            color: "#71717a",
+                            backgroundColor: "transparent",
+                            border: "none",
+                        }}
                         aria-label="新建会话"
                     >
                         <i className="fa-solid fa-plus" style={{ fontSize: 10 }} />
@@ -849,11 +893,20 @@ const AIPanelComponentInner = memo(() => {
         if (commandInteraction || agentRuntimeSnapshot.activeJobId) {
             return;
         }
-        if (isTerminalRuntimeState(agentRuntimeSnapshot.state) && !isTerminalRuntimeState(derivedAgentStatusSnapshot.state)) {
+        if (
+            isTerminalRuntimeState(agentRuntimeSnapshot.state) &&
+            !isTerminalRuntimeState(derivedAgentStatusSnapshot.state)
+        ) {
             return;
         }
         model.mergeAgentRuntimeSnapshot(derivedAgentStatusSnapshot);
-    }, [agentRuntimeSnapshot.activeJobId, agentRuntimeSnapshot.state, commandInteraction, derivedAgentStatusSnapshot, model]);
+    }, [
+        agentRuntimeSnapshot.activeJobId,
+        agentRuntimeSnapshot.state,
+        commandInteraction,
+        derivedAgentStatusSnapshot,
+        model,
+    ]);
 
     useEffect(() => {
         const currentChatId = globalStore.get(model.chatId);
@@ -1120,6 +1173,12 @@ const AIPanelComponentInner = memo(() => {
     }, [status]);
 
     useEffect(() => {
+        if (status === "ready" || status === "error") {
+            void model.flushQueuedSubmissions();
+        }
+    }, [status, model]);
+
+    useEffect(() => {
         const keyHandler = keydownWrapper(handleKeyDown);
         document.addEventListener("keydown", keyHandler);
         return () => {
@@ -1354,14 +1413,14 @@ const AIPanelComponentInner = memo(() => {
             {showBlockMask && <AIBlockMask />}
             <div key="main-content" className="flex-1 flex flex-col min-h-0">
                 <AISessionToolbar messages={messages} />
-                <TaskProgressPanel taskState={taskState} />
+                <TaskProgressPanel taskState={taskState} compact={true} />
                 {messages.length === 0 && initialLoadDone ? (
                     <div
                         className="flex-1 overflow-y-auto p-2 relative"
                         onContextMenu={(e) => handleWaveAIContextMenu(e, true)}
                     >
-                                <AIWelcomeMessage />
-                            </div>
+                        <AIWelcomeMessage />
+                    </div>
                 ) : (
                     <AIPanelMessages
                         messages={messages}

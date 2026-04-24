@@ -24,7 +24,7 @@ func TestBuildToolCallDedupKeys(t *testing.T) {
 	calls := []uctypes.WaveToolCall{
 		makeToolCallForDedup("call-1", "wave_run_command", map[string]any{"command": "pwd", "timeout_ms": 1000}, uctypes.ApprovalNeedsApproval),
 		makeToolCallForDedup("call-2", "wave_run_command", map[string]any{"command": "pwd", "timeout_ms": 1000}, uctypes.ApprovalNeedsApproval),
-		makeToolCallForDedup("call-3", "term_command_output", map[string]any{"widget_id": "deadbeef"}, uctypes.ApprovalNeedsApproval),
+		makeToolCallForDedup("call-3", "write_text_file", map[string]any{"filename": "out.txt"}, uctypes.ApprovalNeedsApproval),
 	}
 
 	keys := buildToolCallDedupKeys(calls)

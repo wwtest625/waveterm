@@ -8,43 +8,19 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
-
-	"github.com/wavetermdev/waveterm/pkg/wavebase"
-	"github.com/wavetermdev/waveterm/pkg/wconfig"
-	"github.com/wavetermdev/waveterm/tsunami/build"
 )
 
-const DefaultTsunamiSdkVersion = "v0.12.4"
-
-func GetTsunamiScaffoldPath() string {
-	settings := wconfig.GetWatcher().GetFullConfig().Settings
-	scaffoldPath := settings.TsunamiScaffoldPath
-	if scaffoldPath == "" {
-		scaffoldPath = filepath.Join(wavebase.GetWaveAppResourcesPath(), "tsunamiscaffold")
-	}
-	return scaffoldPath
-}
-
 func ResolveGoFmtPath() (string, error) {
-	settings := wconfig.GetWatcher().GetFullConfig().Settings
-	goPath := settings.TsunamiGoPath
-
-	if goPath == "" {
-		var err error
-		goPath, err = build.FindGoExecutable()
-		if err != nil {
-			return "", err
-		}
-	}
-
-	goDir := filepath.Dir(goPath)
 	gofmtName := "gofmt"
 	if runtime.GOOS == "windows" {
 		gofmtName = "gofmt.exe"
 	}
-	gofmtPath := filepath.Join(goDir, gofmtName)
+
+	gofmtPath, err := exec.LookPath(gofmtName)
+	if err != nil {
+		return "", fmt.Errorf("gofmt not found in PATH: %w", err)
+	}
 
 	info, err := os.Stat(gofmtPath)
 	if err != nil {

@@ -1,10 +1,4 @@
-import {
-    AgentTaskItem,
-    AgentTaskState,
-    AgentTaskSummary,
-    ContextThresholdLevel,
-    deriveContextLevel,
-} from "./aitypes";
+import { AgentTaskItem, AgentTaskState, AgentTaskSummary, ContextThresholdLevel, deriveContextLevel } from "./aitypes";
 
 export type TaskProgressItemViewModel = {
     id: string;
@@ -35,6 +29,21 @@ export type TaskProgressViewModel = {
 };
 
 export function deriveTaskProgressViewModel(taskState: AgentTaskState | null | undefined): TaskProgressViewModel {
+    if (taskState?.source && taskState.source !== "model-generated") {
+        return {
+            visible: false,
+            completedLabel: "0 / 0",
+            percent: 0,
+            chainProgress: 0,
+            contextUsagePercent: 0,
+            contextLevel: "normal",
+            tasks: [],
+            summary: taskState.summary ?? {},
+            blockedReason: taskState.blockedreason,
+            securityBlocked: Boolean(taskState.securityblocked),
+        };
+    }
+
     const tasks = taskState?.tasks ?? [];
     if (tasks.length === 0) {
         return {
@@ -71,7 +80,8 @@ export function deriveTaskProgressViewModel(taskState: AgentTaskState | null | u
     const sortedTasks = [...tasks].sort((left, right) => (left.order ?? 0) - (right.order ?? 0));
     const currentTask = sortedTasks.find((task) => task.id === taskState?.currenttaskid);
     const focusedTaskFromFocusChain =
-        sortedTasks.find((task) => task.id === taskState?.focuschain?.focusedtodoid && task.status !== "completed") ?? null;
+        sortedTasks.find((task) => task.id === taskState?.focuschain?.focusedtodoid && task.status !== "completed") ??
+        null;
     const focusedTask =
         focusedTaskFromFocusChain ??
         sortedTasks.find((task) => task.isfocused && task.status !== "completed") ??
@@ -80,7 +90,8 @@ export function deriveTaskProgressViewModel(taskState: AgentTaskState | null | u
     const total = taskState?.summary?.total ?? sortedTasks.length;
     const percent = taskState?.summary?.percent ?? (total > 0 ? Math.round((completed / total) * 100) : 0);
 
-    const chainProgress = taskState?.focuschain?.chainprogress ?? (total > 0 ? Math.round((completed / total) * 100) : 0);
+    const chainProgress =
+        taskState?.focuschain?.chainprogress ?? (total > 0 ? Math.round((completed / total) * 100) : 0);
     const contextUsagePercent = taskState?.focuschain?.currentcontextusage ?? focusedTask?.contextusagepercent ?? 0;
     const contextLevel = taskState?.focuschain?.contextlevel ?? deriveContextLevel(contextUsagePercent);
 

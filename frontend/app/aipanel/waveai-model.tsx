@@ -64,6 +64,19 @@ export interface DroppedFile {
 
 export type AgentMode = "default" | "planning" | "auto-approve";
 
+export type QueuedSubmission = {
+    id: string;
+    text: string;
+    files: DroppedFile[];
+    createdAt: number;
+};
+
+export type TerminalTargetInfo = {
+    blockId: string;
+    connName: string;
+    cwd?: string;
+};
+
 export class WaveAIModel {
     private static instance: WaveAIModel | null = null;
     inputRef: React.RefObject<AIPanelInputRef> | null = null;
@@ -82,6 +95,10 @@ export class WaveAIModel {
     autoExecuteAtom!: jotai.Atom<boolean>;
     agentModeAtom!: jotai.Atom<AgentMode>;
     droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
+    queuedSubmissionsAtom: jotai.PrimitiveAtom<QueuedSubmission[]> = jotai.atom([]);
+    terminalTargetAtom: jotai.PrimitiveAtom<TerminalTargetInfo | null> = jotai.atom(
+        null
+    ) as jotai.PrimitiveAtom<TerminalTargetInfo | null>;
     chatId!: jotai.PrimitiveAtom<string>;
     sessionsAtom: jotai.PrimitiveAtom<WaveChatSessionMeta[]> = jotai.atom([]);
     hiddenSessionIdsAtom: jotai.PrimitiveAtom<string[]> = jotai.atom([]);
@@ -94,8 +111,12 @@ export class WaveAIModel {
     defaultModeAtom!: jotai.Atom<string>;
     errorMessage: jotai.PrimitiveAtom<string> = jotai.atom(null) as jotai.PrimitiveAtom<string>;
     agentRuntimeAtom: jotai.PrimitiveAtom<AgentRuntimeSnapshot> = jotai.atom(getDefaultAgentRuntimeSnapshot());
-    taskStateAtom: jotai.PrimitiveAtom<AgentTaskState | null> = jotai.atom(null) as jotai.PrimitiveAtom<AgentTaskState | null>;
-    focusChainAtom: jotai.PrimitiveAtom<AgentFocusChainState | null> = jotai.atom(null) as jotai.PrimitiveAtom<AgentFocusChainState | null>;
+    taskStateAtom: jotai.PrimitiveAtom<AgentTaskState | null> = jotai.atom(
+        null
+    ) as jotai.PrimitiveAtom<AgentTaskState | null>;
+    focusChainAtom: jotai.PrimitiveAtom<AgentFocusChainState | null> = jotai.atom(
+        null
+    ) as jotai.PrimitiveAtom<AgentFocusChainState | null>;
     contextUsageAtom: jotai.PrimitiveAtom<number> = jotai.atom(0);
     securityBlockedAtom: jotai.PrimitiveAtom<boolean> = jotai.atom(false);
     askUserAtom: jotai.PrimitiveAtom<AskUserData | null> = jotai.atom(null) as jotai.PrimitiveAtom<AskUserData | null>;
@@ -113,6 +134,7 @@ export class WaveAIModel {
     restoreBackupError: jotai.PrimitiveAtom<string> = jotai.atom(null) as jotai.PrimitiveAtom<string>;
     private lastExecutingRuntimeUpdateAt = 0;
     private readonly executingRuntimeThrottleMs = 250;
+    private isFlushingQueuedSubmission = false;
 
     private constructor(orefContext: ORef) {
         this.orefContext = orefContext;
@@ -248,9 +270,7 @@ export class WaveAIModel {
         const sessions = globalStore.get(this.sessionsAtom);
         const candidates = sessions.filter(
             (session) =>
-                session.tabid === tabId &&
-                this.isReusableNewChatSession(session) &&
-                session.chatid !== currentChatId
+                session.tabid === tabId && this.isReusableNewChatSession(session) && session.chatid !== currentChatId
         );
         if (candidates.length === 0) {
             return null;
@@ -616,7 +636,11 @@ export class WaveAIModel {
         if (Date.now() - this.lastExecutingRuntimeUpdateAt >= this.executingRuntimeThrottleMs) {
             return false;
         }
-        if (current.activeJobId !== next.activeJobId || current.activeTool !== next.activeTool || current.blockedReason !== next.blockedReason) {
+        if (
+            current.activeJobId !== next.activeJobId ||
+            current.activeTool !== next.activeTool ||
+            current.blockedReason !== next.blockedReason
+        ) {
             return false;
         }
         const currentResult = current.lastToolResult;
@@ -860,6 +884,20 @@ export class WaveAIModel {
         this.clearChat();
     }
 
+    refreshTerminalTargetInfo(): TerminalTargetInfo | null {
+        const target = this.getTargetTerminalModel();
+        if (target == null) {
+            globalStore.set(this.terminalTargetAtom, null);
+            return null;
+        }
+        const info = {
+            blockId: target.blockId,
+            ...this.getTerminalExecutionContext(target.blockId),
+        };
+        globalStore.set(this.terminalTargetAtom, info);
+        return info;
+    }
+
     private getTargetTerminalModel(): {
         blockId: string;
         sendDataToController: (data: string) => void;
@@ -1087,15 +1125,12 @@ export class WaveAIModel {
     }
 
     async submitAskUserAnswer(actionId: string, answer: string): Promise<void> {
-        await RpcApi.WaveAIToolApproveCommand(
-            TabRpcClient,
-            {
-                toolcallid: "",
-                actionid: actionId,
-                approval: "answered",
-                value: answer,
-            }
-        );
+        await RpcApi.WaveAIToolApproveCommand(TabRpcClient, {
+            toolcallid: "",
+            actionid: actionId,
+            approval: "answered",
+            value: answer,
+        });
         globalStore.set(this.askUserAtom, null);
     }
 
@@ -1303,7 +1338,8 @@ export class WaveAIModel {
         const retry = this.buildRetryMeta(nextRetryCount, runtime.lastToolResult?.errorCode);
         const lastResultWasChatStream = runtime.lastToolResult?.toolName === "chat-stream";
         const shouldRetryRound =
-            scope === "round" || (scope === "step" && (lastResultWasChatStream || (!runtime.lastToolCall && !runtime.lastCommand)));
+            scope === "round" ||
+            (scope === "step" && (lastResultWasChatStream || (!runtime.lastToolCall && !runtime.lastCommand)));
 
         this.dispatchAgentEvent({
             type: "RETRY_REQUESTED",
@@ -1432,24 +1468,52 @@ export class WaveAIModel {
         }
     }
 
-    async handleSubmit() {
-        const input = globalStore.get(this.inputAtom);
-        const droppedFiles = globalStore.get(this.droppedFiles);
+    private hasSubmittableContent(input: string, droppedFiles: DroppedFile[]): boolean {
+        return input.trim().length > 0 || droppedFiles.length > 0;
+    }
 
-        if (input.trim() === "/clear" || input.trim() === "/new") {
-            this.clearChat();
-            globalStore.set(this.inputAtom, "");
-            return;
-        }
-
-        if (
-            (!input.trim() && droppedFiles.length === 0) ||
+    private isChatBusy(): boolean {
+        return (
             (this.useChatStatus !== "ready" && this.useChatStatus !== "error") ||
             globalStore.get(this.isLoadingChatAtom)
-        ) {
+        );
+    }
+
+    private enqueueSubmission(text: string, files: DroppedFile[]): void {
+        const current = globalStore.get(this.queuedSubmissionsAtom);
+        globalStore.set(this.queuedSubmissionsAtom, [
+            ...current,
+            {
+                id: crypto.randomUUID(),
+                text,
+                files,
+                createdAt: Date.now(),
+            },
+        ]);
+        globalStore.set(this.inputAtom, "");
+        this.clearFiles();
+        this.clearError();
+    }
+
+    async flushQueuedSubmissions(): Promise<void> {
+        if (this.isFlushingQueuedSubmission || this.isChatBusy()) {
             return;
         }
+        const queued = globalStore.get(this.queuedSubmissionsAtom);
+        const next = queued[0];
+        if (!next) {
+            return;
+        }
+        this.isFlushingQueuedSubmission = true;
+        globalStore.set(this.queuedSubmissionsAtom, queued.slice(1));
+        try {
+            await this.sendSubmission(next.text, next.files);
+        } finally {
+            this.isFlushingQueuedSubmission = false;
+        }
+    }
 
+    private async sendSubmission(input: string, droppedFiles: DroppedFile[]): Promise<void> {
         const currentChatId = this.getChatId();
         const trimmedInput = input.trim();
         if (currentChatId && trimmedInput) {
@@ -1480,9 +1544,9 @@ export class WaveAIModel {
         const aiMessageParts: AIMessagePart[] = [];
         const uiMessageParts: WaveUIMessagePart[] = [];
 
-        if (input.trim()) {
-            aiMessageParts.push({ type: "text", text: input.trim() });
-            uiMessageParts.push({ type: "text", text: input.trim() });
+        if (trimmedInput) {
+            aiMessageParts.push({ type: "text", text: trimmedInput });
+            uiMessageParts.push({ type: "text", text: trimmedInput });
         }
 
         for (const droppedFile of droppedFiles) {
@@ -1516,11 +1580,31 @@ export class WaveAIModel {
         this.realMessage = realMessage;
         this.lastSubmittedMessage = realMessage;
 
-        // console.log("SUBMIT MESSAGE", realMessage);
-
         this.useChatSendMessage?.({ parts: uiMessageParts });
 
         globalStore.set(this.isChatEmptyAtom, false);
+    }
+
+    async handleSubmit() {
+        const input = globalStore.get(this.inputAtom);
+        const droppedFiles = globalStore.get(this.droppedFiles);
+
+        if (input.trim() === "/clear" || input.trim() === "/new") {
+            this.clearChat();
+            globalStore.set(this.inputAtom, "");
+            return;
+        }
+
+        if (!this.hasSubmittableContent(input, droppedFiles)) {
+            return;
+        }
+
+        if (this.isChatBusy()) {
+            this.enqueueSubmission(input, droppedFiles);
+            return;
+        }
+
+        await this.sendSubmission(input, droppedFiles);
         globalStore.set(this.inputAtom, "");
         this.clearFiles();
     }

@@ -170,12 +170,6 @@ type SettingsType struct {
 	DebugPprofPort           *int `json:"debug:pprofport,omitempty"`
 	DebugPprofMemProfileRate *int `json:"debug:pprofmemprofilerate,omitempty"`
 
-	TsunamiClear          bool   `json:"tsunami:*,omitempty"`
-	TsunamiScaffoldPath   string `json:"tsunami:scaffoldpath,omitempty"`
-	TsunamiSdkReplacePath string `json:"tsunami:sdkreplacepath,omitempty"`
-	TsunamiSdkVersion     string `json:"tsunami:sdkversion,omitempty"`
-	TsunamiGoPath         string `json:"tsunami:gopath,omitempty"`
-
 	SkillsEnabled bool   `json:"skills:enabled,omitempty"`
 	SkillsDir     string `json:"skills:dir,omitempty"`
 }

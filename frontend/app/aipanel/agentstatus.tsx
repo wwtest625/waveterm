@@ -3,7 +3,13 @@
 
 import { cn } from "@/util/util";
 import { shouldHideProgressStatusLines } from "./aitooluse";
-import { AgentRuntimeSnapshot, AgentRuntimeState, WaveUIMessage, isInternalAssistantToolName, isTextPart } from "./aitypes";
+import {
+    AgentRuntimeSnapshot,
+    AgentRuntimeState,
+    WaveUIMessage,
+    isInternalAssistantToolName,
+    isTextPart,
+} from "./aitypes";
 import { getFirstExecutableCommandFromMessage } from "./autoexecute-util";
 import { AgentMode } from "./waveai-model";
 
@@ -43,8 +49,6 @@ function getToolUsePhase(
     toolStatus?: string
 ): Pick<AgentRuntimeStatusSnapshot, "state" | "phaseLabel"> | null {
     switch (toolName) {
-        case "term_command_output":
-            return { state: "planning", phaseLabel: "Reading Terminal" };
         case "wave_run_command":
             return { state: "executing", phaseLabel: "Executing Command" };
         default:
@@ -56,8 +60,6 @@ function getToolProgressPhase(toolName: string | undefined, statusLine: string |
     switch (toolName) {
         case "wave_run_command":
             return { state: "executing", phaseLabel: "Executing Command", blockedReason: statusLine };
-        case "term_command_output":
-            return { state: "planning", phaseLabel: "Reading Terminal", blockedReason: statusLine };
         default:
             return null;
     }
@@ -83,7 +85,7 @@ function isObservedTerminalToolName(toolName: unknown): boolean {
     if (typeof toolName !== "string" || toolName.trim() === "") {
         return false;
     }
-    return toolName === "wave_run_command" || toolName === "term_command_output";
+    return toolName === "wave_run_command";
 }
 
 function messageTextIncludesCapabilityDenial(message: WaveUIMessage | undefined): boolean {
