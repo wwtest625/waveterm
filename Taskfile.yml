@@ -23,7 +23,6 @@ tasks:
         deps:
             - npm:install
             - build:backend
-            - build:tsunamiscaffold
         env:
             WAVETERM_ENVFILE: "{{.ROOT_DIR}}/.env"
             WCLOUD_PING_ENDPOINT: "https://ping-dev.waveterm.dev/central"
@@ -123,16 +122,18 @@ tasks:
 
     package:
         desc: Package the application for the current platform.
+        vars:
+            PACKAGE_OUTPUT_DIR:
+                sh: node -e "process.stdout.write('make/.package-output-' + Date.now().toString())"
         cmds:
             - npm run build:prod && npm exec electron-builder -- -c electron-builder.config.cjs -p never {{.CLI_ARGS}}
-            - node scripts/finalize-package-output.cjs make/.package-output make
+            - node scripts/finalize-package-output.cjs {{.PACKAGE_OUTPUT_DIR}} make
         deps:
             - clean
             - npm:install
             - build:backend
-            - build:tsunamiscaffold
         env:
-            WAVETERM_ELECTRON_BUILDER_OUTPUT_DIR: make/.package-output
+            WAVETERM_ELECTRON_BUILDER_OUTPUT_DIR: "{{.PACKAGE_OUTPUT_DIR}}"
 
     build:frontend:dev:
         desc: Build the frontend in development mode.
@@ -345,21 +346,6 @@ tasks:
                 - VERSION
         cmd: (CGO_ENABLED=0 GOOS={{.GOOS}} GOARCH={{.GOARCH}} go build -ldflags="-s -w -X main.BuildTime=$({{.DATE}} +'%Y%m%d%H%M') -X main.WaveVersion={{.VERSION}}" -o dist/bin/wsh-{{.VERSION}}-{{.GOOS}}.{{.NORMALIZEDARCH}}{{.EXT}} cmd/wsh/main-wsh.go)
         internal: true
-
-    build:tsunamiscaffold:
-        desc: Build and copy tsunami scaffold to dist directory.
-        cmds:
-            - cmd: "{{.RMRF}} dist/tsunamiscaffold"
-              ignore_error: true
-            - task: copyfiles:'tsunami/frontend/scaffold':'dist/tsunamiscaffold'
-            - cmd: '{{if eq OS "windows"}}powershell -NoProfile -NonInteractive Copy-Item -Path tsunami/templates/empty-gomod.tmpl -Destination dist/tsunamiscaffold/go.mod{{else}}cp tsunami/templates/empty-gomod.tmpl dist/tsunamiscaffold/go.mod{{end}}'
-        deps:
-            - tsunami:scaffold
-        sources:
-            - "tsunami/frontend/dist/**/*"
-            - "tsunami/templates/**/*"
-        generates:
-            - "dist/tsunamiscaffold/**/*"
 
     generate:
         desc: Generate Typescript bindings for the Go backend.
