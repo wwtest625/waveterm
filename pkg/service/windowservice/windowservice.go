@@ -139,6 +139,42 @@ func (svc *WindowService) MoveBlockToNewWindow(ctx context.Context, currentTabId
 	return waveobj.ContextGetUpdatesRtn(ctx), nil
 }
 
+func (svc *WindowService) MoveTabToNewWindow_Meta() tsgenmeta.MethodMeta {
+	return tsgenmeta.MethodMeta{
+		Desc:     "move tab to a new window",
+		ArgNames: []string{"ctx", "workspaceId", "tabId", "remainingTabIds", "pos"},
+	}
+}
+
+func (svc *WindowService) MoveTabToNewWindow(ctx context.Context, workspaceId string, tabId string, remainingTabIds []string, pos *waveobj.Point) (waveobj.UpdatesRtnType, error) {
+	log.Printf("MoveTabToNewWindow(%s, %s)", workspaceId, tabId)
+	ctx = waveobj.ContextWithUpdates(ctx)
+	newWindow, fallbackTabId, closeSourceWindow, err := wcore.MoveTabToNewWindow(ctx, workspaceId, tabId, remainingTabIds, pos)
+	if err != nil {
+		return nil, fmt.Errorf("error moving tab to new window: %w", err)
+	}
+	if fallbackTabId != "" && !closeSourceWindow {
+		wcore.SendActiveTabUpdate(ctx, workspaceId, fallbackTabId)
+	}
+	eventbus.SendEventToElectron(eventbus.WSEventType{
+		EventType: eventbus.WSEvent_ElectronMoveTabToNewWindow,
+		Data: &waveobj.MoveTabToNewWindowData{
+			WorkspaceId:       workspaceId,
+			TabId:             tabId,
+			NewWindowId:       newWindow.OID,
+			CloseSourceWindow: closeSourceWindow,
+		},
+	})
+	updates := waveobj.ContextGetUpdatesRtn(ctx)
+	go func() {
+		defer func() {
+			panichandler.PanicHandler("WindowService:MoveTabToNewWindow:SendUpdateEvents", recover())
+		}()
+		wps.Broker.SendUpdateEvents(updates)
+	}()
+	return updates, nil
+}
+
 func (svc *WindowService) SwitchWorkspace_Meta() tsgenmeta.MethodMeta {
 	return tsgenmeta.MethodMeta{
 		ArgNames: []string{"ctx", "windowId", "workspaceId"},

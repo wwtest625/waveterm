@@ -97,6 +97,30 @@ function handleWSEvent(evtMsg: WSEventType) {
                 isPrimaryStartupWindow: false,
             });
             newWin.show();
+        } else if (evtMsg.eventtype == "electron:movetabtonewwindow") {
+            console.log("electron:movetabtonewwindow", evtMsg.data);
+            const moveTabData: { workspaceid: string; tabid: string; newwindowid: string; closesourcewindow?: boolean } =
+                evtMsg.data;
+            if (!moveTabData?.workspaceid || !moveTabData?.tabid || !moveTabData?.newwindowid) {
+                return;
+            }
+            const oldWin = getWaveWindowByWorkspaceId(moveTabData.workspaceid);
+            if (oldWin != null) {
+                oldWin.removeTabView(moveTabData.tabid, true);
+            }
+            const windowData: WaveWindow = (await services.ObjectService.GetObject("window:" + moveTabData.newwindowid)) as WaveWindow;
+            if (windowData == null) {
+                return;
+            }
+            const fullConfig = await RpcApi.GetFullConfigCommand(ElectronWshClient);
+            const newWin = await createBrowserWindow(windowData, fullConfig, {
+                unamePlatform,
+                isPrimaryStartupWindow: false,
+            });
+            newWin.show();
+            if (moveTabData.closesourcewindow && oldWin != null && !oldWin.isDestroyed()) {
+                oldWin.destroy();
+            }
         } else if (evtMsg.eventtype == "electron:closewindow") {
             console.log("electron:closewindow", evtMsg.data);
             if (evtMsg.data === undefined) return;

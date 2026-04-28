@@ -127,6 +127,100 @@ func CreateWindow(ctx context.Context, winSize *waveobj.WinSize, workspaceId str
 	return GetWindow(ctx, windowId)
 }
 
+func MoveTabToNewWindow(ctx context.Context, workspaceId string, tabId string, remainingTabIds []string, pos *waveobj.Point) (*waveobj.Window, string, bool, error) {
+	log.Printf("MoveTabToNewWindow %s %s\n", workspaceId, tabId)
+	ws, err := GetWorkspace(ctx, workspaceId)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("error getting workspace: %w", err)
+	}
+	tabIdx := utilfn.FindStringInSlice(ws.TabIds, tabId)
+	if tabIdx == -1 {
+		return nil, "", false, fmt.Errorf("tab %s not found in workspace %s", tabId, workspaceId)
+	}
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabId)
+	if err != nil || tab == nil {
+		return nil, "", false, fmt.Errorf("error getting tab %s: %w", tabId, err)
+	}
+
+	newWs, err := CreateWorkspace(ctx, "", "", "", false, false)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("error creating new workspace: %w", err)
+	}
+	placeholderTabId := newWs.ActiveTabId
+	if placeholderTabId == "" {
+		_, _, _ = DeleteWorkspace(ctx, newWs.OID, true)
+		return nil, "", false, fmt.Errorf("new workspace has no placeholder tab")
+	}
+	placeholderTab, err := wstore.DBGet[*waveobj.Tab](ctx, placeholderTabId)
+	if err != nil {
+		_, _, _ = DeleteWorkspace(ctx, newWs.OID, true)
+		return nil, "", false, fmt.Errorf("error getting placeholder tab %s: %w", placeholderTabId, err)
+	}
+
+	newWindow, err := CreateWindow(ctx, nil, newWs.OID)
+	if err != nil {
+		_, _, _ = DeleteWorkspace(ctx, newWs.OID, true)
+		return nil, "", false, fmt.Errorf("error creating new window: %w", err)
+	}
+
+	if len(remainingTabIds) > 0 {
+		ws.TabIds = append([]string(nil), remainingTabIds...)
+	} else {
+		ws.TabIds = utilfn.RemoveElemFromSlice(ws.TabIds, tabId)
+	}
+	fallbackTabId := ws.ActiveTabId
+	if fallbackTabId == tabId {
+		if len(ws.TabIds) > 0 {
+			fallbackTabId = ws.TabIds[max(0, min(tabIdx-1, len(ws.TabIds)-1))]
+		} else {
+			fallbackTabId = ""
+		}
+	}
+	ws.ActiveTabId = fallbackTabId
+
+	newWs.TabIds = []string{tabId}
+	newWs.ActiveTabId = tabId
+	if pos != nil {
+		newWindow.Pos = *pos
+		newWindow.IsNew = true
+	}
+	err = wstore.WithTx(ctx, func(tx *wstore.TxWrap) error {
+		err = wstore.DBUpdate(tx.Context(), ws)
+		if err != nil {
+			return fmt.Errorf("error updating source workspace: %w", err)
+		}
+		err = wstore.DBUpdate(tx.Context(), newWs)
+		if err != nil {
+			return fmt.Errorf("error updating new workspace: %w", err)
+		}
+		err = wstore.DBDelete(tx.Context(), waveobj.OType_Tab, placeholderTabId)
+		if err != nil {
+			return fmt.Errorf("error deleting placeholder tab: %w", err)
+		}
+		if placeholderTab != nil && placeholderTab.LayoutState != "" {
+			err = wstore.DBDelete(tx.Context(), waveobj.OType_LayoutState, placeholderTab.LayoutState)
+			if err != nil {
+				return fmt.Errorf("error deleting placeholder layout state: %w", err)
+			}
+		}
+		if pos != nil {
+			err = wstore.DBUpdate(tx.Context(), newWindow)
+			if err != nil {
+				return fmt.Errorf("error positioning new window: %w", err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		closeErr := CloseWindow(ctx, newWindow.OID, true)
+		if closeErr != nil {
+			log.Printf("error cleaning up failed detached window %s: %v", newWindow.OID, closeErr)
+		}
+		return nil, "", false, err
+	}
+	return newWindow, fallbackTabId, len(ws.TabIds) == 0, nil
+}
+
 // CloseWindow closes a window and deletes its workspace if it is empty and not named.
 // If fromElectron is true, it does not send an event to Electron.
 func CloseWindow(ctx context.Context, windowId string, fromElectron bool) error {

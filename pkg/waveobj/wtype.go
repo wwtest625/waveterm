@@ -171,6 +171,13 @@ type ActiveTabUpdate struct {
 	NewActiveTabId string `json:"newactivetabid"`
 }
 
+type MoveTabToNewWindowData struct {
+	WorkspaceId       string `json:"workspaceid"`
+	TabId             string `json:"tabid"`
+	NewWindowId       string `json:"newwindowid"`
+	CloseSourceWindow bool   `json:"closesourcewindow,omitempty"`
+}
+
 type Workspace struct {
 	OID         string      `json:"oid"`
 	Version     int         `json:"version"`

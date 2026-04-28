@@ -477,6 +477,7 @@ export class WaveBrowserWindow extends BaseWindow {
             return;
         }
         const oldActiveView = this.activeTabView;
+        tabView.waveWindowId = this.waveWindowId;
         tabView.isActiveTab = true;
         if (oldActiveView != null) {
             oldActiveView.isActiveTab = false;
@@ -681,6 +682,9 @@ export class WaveBrowserWindow extends BaseWindow {
             console.log("removeTabView -- tabView not found", tabId, this.waveWindowId);
             // the tab was never loaded, so just return
             return;
+        }
+        if (this.activeTabView?.waveTabId == tabId) {
+            this.activeTabView = null;
         }
         this.contentView.removeChildView(tabView);
         this.allLoadedTabViews.delete(tabId);

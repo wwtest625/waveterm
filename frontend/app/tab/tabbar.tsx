@@ -14,7 +14,7 @@ import { OverlayScrollbars } from "overlayscrollbars";
 import { createRef, memo, useCallback, useEffect, useRef, useState } from "react";
 import { debounce } from "throttle-debounce";
 import { IconButton } from "../element/iconbutton";
-import { WorkspaceService } from "../store/services";
+import { WindowService, WorkspaceService } from "../store/services";
 import { Tab } from "./tab";
 import "./tabbar.scss";
 import { UpdateStatusBanner } from "./updatebanner";
@@ -22,6 +22,9 @@ import { WorkspaceSwitcher } from "./workspaceswitcher";
 
 const TabDefaultWidth = 130;
 const TabMinWidth = 100;
+const TabDetachHitSlopPx = 8;
+const TabDetachMinDistancePx = 16;
+const TabDetachReleaseAnimationMs = 90;
 const OSOptions = {
     overflow: {
         x: "scroll",
@@ -220,11 +223,14 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
         tabId: "",
         ref: { current: null },
         tabStartX: 0,
+        dragStartClientX: 0,
+        dragStartClientY: 0,
         tabStartIndex: 0,
         tabIndex: 0,
         initialOffsetX: null,
         totalScrollOffset: null,
         dragged: false,
+        detached: false,
     });
     const osInstanceRef = useRef<OverlayScrollbars>(null);
     const draggerLeftRef = useRef<HTMLDivElement>(null);
@@ -427,7 +433,7 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
     };
 
     const handleMouseMove = (event: MouseEvent) => {
-        const { tabId, ref, tabStartX } = draggingTabDataRef.current;
+        const { tabId, ref, tabStartX, dragStartClientX, dragStartClientY } = draggingTabDataRef.current;
 
         let initialOffsetX = draggingTabDataRef.current.initialOffsetX;
         let totalScrollOffset = draggingTabDataRef.current.totalScrollOffset;
@@ -468,11 +474,21 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
         initialOffsetX = draggingTabDataRef.current.initialOffsetX;
         totalScrollOffset = draggingTabDataRef.current.totalScrollOffset;
         currentX = event.clientX - initialOffsetX - totalScrollOffset;
+        const dragOffsetX = event.clientX - dragStartClientX;
+        const dragOffsetY = event.clientY - dragStartClientY;
+        const dragDistance = Math.hypot(dragOffsetX, dragOffsetY);
+        const tabbarRect = tabbarWrapperRef.current?.getBoundingClientRect();
+        const isOutsideTabBar =
+            tabbarRect != null &&
+            (event.clientX < tabbarRect.left - TabDetachHitSlopPx ||
+                event.clientX > tabbarRect.right + TabDetachHitSlopPx ||
+                event.clientY < tabbarRect.top - TabDetachHitSlopPx ||
+                event.clientY > tabbarRect.bottom + TabDetachHitSlopPx);
+        const detachOffsetY = isOutsideTabBar ? dragOffsetY : 0;
 
         setDraggingTab((prev) => (prev !== tabId ? tabId : prev));
 
-        // Check if the tab has moved 5 pixels
-        if (Math.abs(currentX - tabStartX) >= 50) {
+        if (dragDistance >= 8) {
             draggingTabDataRef.current.dragged = true;
         }
 
@@ -495,38 +511,67 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
             currentX = Math.min(Math.max(currentX, minLeft), maxRight);
         }
 
-        ref.current!.style.transform = `translate3d(${currentX}px,0,0)`;
+        ref.current!.style.transform = `translate3d(${currentX}px,${detachOffsetY}px,0)`;
         ref.current!.style.zIndex = "100";
 
         const tabIndex = draggingTabDataRef.current.tabIndex;
         const newTabIndex = getNewTabIndex(currentX, tabIndex, dragDirection);
 
-        if (newTabIndex !== tabIndex) {
-            // Remove the dragged tab if not already done
-            if (!draggingRemovedRef.current) {
-                tabIds.splice(tabIndex, 1);
-                draggingRemovedRef.current = true;
-            }
-
-            // Find current index of the dragged tab in tempTabs
+        if (isOutsideTabBar && !draggingTabDataRef.current.detached) {
             const currentIndexOfDraggingTab = tabIds.indexOf(tabId);
-
-            // Move the dragged tab to its new position
             if (currentIndexOfDraggingTab !== -1) {
                 tabIds.splice(currentIndexOfDraggingTab, 1);
             }
-            tabIds.splice(newTabIndex, 0, tabId);
-
-            // Update visual positions of the tabs
+            draggingRemovedRef.current = true;
+            draggingTabDataRef.current.detached = true;
+            ref.current!.classList.add("detaching");
             tabIds.forEach((localTabId, index) => {
-                const ref = tabRefs.current.find((ref) => ref.current.dataset.tabId === localTabId);
-                if (ref.current && localTabId !== tabId) {
-                    ref.current.style.transform = `translate3d(${index * tabWidth}px,0,0)`;
-                    ref.current.classList.add("animate");
+                const tabRef = tabRefs.current.find((ref) => ref.current.dataset.tabId === localTabId);
+                if (tabRef.current) {
+                    tabRef.current.style.transform = `translate3d(${index * tabWidth}px,0,0)`;
+                    tabRef.current.classList.add("animate");
                 }
             });
+        } else if (!isOutsideTabBar) {
+            if (draggingTabDataRef.current.detached) {
+                tabIds.splice(newTabIndex, 0, tabId);
+                draggingTabDataRef.current.detached = false;
+                ref.current!.classList.remove("detaching");
+                tabIds.forEach((localTabId, index) => {
+                    const tabRef = tabRefs.current.find((ref) => ref.current.dataset.tabId === localTabId);
+                    if (tabRef.current && localTabId !== tabId) {
+                        tabRef.current.style.transform = `translate3d(${index * tabWidth}px,0,0)`;
+                        tabRef.current.classList.add("animate");
+                    }
+                });
+                draggingTabDataRef.current.tabIndex = newTabIndex;
+            } else if (newTabIndex !== tabIndex) {
+                // Remove the dragged tab if not already done
+                if (!draggingRemovedRef.current) {
+                    tabIds.splice(tabIndex, 1);
+                    draggingRemovedRef.current = true;
+                }
 
-            draggingTabDataRef.current.tabIndex = newTabIndex;
+                // Find current index of the dragged tab in tempTabs
+                const currentIndexOfDraggingTab = tabIds.indexOf(tabId);
+
+                // Move the dragged tab to its new position
+                if (currentIndexOfDraggingTab !== -1) {
+                    tabIds.splice(currentIndexOfDraggingTab, 1);
+                }
+                tabIds.splice(newTabIndex, 0, tabId);
+
+                // Update visual positions of the tabs
+                tabIds.forEach((localTabId, index) => {
+                    const tabRef = tabRefs.current.find((ref) => ref.current.dataset.tabId === localTabId);
+                    if (tabRef.current && localTabId !== tabId) {
+                        tabRef.current.style.transform = `translate3d(${index * tabWidth}px,0,0)`;
+                        tabRef.current.classList.add("animate");
+                    }
+                });
+
+                draggingTabDataRef.current.tabIndex = newTabIndex;
+            }
         }
     };
 
@@ -536,6 +581,8 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
             tabRefs.current.forEach((ref) => {
                 ref.current.style.zIndex = "0";
                 ref.current.classList.remove("animate");
+                ref.current.classList.remove("detaching", "detach-release");
+                ref.current.style.pointerEvents = "";
             });
             // Reset dragging state
             setDraggingTab(null);
@@ -547,32 +594,84 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
 
     const handleMouseUp = (event: MouseEvent) => {
         const { tabIndex, dragged } = draggingTabDataRef.current;
+        const tabId = draggingTabDataRef.current.tabId;
+        const tabbarRect = tabbarWrapperRef.current?.getBoundingClientRect();
+        const dragOffsetX = event.clientX - draggingTabDataRef.current.dragStartClientX;
+        const dragOffsetY = event.clientY - draggingTabDataRef.current.dragStartClientY;
+        const dragDistance = Math.hypot(dragOffsetX, dragOffsetY);
+        const isOutsideTabBar =
+            tabbarRect != null &&
+            (event.clientX < tabbarRect.left - TabDetachHitSlopPx ||
+                event.clientX > tabbarRect.right + TabDetachHitSlopPx ||
+                event.clientY < tabbarRect.top - TabDetachHitSlopPx ||
+                event.clientY > tabbarRect.bottom + TabDetachHitSlopPx);
+        const shouldDetach = isOutsideTabBar && dragDistance >= TabDetachMinDistancePx;
 
-        // Update the final position of the dragged tab
-        const draggingTab = tabIds[tabIndex];
+        const clearDragListeners = () => {
+            document.removeEventListener("mouseup", handleMouseUp);
+            document.removeEventListener("mousemove", handleMouseMove);
+            draggingRemovedRef.current = false;
+        };
+
+        const resetDragStyles = () => {
+            tabRefs.current.forEach((ref) => {
+                if (!ref.current) {
+                    return;
+                }
+                ref.current.style.zIndex = "0";
+                ref.current.classList.remove("animate");
+                ref.current.classList.remove("detaching", "detach-release");
+            });
+        };
+
         const tabWidth = tabWidthRef.current;
+        const ref = tabRefs.current.find((ref) => ref.current.dataset.tabId === tabId);
+
+        if (dragged && shouldDetach) {
+            clearDragListeners();
+            if (ref?.current) {
+                ref.current.classList.add("detach-release");
+                ref.current.style.pointerEvents = "none";
+            }
+            fireAndForget(async () => {
+                try {
+                    const remainingTabIds = tabIds.filter((id) => id !== tabId);
+                    const pos = {
+                        x: Math.round(event.screenX - tabWidth / 2),
+                        y: Math.round(event.screenY - 18),
+                    };
+                    await new Promise((resolve) => window.setTimeout(resolve, TabDetachReleaseAnimationMs));
+                    await WindowService.MoveTabToNewWindow(workspace.oid, tabId, remainingTabIds, pos);
+                } catch (e) {
+                    console.log("error detaching tab to new window", e);
+                    if (ref?.current) {
+                        ref.current.style.pointerEvents = "";
+                    }
+                    resetDragStyles();
+                    setDraggingTab(null);
+                    setSizeAndPosition();
+                    saveTabsPosition();
+                }
+            });
+            return;
+        }
+
+        const draggingTab = tabIds[tabIndex];
         const finalLeftPosition = tabIndex * tabWidth;
-        const ref = tabRefs.current.find((ref) => ref.current.dataset.tabId === draggingTab);
-        if (ref.current) {
-            ref.current.classList.add("animate");
-            ref.current.style.transform = `translate3d(${finalLeftPosition}px,0,0)`;
+        const finalRef = tabRefs.current.find((ref) => ref.current.dataset.tabId === draggingTab);
+        if (finalRef.current) {
+            finalRef.current.classList.add("animate");
+            finalRef.current.style.transform = `translate3d(${finalLeftPosition}px,0,0)`;
         }
 
         if (dragged) {
             setUpdatedTabsDebounced(tabIds);
         } else {
-            // Reset styles
-            tabRefs.current.forEach((ref) => {
-                ref.current.style.zIndex = "0";
-                ref.current.classList.remove("animate");
-            });
-            // Reset dragging state
+            resetDragStyles();
             setDraggingTab(null);
         }
 
-        document.removeEventListener("mouseup", handleMouseUp);
-        document.removeEventListener("mousemove", handleMouseMove);
-        draggingRemovedRef.current = false;
+        clearDragListeners();
     };
 
     const handleDragStart = useCallback(
@@ -588,11 +687,14 @@ const TabBar = memo(({ workspace }: TabBarProps) => {
                     tabId: ref.current.dataset.tabId,
                     ref,
                     tabStartX,
+                    dragStartClientX: event.clientX,
+                    dragStartClientY: event.clientY,
                     tabIndex,
                     tabStartIndex: tabIndex,
                     initialOffsetX: null,
                     totalScrollOffset: 0,
                     dragged: false,
+                    detached: false,
                 };
 
                 document.addEventListener("mousemove", handleMouseMove);

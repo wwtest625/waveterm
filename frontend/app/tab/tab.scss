@@ -1,6 +1,8 @@
 // Copyright 2024, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+$tab-detach-release-animation-ms: 90ms;
+
 .tab {
     position: absolute;
     width: 130px;
@@ -29,12 +31,51 @@
         height: 100%;
         white-space: nowrap;
         border-radius: 6px;
+        transition:
+            background-color 120ms ease,
+            box-shadow 120ms ease,
+            transform 120ms ease,
+            opacity 120ms ease;
     }
 
     &.animate {
         transition:
-            transform 0.3s ease,
+            transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
             background-color 0.3s ease-in-out;
+    }
+
+    &.dragging {
+        pointer-events: none;
+
+        .tab-inner {
+            transform: scale(1.015);
+        }
+    }
+
+    &.detaching {
+        .tab-inner {
+            background: rgb(from var(--main-bg-color) r g b / 0.96);
+            box-shadow:
+                0 10px 26px rgb(0 0 0 / 0.34),
+                0 0 0 1px rgb(from var(--main-text-color) r g b / 0.18);
+            transform: scale(1.045);
+        }
+
+        &::after {
+            content: none;
+        }
+    }
+
+    &.detach-release {
+        opacity: 0;
+        transition:
+            transform $tab-detach-release-animation-ms ease,
+            opacity $tab-detach-release-animation-ms ease;
+
+        .tab-inner {
+            transform: scale(0.94);
+            opacity: 0.35;
+        }
     }
 
     &.active {
