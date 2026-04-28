@@ -975,6 +975,7 @@ declare global {
         connection?: string;
         containerId: string;
         action: string;
+        newName?: string;
     };
 
     // wshrpc.DockerContainerSummary
@@ -1623,6 +1624,7 @@ declare global {
         "markdown:fontsize"?: number;
         "markdown:fixedfontsize"?: number;
         "preview:showhiddenfiles"?: boolean;
+        "preview:defaultdir"?: string;
         "tab:preset"?: string;
         "tab:confirmclose"?: boolean;
         "widget:*"?: boolean;

@@ -12,7 +12,7 @@ import { getLayoutStateAtomFromTab } from "@/layout/lib/layoutAtom";
 import { getLayoutModelForStaticTab } from "@/layout/lib/layoutModelHooks";
 import { findParent } from "@/layout/lib/layoutNode";
 import { FlexDirection, LayoutTreeActionType, type LayoutTreeResizeNodeAction } from "@/layout/lib/types";
-import { atoms, createBlock, createBlockSplitHorizontally, globalStore, isDev, refocusNode, WOS } from "@/store/global";
+import { atoms, createBlock, createBlockSplitHorizontally, getSettingsKeyAtom, globalStore, isDev, refocusNode, WOS } from "@/store/global";
 import { fireAndForget, isBlank, makeIconClass } from "@/util/util";
 import {
     autoUpdate,
@@ -92,7 +92,11 @@ async function handleWidgetSelect(widgetKey: string, widget: WidgetConfigType) {
     }
 
     const focusedBlock = getFocusedBlockContext(targetBlockId);
-    const blockDef = buildWidgetBlockDef(widget, focusedBlock);
+    const previewDefaultDir = widgetKey === "defwidget@files" ? (globalStore.get(getSettingsKeyAtom("preview:defaultdir")) ?? "") : "";
+    const blockDef = buildWidgetBlockDef(widget, {
+        ...focusedBlock,
+        previewDefaultDir,
+    });
     const blockId = await createWidgetBlock(widgetKey, widget, blockDef, targetBlockId);
     trackedBlockIds[widgetKey] = blockId;
     schedulePreferredWidthApply(widgetKey, widget, blockId, tabModel);

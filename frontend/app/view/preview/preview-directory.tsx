@@ -55,6 +55,7 @@ import {
 } from "./preview-directory-utils";
 import { buildRemoteFileError } from "./preview-error-util";
 import { type PreviewModel } from "./preview-model";
+import { persistPreviewDefaultDirectorySelection } from "@/app/workspace/widgetsettings";
 
 const PageJumpSize = 20;
 const TreeMaxWidth = 100000;
@@ -249,6 +250,127 @@ function canExtractArchive(fileInfo: Pick<FileInfo, "path" | "name" | "dir" | "m
         return false;
     }
     return getArchiveExtractionPlan(fileInfo) != null;
+}
+
+type DirectoryMenuOptions = {
+    conn: string;
+    blockId: string;
+    model: PreviewModel;
+    rootPath: string;
+    actionDirPath: string;
+    targetFile?: FileInfo;
+    includeRenameAndCopy?: boolean;
+    includeDelete?: boolean;
+    openUploadFilePicker: (targetDir: string) => void;
+    newFile: (basePath?: string) => void;
+    newDirectory: (basePath?: string) => void;
+    setEntryManagerProps: (props?: EntryManagerOverlayProps) => void;
+    setErrorMsg: (msg: ErrorMsg) => void;
+};
+
+function buildDirectoryMenuItems(options: DirectoryMenuOptions): ContextMenuItem[] {
+    const {
+        conn,
+        blockId,
+        model,
+        rootPath,
+        actionDirPath,
+        targetFile = null,
+        includeRenameAndCopy = false,
+        includeDelete = false,
+        openUploadFilePicker,
+        newFile,
+        newDirectory,
+        setEntryManagerProps,
+        setErrorMsg,
+    } = options;
+    const menu: ContextMenuItem[] = [
+        {
+            label: "新建文件",
+            click: () => {
+                newFile(actionDirPath);
+            },
+        },
+        {
+            label: "新建文件夹",
+            click: () => {
+                newDirectory(actionDirPath);
+            },
+        },
+        {
+            label: "上传到当前目录",
+            click: () => {
+                openUploadFilePicker(actionDirPath);
+            },
+        },
+        {
+            label: "设置为默认目录 ★",
+            click: () => {
+                fireAndForget(() => persistPreviewDefaultDirectorySelection(actionDirPath));
+            },
+        },
+    ];
+
+    if (targetFile != null) {
+        const isRootNode = targetFile.path === rootPath;
+        if (includeRenameAndCopy && !isRootNode) {
+            const fileName = targetFile.path.split("/").pop() ?? targetFile.path;
+            menu.push(
+                {
+                    label: "重命名",
+                    click: () =>
+                        openRenameEntryManager(
+                            setEntryManagerProps,
+                            model,
+                            targetFile.path,
+                            !!targetFile.isdir,
+                            setErrorMsg
+                        ),
+                },
+                {
+                    type: "separator",
+                },
+                {
+                    label: "复制文件名",
+                    click: () => fireAndForget(() => navigator.clipboard.writeText(fileName)),
+                },
+                {
+                    label: "复制完整路径",
+                    click: () => fireAndForget(() => navigator.clipboard.writeText(targetFile.path)),
+                }
+            );
+        }
+
+        if (canExtractArchive(targetFile)) {
+            menu.push(
+                {
+                    type: "separator",
+                },
+                {
+                    label: "解压到当前目录",
+                    click: () => handleFileActivation(targetFile, model, conn, setErrorMsg),
+                }
+            );
+        }
+
+        menu.push({ type: "separator" });
+        addOpenMenuItems(menu, conn, targetFile, blockId);
+
+        if (includeDelete && !isRootNode) {
+            menu.push(
+                {
+                    type: "separator",
+                },
+                {
+                    label: "删除（不可恢复）",
+                    sublabel: "危险操作",
+                    click: () => handleFileDelete(model, targetFile.path, false, setErrorMsg),
+                }
+            );
+        }
+    }
+
+    return menu;
 }
 
 function handleFileActivation(
@@ -628,6 +750,7 @@ function DirectoryTable({
                 newFile={newFile}
                 newDirectory={newDirectory}
                 openUploadFilePicker={openUploadFilePicker}
+                setEntryManagerProps={setEntryManagerProps}
             />
         </OverlayScrollbarsComponent>
     );
@@ -650,6 +773,7 @@ interface TableBodyProps {
     newFile: (basePath?: string) => void;
     newDirectory: (basePath?: string) => void;
     openUploadFilePicker: (targetDir: string) => void;
+    setEntryManagerProps: (props?: EntryManagerOverlayProps) => void;
 }
 
 function TableBody({
@@ -667,6 +791,7 @@ function TableBody({
     newFile,
     newDirectory,
     openUploadFilePicker,
+    setEntryManagerProps,
 }: TableBodyProps) {
     const searchActive = useAtomValue(model.directorySearchActive);
     const dummyLineRef = useRef<HTMLDivElement>(null);
@@ -720,48 +845,24 @@ function TableBody({
             e.preventDefault();
             e.stopPropagation();
             const menuFile = targetFile ?? finfo;
-            const menu: ContextMenuItem[] = [
-                {
-                    label: "\u65b0\u5efa\u6587\u4ef6",
-                    click: () => {
-                        newFile();
-                    },
-                },
-                {
-                    label: "\u65b0\u5efa\u6587\u4ef6\u5939",
-                    click: () => {
-                        newDirectory();
-                    },
-                },
-                {
-                    label: "\u4e0a\u4f20\u5230\u5f53\u524d\u76ee\u5f55",
-                    click: () => {
-                        openUploadFilePicker(dirPath ?? rootPath);
-                    },
-                },
-                {
-                    type: "separator",
-                },
-            ];
-            if (menuFile) {
-                addOpenMenuItems(menu, conn, menuFile, model.blockId);
-                if (menuFile.path && menuFile.path !== rootPath) {
-                    menu.push(
-                        {
-                            type: "separator",
-                        },
-                        {
-                            label: "\u5220\u9664\uff08\u4e0d\u53ef\u6062\u590d\uff09",
-                            sublabel: "\u5371\u9669\u64cd\u4f5c",
-                            click: () => handleFileDelete(model, menuFile.path, false, setErrorMsg),
-                        }
-                    );
-                }
-            }
-
+            const isRowContext = targetFile != null;
+            const menu = buildDirectoryMenuItems({
+                conn,
+                blockId: model.blockId,
+                model,
+                rootPath,
+                actionDirPath: dirPath ?? rootPath,
+                targetFile: menuFile,
+                includeDelete: isRowContext,
+                openUploadFilePicker,
+                newFile,
+                newDirectory,
+                setEntryManagerProps,
+                setErrorMsg,
+            });
             ContextMenuModel.getInstance().showContextMenu(menu, e);
         },
-        [conn, model, newDirectory, newFile, openUploadFilePicker, rootPath, setErrorMsg]
+        [conn, dirPath, model, newDirectory, newFile, openUploadFilePicker, rootPath, setEntryManagerProps, setErrorMsg]
     );
 
     return (
@@ -954,75 +1055,22 @@ function DirectoryTree({
         (finfo: FileInfo, event: React.MouseEvent<HTMLDivElement>) => {
             event.preventDefault();
             event.stopPropagation();
-            const fileName = finfo.path.split("/").pop() ?? finfo.path;
-            const isRootNode = finfo.path === rootPath;
             const uploadTargetDir = finfo.isdir ? finfo.path : (finfo.dir ?? rootPath);
-            const menu: ContextMenuItem[] = [
-                {
-                    label: "\u65b0\u5efa\u6587\u4ef6",
-                    click: () => newFile(finfo.isdir ? finfo.path : finfo.dir),
-                },
-                {
-                    label: "\u65b0\u5efa\u6587\u4ef6\u5939",
-                    click: () => newDirectory(finfo.isdir ? finfo.path : finfo.dir),
-                },
-                {
-                    label: "\u4e0a\u4f20\u5230\u6b64\u5904",
-                    click: () => openUploadFilePicker(uploadTargetDir),
-                },
-            ];
-            if (!isRootNode) {
-                menu.push(
-                    {
-                        label: "\u91cd\u547d\u540d",
-                        click: () => openRenameEntryManager(setEntryManagerProps, model, finfo.path, !!finfo.isdir, setErrorMsg),
-                    },
-                    {
-                        type: "separator",
-                    },
-                    {
-                        label: "\u590d\u5236\u6587\u4ef6\u540d",
-                        click: () => fireAndForget(() => navigator.clipboard.writeText(fileName)),
-                    },
-                    {
-                        label: "\u590d\u5236\u5b8c\u6574\u6587\u4ef6\u540d",
-                        click: () => fireAndForget(() => navigator.clipboard.writeText(finfo.path)),
-                    },
-                    {
-                        label: "\u590d\u5236\u6587\u4ef6\u540d\uff08Shell \u5f15\u53f7\uff09",
-                        click: () => fireAndForget(() => navigator.clipboard.writeText(shellQuote([fileName]))),
-                    },
-                    {
-                        label: "\u590d\u5236\u5b8c\u6574\u6587\u4ef6\u540d\uff08Shell \u5f15\u53f7\uff09",
-                        click: () => fireAndForget(() => navigator.clipboard.writeText(shellQuote([finfo.path]))),
-                    }
-                );
-            }
-            if (canExtractArchive(finfo)) {
-                menu.push(
-                    {
-                        type: "separator",
-                    },
-                    {
-                        label: "\u89e3\u538b\u5230\u5f53\u524d\u76ee\u5f55",
-                        click: () => handleFileActivation(finfo, model, conn, setErrorMsg),
-                    }
-                );
-            }
-            menu.push({ type: "separator" });
-            addOpenMenuItems(menu, conn, finfo, model.blockId);
-            if (!isRootNode) {
-                menu.push(
-                    {
-                        type: "separator",
-                    },
-                    {
-                        label: "\u5220\u9664\uff08\u4e0d\u53ef\u6062\u590d\uff09",
-                        sublabel: "\u5371\u9669\u64cd\u4f5c",
-                        click: () => handleFileDelete(model, finfo.path, false, setErrorMsg),
-                    }
-                );
-            }
+            const menu = buildDirectoryMenuItems({
+                conn,
+                blockId: model.blockId,
+                model,
+                rootPath,
+                actionDirPath: uploadTargetDir,
+                targetFile: finfo,
+                includeRenameAndCopy: true,
+                includeDelete: true,
+                openUploadFilePicker,
+                newFile,
+                newDirectory,
+                setEntryManagerProps,
+                setErrorMsg,
+            });
             ContextMenuModel.getInstance().showContextMenu(menu, event);
         },
         [conn, model, newDirectory, newFile, openUploadFilePicker, rootPath, setEntryManagerProps, setErrorMsg]
@@ -1546,6 +1594,12 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                     label: "上传到当前目录",
                     click: () => {
                         openUploadFilePicker(dirPath ?? rootPath);
+                    },
+                },
+                {
+                    label: "设置为默认目录 ★",
+                    click: () => {
+                        fireAndForget(() => persistPreviewDefaultDirectorySelection(dirPath ?? rootPath));
                     },
                 },
                 {

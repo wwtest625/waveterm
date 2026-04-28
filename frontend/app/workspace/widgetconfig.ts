@@ -16,15 +16,26 @@ function parseWidgetsFile(fileContent: string): WidgetsFile {
     }
 }
 
-function setWidgetWidthInFileContent(fileContent: string, widgetKey: string, width: number): string {
+function setWidgetInFileContent(
+    fileContent: string,
+    widgetKey: string,
+    updater: (widget: WidgetConfigDraft) => WidgetConfigDraft
+): string {
     const widgetsFile = parseWidgetsFile(fileContent);
     const existingWidget = widgetsFile[widgetKey];
-    widgetsFile[widgetKey] = {
-        ...(existingWidget != null && typeof existingWidget === "object" ? existingWidget : {}),
-        "display:width": width,
-    };
+    const existingWidgetConfig = existingWidget != null && typeof existingWidget === "object" ? existingWidget : {};
+    widgetsFile[widgetKey] = updater({
+        ...existingWidgetConfig,
+    });
     return JSON.stringify(widgetsFile, null, 2);
 }
 
-export { parseWidgetsFile, setWidgetWidthInFileContent };
+function setWidgetWidthInFileContent(fileContent: string, widgetKey: string, width: number): string {
+    return setWidgetInFileContent(fileContent, widgetKey, (widget) => ({
+        ...widget,
+        "display:width": width,
+    }));
+}
+
+export { parseWidgetsFile, setWidgetInFileContent, setWidgetWidthInFileContent };
 export type { WidgetConfigDraft, WidgetsFile };

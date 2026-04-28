@@ -130,6 +130,7 @@ type SettingsType struct {
 	MarkdownFixedFontSize float64 `json:"markdown:fixedfontsize,omitempty"`
 
 	PreviewShowHiddenFiles *bool `json:"preview:showhiddenfiles,omitempty"`
+	PreviewDefaultDir      string `json:"preview:defaultdir,omitempty"`
 
 	TabPreset       string `json:"tab:preset,omitempty"`
 	TabConfirmClose bool   `json:"tab:confirmclose,omitempty"`

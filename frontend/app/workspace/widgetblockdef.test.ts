@@ -45,6 +45,84 @@ test("buildWidgetBlockDef keeps preview widget unchanged when focused block is n
     assert.equal(result.meta?.file, "~");
 });
 
+test("buildWidgetBlockDef uses preview default dir for files widget when no terminal is focused", () => {
+    const widget = {
+        blockdef: {
+            meta: {
+                view: "preview",
+                file: "~",
+            },
+        },
+    } as WidgetConfigType;
+
+    const result = buildWidgetBlockDef(widget, {
+        view: "web",
+        previewDefaultDir: "/srv/projects",
+    });
+
+    assert.equal(result.meta?.file, "/srv/projects");
+});
+
+test("buildWidgetBlockDef keeps a custom preview file path when preview default dir is set", () => {
+    const widget = {
+        blockdef: {
+            meta: {
+                view: "preview",
+                file: "/opt/custom",
+            },
+        },
+    } as WidgetConfigType;
+
+    const result = buildWidgetBlockDef(widget, {
+        view: "web",
+        previewDefaultDir: "/srv/projects",
+    });
+
+    assert.equal(result.meta?.file, "/opt/custom");
+});
+
+test("buildWidgetBlockDef uses preview default dir when focused terminal has no cwd", () => {
+    const widget = {
+        blockdef: {
+            meta: {
+                view: "preview",
+                file: "~",
+            },
+        },
+    } as WidgetConfigType;
+
+    const result = buildWidgetBlockDef(widget, {
+        view: "term",
+        connection: "ssh://devbox",
+        cwd: "",
+        previewDefaultDir: "/srv/projects",
+    });
+
+    assert.equal(result.meta?.connection, "ssh://devbox");
+    assert.equal(result.meta?.file, "/srv/projects");
+});
+
+test("buildWidgetBlockDef uses preview default dir when focused terminal has no cwd even with custom meta.file", () => {
+    const widget = {
+        blockdef: {
+            meta: {
+                view: "preview",
+                file: "/opt/custom",
+            },
+        },
+    } as WidgetConfigType;
+
+    const result = buildWidgetBlockDef(widget, {
+        view: "term",
+        connection: "ssh://devbox",
+        cwd: "",
+        previewDefaultDir: "/srv/projects",
+    });
+
+    assert.equal(result.meta?.connection, "ssh://devbox");
+    assert.equal(result.meta?.file, "/srv/projects");
+});
+
 test("buildWidgetBlockDef does not mutate original widget blockdef", () => {
     const widget = {
         blockdef: {

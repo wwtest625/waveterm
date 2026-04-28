@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { assert, test } from "vitest";
-import { parseWidgetsFile, setWidgetWidthInFileContent } from "./widgetconfig";
+import { parseWidgetsFile, setWidgetInFileContent, setWidgetWidthInFileContent } from "./widgetconfig";
 
 test("parseWidgetsFile falls back to an empty object for invalid json", () => {
     assert.deepEqual(parseWidgetsFile("{"), {});
@@ -33,6 +33,47 @@ test("setWidgetWidthInFileContent creates a widget override when needed", () => 
     assert.deepEqual(JSON.parse(nextContent), {
         "defwidget@files": {
             "display:width": 40,
+        },
+    });
+});
+
+test("setWidgetInFileContent preserves nested blockdef fields", () => {
+    const nextContent = setWidgetInFileContent(
+        JSON.stringify({
+            "defwidget@files": {
+                label: "files",
+                blockdef: {
+                    meta: {
+                        view: "preview",
+                        file: "~",
+                    },
+                },
+            },
+        }),
+        "defwidget@files",
+        (widget) => ({
+            ...widget,
+            blockdef: {
+                ...(widget.blockdef ?? {}),
+                meta: {
+                    ...(widget.blockdef?.meta ?? {}),
+                    file: "/srv/models",
+                    connection: "root@192.0.2.82",
+                },
+            },
+        })
+    );
+
+    assert.deepEqual(JSON.parse(nextContent), {
+        "defwidget@files": {
+            label: "files",
+            blockdef: {
+                meta: {
+                    view: "preview",
+                    file: "/srv/models",
+                    connection: "root@192.0.2.82",
+                },
+            },
         },
     });
 });
