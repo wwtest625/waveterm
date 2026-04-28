@@ -3,16 +3,109 @@
 
 import { quote as shellQuote } from "shell-quote";
 
+const dockerStarStoragePrefix = "waveterm:docker-starred-containers:";
+
 export function buildDockerLogsCommand(containerId: string): string {
     return `docker logs --tail 200 -f ${shellQuote([containerId])}`;
 }
 
 export function buildDockerExecCommand(containerId: string): string {
-    return `docker exec -it ${shellQuote([containerId])} /bin/sh`;
+    return `docker exec -it ${shellQuote([containerId])} /bin/bash`;
 }
 
 export function buildDockerPullCommand(imageRef: string): string {
     return `docker pull ${shellQuote([imageRef])}`;
+}
+
+export function buildDockerRenameCommand(containerId: string, newName: string): string {
+    return `docker rename ${shellQuote([containerId])} ${shellQuote([newName])}`;
+}
+
+export function getDockerStarStorageKey(connection: string): string {
+    return `${dockerStarStoragePrefix}${encodeURIComponent(connection)}`;
+}
+
+export function loadDockerStarredContainerIds(storage: Pick<Storage, "getItem">, connection: string): string[] {
+    const raw = storage.getItem(getDockerStarStorageKey(connection));
+    if (raw == null || raw.trim() === "") {
+        return [];
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed.filter((item): item is string => typeof item === "string" && item.trim() !== "");
+    } catch {
+        return [];
+    }
+}
+
+export function saveDockerStarredContainerIds(
+    storage: Pick<Storage, "setItem">,
+    connection: string,
+    containerIds: Iterable<string>
+): void {
+    const uniqueIds = Array.from(new Set(Array.from(containerIds).filter((id) => id.trim() !== "")));
+    storage.setItem(getDockerStarStorageKey(connection), JSON.stringify(uniqueIds));
+}
+
+export function toggleDockerStarredContainerId(containerIds: string[], containerId: string): string[] {
+    const normalizedId = containerId.trim();
+    if (normalizedId === "") {
+        return containerIds;
+    }
+    const nextIds = new Set(containerIds);
+    if (nextIds.has(normalizedId)) {
+        nextIds.delete(normalizedId);
+    } else {
+        nextIds.add(normalizedId);
+    }
+    return Array.from(nextIds);
+}
+
+export function isDockerContainerStarred(containerIds: Iterable<string>, containerId: string): boolean {
+    const normalizedId = containerId.trim();
+    if (normalizedId === "") {
+        return false;
+    }
+    return new Set(containerIds).has(normalizedId);
+}
+
+export function dockerContainerMatchesSearch(
+    container: DockerContainerSummary,
+    containerSearch: string,
+    imageSearch: string
+): boolean {
+    const normalizedContainerSearch = containerSearch.trim().toLowerCase();
+    const normalizedImageSearch = imageSearch.trim().toLowerCase();
+    const matchesContainerSearch =
+        normalizedContainerSearch === "" ||
+        [container.name, container.id, container.statusText, container.portsText]
+            .join(" ")
+            .toLowerCase()
+            .includes(normalizedContainerSearch);
+    const matchesImageSearch =
+        normalizedImageSearch === "" || container.image.toLowerCase().includes(normalizedImageSearch);
+    return matchesContainerSearch && matchesImageSearch;
+}
+
+export function sortDockerContainersForDisplay(
+    containers: DockerContainerSummary[],
+    starredContainerIds: Iterable<string>
+): DockerContainerSummary[] {
+    const starredIds = new Set(Array.from(starredContainerIds).map((id) => id.trim()).filter((id) => id !== ""));
+    return containers
+        .map((container, index) => ({ container, index }))
+        .sort((left, right) => {
+            const leftStarred = starredIds.has(left.container.id);
+            const rightStarred = starredIds.has(right.container.id);
+            if (leftStarred !== rightStarred) {
+                return leftStarred ? -1 : 1;
+            }
+            return left.index - right.index;
+        })
+        .map(({ container }) => container);
 }
 
 export function canRemoveDockerContainer(state?: string): boolean {

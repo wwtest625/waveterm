@@ -6,15 +6,23 @@ import {
     buildDockerExecCommand,
     buildDockerLogsCommand,
     buildDockerPullCommand,
+    buildDockerRenameCommand,
     canRemoveDockerContainer,
+    dockerContainerMatchesSearch,
     dockerStateBadgeClass,
     getDockerErrorHeadline,
+    getDockerStarStorageKey,
+    loadDockerStarredContainerIds,
+    saveDockerStarredContainerIds,
+    sortDockerContainersForDisplay,
+    toggleDockerStarredContainerId,
 } from "./docker-util";
 
 test("docker command builders quote identifiers safely", () => {
     assert.equal(buildDockerLogsCommand("web app"), "docker logs --tail 200 -f 'web app'");
-    assert.equal(buildDockerExecCommand("web app"), "docker exec -it 'web app' /bin/sh");
+    assert.equal(buildDockerExecCommand("web app"), "docker exec -it 'web app' /bin/bash");
     assert.equal(buildDockerPullCommand("ghcr.io/acme/web:latest"), "docker pull ghcr.io/acme/web\\:latest");
+    assert.equal(buildDockerRenameCommand("web app", "new name"), "docker rename 'web app' 'new name'");
 });
 
 test("canRemoveDockerContainer only allows stopped-like states", () => {
@@ -45,4 +53,49 @@ test("getDockerErrorHeadline provides friendly summaries", () => {
         getDockerErrorHeadline({ code: "unknown", message: "Something failed" } as DockerError),
         "Something failed"
     );
+});
+
+test("docker star helpers persist and sort starred containers first", () => {
+    const storageState: Record<string, string> = {};
+    const storage = {
+        getItem: (key: string) => storageState[key] ?? null,
+        setItem: (key: string, value: string) => {
+            storageState[key] = value;
+        },
+    };
+
+    const key = getDockerStarStorageKey("root@192.0.2.82");
+    assert.match(key, /root%40192\.0\.2\.82$/);
+
+    saveDockerStarredContainerIds(storage, "root@192.0.2.82", ["beta", "alpha", "alpha", ""]);
+    assert.deepEqual(JSON.parse(storageState[key]), ["beta", "alpha"]);
+    assert.deepEqual(loadDockerStarredContainerIds(storage, "root@192.0.2.82"), ["beta", "alpha"]);
+    assert.deepEqual(toggleDockerStarredContainerId(["beta", "alpha"], "alpha"), ["beta"]);
+
+    const containers = [
+        { id: "1", name: "zeta", image: "nginx:latest", state: "running", statusText: "", portsText: "" },
+        { id: "2", name: "alpha", image: "redis:latest", state: "exited", statusText: "", portsText: "" },
+        { id: "3", name: "beta", image: "postgres:latest", state: "running", statusText: "", portsText: "" },
+    ] as DockerContainerSummary[];
+
+    const sorted = sortDockerContainersForDisplay(containers, ["3", "2"]);
+    assert.deepEqual(
+        sorted.map((container) => container.id),
+        ["2", "3", "1"]
+    );
+});
+
+test("docker container search supports separate name and image filters", () => {
+    const container = {
+        id: "1",
+        name: "web-api",
+        image: "ghcr.io/acme/web:latest",
+        state: "running",
+        statusText: "Up",
+        portsText: "8080/tcp",
+    } as DockerContainerSummary;
+
+    assert.equal(dockerContainerMatchesSearch(container, "web", ""), true);
+    assert.equal(dockerContainerMatchesSearch(container, "", "ghcr.io/acme/web"), true);
+    assert.equal(dockerContainerMatchesSearch(container, "web", "redis"), false);
 });

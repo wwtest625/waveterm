@@ -63,6 +63,18 @@ func (ws *WshServer) DockerContainerActionCommand(ctx context.Context, data wshr
 		args = []string{"restart", data.ContainerId}
 	case "remove":
 		args = []string{"rm", data.ContainerId}
+	case "rename":
+		newName := strings.TrimSpace(data.NewName)
+		if newName == "" {
+			return wshrpc.DockerActionResponse{
+				Error: &wshrpc.DockerError{
+					Code:    "unknown",
+					Message: "Unsupported Docker container action \"rename\".",
+					Detail:  "A new container name is required.",
+				},
+			}, nil
+		}
+		args = []string{"rename", data.ContainerId, newName}
 	default:
 		return wshrpc.DockerActionResponse{
 			Error: &wshrpc.DockerError{

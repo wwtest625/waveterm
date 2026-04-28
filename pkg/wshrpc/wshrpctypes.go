@@ -471,6 +471,7 @@ type DockerContainerActionRequest struct {
 	Connection  string `json:"connection,omitempty"`
 	ContainerId string `json:"containerId"`
 	Action      string `json:"action"`
+	NewName     string `json:"newName,omitempty"`
 }
 
 type DockerImageActionRequest struct {

@@ -4,6 +4,7 @@
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { Button } from "@/app/element/button";
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { Modal } from "@/app/modals/modal";
 import type { TabModel } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -11,21 +12,29 @@ import { getWidgetWidthMenuItems } from "@/app/workspace/widgetsettings";
 import { WOS } from "@/store/global";
 import { openCommandInNewBlock, sendCommandToTerminal } from "@/util/previewutil";
 import { atom } from "jotai";
-import { memo, useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
     buildDockerExecCommand,
     buildDockerLogsCommand,
     buildDockerPullCommand,
     canRemoveDockerContainer,
+    dockerContainerMatchesSearch,
     dockerStateBadgeClass,
     dockerStateLabel,
     getDockerErrorHeadline,
+    isDockerContainerStarred,
+    loadDockerStarredContainerIds,
+    saveDockerStarredContainerIds,
+    sortDockerContainersForDisplay,
+    toggleDockerStarredContainerId,
 } from "./docker-util";
 
 const searchInputClass =
     "w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-500 focus:border-accent";
 
 const panelClass = "rounded-xl border border-zinc-800 bg-zinc-950/70 p-4";
+const searchFieldClass =
+    "w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-500 focus:border-accent";
 const DockerViewComponent = memo(DockerView);
 type DockerTabKey = "containers" | "images";
 
@@ -118,8 +127,16 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
     const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
     const [images, setImages] = useState<DockerImageSummary[]>([]);
     const [containersSearch, setContainersSearch] = useState("");
+    const [containerImageSearch, setContainerImageSearch] = useState("");
     const [imagesSearch, setImagesSearch] = useState("");
     const [pullImageRef, setPullImageRef] = useState("");
+    const [starredContainerIds, setStarredContainerIds] = useState<string[]>([]);
+    const [loadedStarStorageConnection, setLoadedStarStorageConnection] = useState<string | null>(null);
+    const [renameContainer, setRenameContainer] = useState<DockerContainerSummary | null>(null);
+    const [renameContainerName, setRenameContainerName] = useState("");
+    const [renameContainerError, setRenameContainerError] = useState<string | null>(null);
+    const [renameContainerSubmitting, setRenameContainerSubmitting] = useState(false);
+    const renameContainerInputRef = useRef<HTMLInputElement>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<DockerError | null>(null);
     const [actionError, setActionError] = useState<DockerError | null>(null);
@@ -162,18 +179,35 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
         return () => window.clearInterval(intervalId);
     }, [refreshData]);
 
-    const filteredContainers = useMemo(() => {
-        const search = containersSearch.trim().toLowerCase();
-        if (search === "") {
-            return containers;
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
         }
+        setStarredContainerIds(loadDockerStarredContainerIds(window.localStorage, connection));
+        setLoadedStarStorageConnection(connection);
+    }, [connection]);
+
+    useEffect(() => {
+        if (typeof window === "undefined" || loadedStarStorageConnection !== connection) {
+            return;
+        }
+        saveDockerStarredContainerIds(window.localStorage, connection, starredContainerIds);
+    }, [connection, loadedStarStorageConnection, starredContainerIds]);
+
+    const filteredContainers = useMemo(() => {
         return containers.filter((container) =>
-            [container.name, container.image, container.id, container.statusText, container.portsText]
-                .join(" ")
-                .toLowerCase()
-                .includes(search)
+            dockerContainerMatchesSearch(container, containersSearch, containerImageSearch)
         );
-    }, [containers, containersSearch]);
+    }, [containerImageSearch, containers, containersSearch]);
+
+    const sortedContainers = useMemo(
+        () => sortDockerContainersForDisplay(filteredContainers, starredContainerIds),
+        [filteredContainers, starredContainerIds]
+    );
+
+    const containerEmptyTitle =
+        containers.length === 0 ? "当前连接没有容器。" : "没有匹配的容器，请试试别的关键词。";
+    const imageEmptyTitle = images.length === 0 ? "当前连接没有镜像。" : "没有匹配的镜像，请试试别的关键词。";
 
     const filteredImages = useMemo(() => {
         const search = imagesSearch.trim().toLowerCase();
@@ -272,6 +306,68 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
         setPullImageRef("");
     }, [pullImageRef, runPullImage]);
 
+    const openRenameContainer = useCallback((container: DockerContainerSummary) => {
+        setRenameContainer(container);
+        setRenameContainerName(container.name || "");
+        setRenameContainerError(null);
+        setActionError(null);
+    }, []);
+
+    const closeRenameContainer = useCallback(() => {
+        if (renameContainerSubmitting) {
+            return;
+        }
+        setRenameContainer(null);
+        setRenameContainerName("");
+        setRenameContainerError(null);
+    }, [renameContainerSubmitting]);
+
+    const submitRenameContainer = useCallback(async () => {
+        if (renameContainer == null || renameContainerSubmitting) {
+            return;
+        }
+        const nextName = renameContainerName.trim();
+        if (nextName === "" || nextName === renameContainer.name) {
+            return;
+        }
+        setRenameContainerSubmitting(true);
+        setRenameContainerError(null);
+        try {
+            const resp = await RpcApi.DockerContainerActionCommand(TabRpcClient, {
+                connection,
+                containerId: renameContainer.id,
+                action: "rename",
+                newName: nextName,
+            });
+            if (resp?.error) {
+                setRenameContainerError(resp.error.detail || resp.error.message);
+                return;
+            }
+            setRenameContainer(null);
+            setRenameContainerName("");
+            await refreshData(false);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Docker 操作失败。";
+            setRenameContainerError(message);
+        } finally {
+            setRenameContainerSubmitting(false);
+        }
+    }, [connection, refreshData, renameContainer, renameContainerName, renameContainerSubmitting]);
+
+    const toggleContainerStar = useCallback((containerId: string) => {
+        setStarredContainerIds((currentIds) => toggleDockerStarredContainerId(currentIds, containerId));
+    }, []);
+
+    useEffect(() => {
+        if (renameContainer == null) {
+            return;
+        }
+        window.setTimeout(() => {
+            renameContainerInputRef.current?.focus({ preventScroll: true });
+            renameContainerInputRef.current?.select();
+        }, 0);
+    }, [renameContainer]);
+
     if (loading) {
         return <div className="flex h-full items-center justify-center text-sm text-zinc-400">正在加载 Docker...</div>;
     }
@@ -320,20 +416,28 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                         <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <div>
                                 <div className="text-base font-semibold text-zinc-100">容器列表</div>
-                                <div className="text-sm text-zinc-500">按名称或镜像搜索</div>
+                                <div className="text-sm text-zinc-500">按容器名和镜像名分别筛选</div>
                             </div>
-                            <input
-                                className="w-full max-w-md rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-500 focus:border-accent"
-                                placeholder="搜索容器"
-                                value={containersSearch}
-                                onChange={(e) => setContainersSearch(e.target.value)}
-                            />
+                            <div className="flex w-full max-w-xl flex-col gap-2 sm:flex-row">
+                                <input
+                                    className={`${searchFieldClass} sm:flex-1`}
+                                    placeholder="搜索容器名"
+                                    value={containersSearch}
+                                    onChange={(e) => setContainersSearch(e.target.value)}
+                                />
+                                <input
+                                    className={`${searchFieldClass} sm:flex-1`}
+                                    placeholder="搜索镜像名"
+                                    value={containerImageSearch}
+                                    onChange={(e) => setContainerImageSearch(e.target.value)}
+                                />
+                            </div>
                         </div>
-                        {filteredContainers.length === 0 ? (
-                            <EmptyList title="当前连接没有容器。" />
+                        {sortedContainers.length === 0 ? (
+                            <EmptyList title={containerEmptyTitle} />
                         ) : (
                             <div className="space-y-2">
-                                {filteredContainers.map((container) => {
+                                {sortedContainers.map((container) => {
                                     const containerKey = container.id;
                                     const stateLabel = dockerStateLabel(container.state);
                                     const disableRemove = !canRemoveDockerContainer(container.state);
@@ -342,8 +446,27 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                         container.state === "running" ||
                                         container.state === "paused" ||
                                         container.state === "restarting";
+                                    const starred = isDockerContainerStarred(starredContainerIds, container.id);
                                     const openContainerMenu = (event: MouseEvent<HTMLButtonElement>) => {
                                         const menu: ContextMenuItem[] = [
+                                            {
+                                                label: "重命名",
+                                                click: () => {
+                                                    openRenameContainer(container);
+                                                },
+                                            },
+                                            {
+                                                type: "separator",
+                                            },
+                                            {
+                                                label: starred ? "取消星标" : "添加星标",
+                                                click: () => {
+                                                    toggleContainerStar(container.id);
+                                                },
+                                            },
+                                            {
+                                                type: "separator",
+                                            },
                                             {
                                                 label: "停止",
                                                 enabled: isRunningLike && !isBusy,
@@ -373,12 +496,44 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                     return (
                                         <div
                                             key={containerKey}
-                                            className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2.5"
+                                            className={[
+                                                "rounded-lg border px-3 py-2.5 transition-colors",
+                                                starred
+                                                    ? "border-emerald-500/30 bg-emerald-950/25 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]"
+                                                    : "border-zinc-800 bg-zinc-950/70",
+                                            ].join(" ")}
                                         >
                                             <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex flex-wrap items-center gap-2">
-                                                        <div className="truncate text-sm font-semibold text-zinc-100">
+                                                        <button
+                                                            type="button"
+                                                            className={[
+                                                                "flex h-[28px] w-[28px] items-center justify-center rounded-md border transition-colors",
+                                                                starred
+                                                                    ? "border-amber-400/40 bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
+                                                                    : "border-zinc-700 bg-zinc-900 text-zinc-500 hover:border-amber-400/40 hover:text-amber-300",
+                                                            ].join(" ")}
+                                                            onClick={() => toggleContainerStar(container.id)}
+                                                            aria-label={starred ? "取消星标" : "添加星标"}
+                                                            aria-pressed={starred}
+                                                            title={starred ? "取消星标" : "添加星标"}
+                                                        >
+                                                            <i
+                                                                className={[
+                                                                    "fa text-[11px]",
+                                                                    starred ? "fa-solid fa-star" : "fa-regular fa-star",
+                                                                ].join(" ")}
+                                                            />
+                                                        </button>
+                                                        <div
+                                                            className={[
+                                                                "truncate text-sm",
+                                                                starred
+                                                                    ? "font-bold text-emerald-300"
+                                                                    : "font-semibold text-zinc-100",
+                                                            ].join(" ")}
+                                                        >
                                                             {container.name || container.id}
                                                         </div>
                                                         <span
@@ -452,7 +607,7 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                             </div>
                         </div>
                         {filteredImages.length === 0 ? (
-                            <EmptyList title="当前连接没有镜像。" />
+                            <EmptyList title={imageEmptyTitle} />
                         ) : (
                             <div className="space-y-2">
                                 {filteredImages.map((image) => {
@@ -502,6 +657,45 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                     </div>
                 )}
             </div>
+            {renameContainer ? (
+                <Modal
+                    className="pt-6 pb-4 px-5"
+                    onOk={() => void submitRenameContainer()}
+                    onCancel={() => closeRenameContainer()}
+                    onClose={() => closeRenameContainer()}
+                    okLabel="重命名"
+                    cancelLabel="取消"
+                    okDisabled={renameContainerSubmitting || renameContainerName.trim() === "" || renameContainerName.trim() === (renameContainer.name || "")}
+                >
+                    <div className="mx-4 min-w-[420px] max-w-[560px] text-zinc-100">
+                        <div className="text-lg font-semibold">重命名容器</div>
+                        <div className="mt-1 text-sm text-zinc-400">
+                            当前容器：{renameContainer.name || renameContainer.id}
+                        </div>
+                        <div className="mt-4 flex flex-col gap-2">
+                            <label className="text-sm text-zinc-300">
+                                新名称
+                            </label>
+                            <input
+                                className={searchInputClass}
+                                ref={renameContainerInputRef}
+                                value={renameContainerName}
+                                onChange={(e) => setRenameContainerName(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                        void submitRenameContainer();
+                                    }
+                                }}
+                            />
+                            {renameContainerError ? (
+                                <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                                    {renameContainerError}
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                </Modal>
+            ) : null}
         </div>
     );
 }
