@@ -214,6 +214,12 @@ func CreateBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateBlockData, o
 	return resp, err
 }
 
+// command "createskill", wshserver.CreateSkillCommand
+func CreateSkillCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateSkillData, opts *wshrpc.RpcOpts) (*wshrpc.SkillInfo, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.SkillInfo](w, "createskill", data, opts)
+	return resp, err
+}
+
 // command "createsubblock", wshserver.CreateSubBlockCommand
 func CreateSubBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateSubBlockData, opts *wshrpc.RpcOpts) (waveobj.ORef, error) {
 	resp, err := sendRpcRequestCallHelper[waveobj.ORef](w, "createsubblock", data, opts)
@@ -241,6 +247,12 @@ func DeleteBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteBlockData, o
 // command "deletebuilder", wshserver.DeleteBuilderCommand
 func DeleteBuilderCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "deletebuilder", data, opts)
+	return err
+}
+
+// command "deleteskill", wshserver.DeleteSkillCommand
+func DeleteSkillCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteSkillData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "deleteskill", data, opts)
 	return err
 }
 
@@ -524,6 +536,18 @@ func GetSecretsNamesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]string, 
 	return resp, err
 }
 
+// command "getskills", wshserver.GetSkillsCommand
+func GetSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.SkillInfo, error) {
+	resp, err := sendRpcRequestCallHelper[[]wshrpc.SkillInfo](w, "getskills", nil, opts)
+	return resp, err
+}
+
+// command "getskillsuserpath", wshserver.GetSkillsUserPathCommand
+func GetSkillsUserPathCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
+	resp, err := sendRpcRequestCallHelper[string](w, "getskillsuserpath", nil, opts)
+	return resp, err
+}
+
 // command "gettab", wshserver.GetTabCommand
 func GetTabCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (*waveobj.Tab, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.Tab](w, "gettab", data, opts)
@@ -563,6 +587,12 @@ func GetWaveAIModeConfigCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wconfi
 // command "getwaveairatelimit", wshserver.GetWaveAIRateLimitCommand
 func GetWaveAIRateLimitCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*uctypes.RateLimitInfo, error) {
 	resp, err := sendRpcRequestCallHelper[*uctypes.RateLimitInfo](w, "getwaveairatelimit", nil, opts)
+	return resp, err
+}
+
+// command "importskillzip", wshserver.ImportSkillZipCommand
+func ImportSkillZipCommand(w *wshutil.WshRpc, data wshrpc.CommandImportSkillZipData, opts *wshrpc.RpcOpts) (*wshrpc.SkillImportResult, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.SkillImportResult](w, "importskillzip", data, opts)
 	return resp, err
 }
 
@@ -728,6 +758,12 @@ func NotifySystemResumeCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	return err
 }
 
+// command "openskillsfolder", wshserver.OpenSkillsFolderCommand
+func OpenSkillsFolderCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "openskillsfolder", nil, opts)
+	return err
+}
+
 // command "path", wshserver.PathCommand
 func PathCommand(w *wshutil.WshRpc, data wshrpc.PathCommandData, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "path", data, opts)
@@ -746,9 +782,21 @@ func ReadAppFileCommand(w *wshutil.WshRpc, data wshrpc.CommandReadAppFileData, o
 	return resp, err
 }
 
+// command "readskillcontent", wshserver.ReadSkillContentCommand
+func ReadSkillContentCommand(w *wshutil.WshRpc, data wshrpc.CommandReadSkillContentData, opts *wshrpc.RpcOpts) (*wshrpc.SkillContent, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.SkillContent](w, "readskillcontent", data, opts)
+	return resp, err
+}
+
 // command "recordtevent", wshserver.RecordTEventCommand
 func RecordTEventCommand(w *wshutil.WshRpc, data telemetrydata.TEvent, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "recordtevent", data, opts)
+	return err
+}
+
+// command "reloadskills", wshserver.ReloadSkillsCommand
+func ReloadSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "reloadskills", nil, opts)
 	return err
 }
 
@@ -935,6 +983,12 @@ func SetSecretsCommand(w *wshutil.WshRpc, data map[string]*string, opts *wshrpc.
 	return err
 }
 
+// command "setskillenabled", wshserver.SetSkillEnabledCommand
+func SetSkillEnabledCommand(w *wshutil.WshRpc, data wshrpc.CommandSetSkillEnabledData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setskillenabled", data, opts)
+	return err
+}
+
 // command "setvar", wshserver.SetVarCommand
 func SetVarCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setvar", data, opts)
@@ -1032,6 +1086,12 @@ func TmuxListWindowsCommand(w *wshutil.WshRpc, data wshrpc.TmuxListWindowsReques
 func UpdateKnownHostKeyCommand(w *wshutil.WshRpc, data wshrpc.UpdateKnownHostKeyData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "updateknownhostkey", data, opts)
 	return err
+}
+
+// command "updateskill", wshserver.UpdateSkillCommand
+func UpdateSkillCommand(w *wshutil.WshRpc, data wshrpc.CommandUpdateSkillData, opts *wshrpc.RpcOpts) (*wshrpc.SkillInfo, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.SkillInfo](w, "updateskill", data, opts)
+	return resp, err
 }
 
 // command "updatewaveaisession", wshserver.UpdateWaveAISessionCommand
