@@ -1,15 +1,15 @@
-import { memo, useState, useRef, useEffect, useCallback } from "react";
-import * as jotai from "jotai";
-import { globalStore } from "@/app/store/jotaiStore";
-import { cn } from "@/util/util";
-import { AskUserData, AskUserOption } from "@/app/aipanel/aitypes";
+import { AskUserOption } from "@/app/aipanel/aitypes";
 import { WaveAIModel } from "@/app/aipanel/waveai-model";
+import { cn } from "@/util/util";
+import * as jotai from "jotai";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 export const AskUserCard = memo(() => {
     const model = WaveAIModel.getInstance();
     const askData = jotai.useAtomValue(model.askUserAtom);
     const [input, setInput] = useState("");
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const firstControlRef = useRef<HTMLElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
 
     useEffect(() => {
@@ -21,12 +21,14 @@ export const AskUserCard = memo(() => {
         if (!askData || askData.status !== "pending") {
             return;
         }
-        if (askData.kind === "freeform") {
-            const timer = window.setTimeout(() => {
+        const timer = window.setTimeout(() => {
+            if (askData.kind === "freeform") {
                 inputRef.current?.focus();
-            }, 0);
-            return () => window.clearTimeout(timer);
-        }
+                return;
+            }
+            firstControlRef.current?.focus();
+        }, 0);
+        return () => window.clearTimeout(timer);
     }, [askData]);
 
     const handleSubmit = useCallback(
@@ -43,9 +45,7 @@ export const AskUserCard = memo(() => {
             const confirmValues = askData.options || [];
             const yesOption = confirmValues.find((o) => o.id === "yes" || o.value === "yes");
             const noOption = confirmValues.find((o) => o.id === "no" || o.value === "no");
-            const answer = yes
-                ? yesOption?.value ?? "yes"
-                : noOption?.value ?? "no";
+            const answer = yes ? (yesOption?.value ?? "yes") : (noOption?.value ?? "no");
             void model.submitAskUserAnswer(askData.actionid, answer);
         },
         [askData]
@@ -78,30 +78,19 @@ export const AskUserCard = memo(() => {
         <div
             className={cn(
                 "mx-3 mb-2 rounded-xl border px-3 py-3 text-sm text-zinc-200",
-                isConfirm
-                    ? "border-red-300/12 bg-red-300/[0.04]"
-                    : "border-blue-300/12 bg-blue-300/[0.04]"
+                isConfirm ? "border-red-300/12 bg-red-300/[0.04]" : "border-blue-300/12 bg-blue-300/[0.04]"
             )}
         >
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
                         <span className="text-base">{isConfirm ? "⚠️" : "❓"}</span>
-                        <span
-                            className={cn(
-                                "font-medium",
-                                isConfirm ? "text-red-100" : "text-blue-100"
-                            )}
-                        >
+                        <span className={cn("font-medium", isConfirm ? "text-red-100" : "text-blue-100")}>
                             {isConfirm ? "确认操作" : "需要补充信息"}
                         </span>
                     </div>
                     <div className="mt-1.5 text-sm text-zinc-200">{askData.prompt}</div>
-                    {askData.taskid && (
-                        <div className="mt-1 text-[10px] text-zinc-500">
-                            关联任务: {askData.taskid}
-                        </div>
-                    )}
+                    {askData.taskid && <div className="mt-1 text-[10px] text-zinc-500">关联任务: {askData.taskid}</div>}
                 </div>
                 <button
                     type="button"
@@ -121,6 +110,11 @@ export const AskUserCard = memo(() => {
                     {askData.options.map((opt: AskUserOption) => (
                         <button
                             key={opt.id}
+                            ref={(node) => {
+                                if (opt === askData.options?.[0]) {
+                                    firstControlRef.current = node;
+                                }
+                            }}
                             type="button"
                             onClick={() => handleSubmit(opt.value || opt.id)}
                             className={cn(
@@ -131,7 +125,9 @@ export const AskUserCard = memo(() => {
                             )}
                         >
                             {opt.recommended && (
-                                <span className="mr-1.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">推荐</span>
+                                <span className="mr-1.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+                                    推荐
+                                </span>
                             )}
                             {opt.label}
                         </button>
@@ -145,6 +141,11 @@ export const AskUserCard = memo(() => {
                         {askData.options.map((opt: AskUserOption) => (
                             <button
                                 key={opt.id}
+                                ref={(node) => {
+                                    if (opt === askData.options?.[0]) {
+                                        firstControlRef.current = node;
+                                    }
+                                }}
                                 type="button"
                                 onClick={() => toggleSelect(opt.id)}
                                 className={cn(
@@ -154,12 +155,16 @@ export const AskUserCard = memo(() => {
                                             ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
                                             : "border-blue-400/20 bg-blue-400/10 text-blue-100"
                                         : opt.recommended
-                                            ? "border-emerald-400/12 bg-emerald-400/[0.04] text-emerald-200"
-                                            : "border-white/[0.06] bg-white/[0.03] text-zinc-400"
+                                          ? "border-emerald-400/12 bg-emerald-400/[0.04] text-emerald-200"
+                                          : "border-white/[0.06] bg-white/[0.03] text-zinc-400"
                                 )}
                             >
                                 {selectedIds.has(opt.id) ? "✓ " : "○ "}
-                                {opt.recommended && <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-emerald-300">推荐</span>}
+                                {opt.recommended && (
+                                    <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+                                        推荐
+                                    </span>
+                                )}
                                 {opt.label}
                             </button>
                         ))}
@@ -190,6 +195,9 @@ export const AskUserCard = memo(() => {
             {isConfirm && (
                 <div className="mt-3 flex gap-2">
                     <button
+                        ref={(node) => {
+                            firstControlRef.current = node;
+                        }}
                         type="button"
                         onClick={() => handleConfirm(true)}
                         className="rounded-lg border border-red-400/15 bg-red-400/[0.06] px-3 py-1.5 text-sm text-red-100 hover:bg-red-400/10"
@@ -221,6 +229,9 @@ export const AskUserCard = memo(() => {
                         className="min-w-0 flex-1 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-1.5 text-sm text-white outline-none placeholder:text-zinc-500"
                     />
                     <button
+                        ref={(node) => {
+                            firstControlRef.current = node;
+                        }}
                         type="button"
                         onClick={() => handleSubmit(input.trim())}
                         disabled={!canSendFreeform}

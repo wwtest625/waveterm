@@ -638,3 +638,42 @@ func TestMergeTaskStateForToolCalls_SystemUpdatedSourceIsNotPromoted(t *testing.
 		t.Fatalf("expected system-updated state to stay out of task progress, got %#v", merged)
 	}
 }
+
+func TestRefreshTaskStateFromStorePicksNewerCompletedTodoWriteState(t *testing.T) {
+	chatId := "test-chat-refresh-completed"
+	current := &uctypes.UITaskProgressState{
+		PlanId:        "plan-1",
+		Source:        "model-generated",
+		Status:        uctypes.TaskProgressStatusActive,
+		CurrentTaskId: "task-2",
+		LastUpdatedTs: 100,
+		Tasks: []uctypes.UITaskItem{
+			{ID: "task-1", Title: "A", Status: uctypes.TaskItemStatusCompleted},
+			{ID: "task-2", Title: "B", Status: uctypes.TaskItemStatusInProgress},
+		},
+		Summary: uctypes.UITaskProgressSummary{Total: 2, Completed: 1, InProgress: 1, Percent: 50},
+	}
+	completed := current.Clone()
+	completed.Status = uctypes.TaskProgressStatusCompleted
+	completed.CurrentTaskId = ""
+	completed.LastUpdatedTs = 200
+	completed.Tasks[1].Status = uctypes.TaskItemStatusCompleted
+	completed.Tasks[1].IsFocused = false
+	completed.Summary = uctypes.UITaskProgressSummary{Total: 2, Completed: 2, Percent: 100}
+	chatstore.DefaultChatStore.UpsertSessionMeta(chatId, nil, uctypes.UIChatSessionMetaUpdate{
+		TaskState: completed,
+		LastState: string(completed.Status),
+	})
+
+	refreshed, changed := refreshTaskStateFromStore(chatId, current)
+
+	if !changed {
+		t.Fatal("expected newer task state to be picked up from store")
+	}
+	if refreshed.Status != uctypes.TaskProgressStatusCompleted {
+		t.Fatalf("expected completed status, got %q", refreshed.Status)
+	}
+	if refreshed.Summary.Completed != 2 || refreshed.Summary.Percent != 100 {
+		t.Fatalf("expected 2/2 100%% summary, got %#v", refreshed.Summary)
+	}
+}

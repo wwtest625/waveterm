@@ -1162,6 +1162,10 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 		toolResults[group.Start] = result
 		processed[group.Start] = true
 		seenResultsByKey[key] = result
+		if refreshedTaskState, changed := refreshTaskStateFromStore(chatOpts.ChatId, taskState); changed {
+			taskState = refreshedTaskState
+			_ = sseHandler.AiMsgData("data-taskstate", taskState.PlanId, *taskState)
+		}
 	}
 
 	// Cleanup: unregister approvals, remove incomplete/canceled tool calls, and filter results

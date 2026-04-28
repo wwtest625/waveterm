@@ -160,6 +160,17 @@ func mergeTaskStateForToolCalls(existing *uctypes.UITaskProgressState, fallback 
 	return nil
 }
 
+func refreshTaskStateFromStore(chatId string, current *uctypes.UITaskProgressState) (*uctypes.UITaskProgressState, bool) {
+	meta := chatstore.DefaultChatStore.GetSession(chatId)
+	if meta == nil || meta.TaskState == nil || len(meta.TaskState.Tasks) == 0 || meta.TaskState.Source != "model-generated" {
+		return current, false
+	}
+	if current != nil && meta.TaskState.LastUpdatedTs <= current.LastUpdatedTs {
+		return current, false
+	}
+	return meta.TaskState.Clone(), true
+}
+
 func advanceTaskStateForToolResult(state *uctypes.UITaskProgressState, result uctypes.AIToolResult) {
 	if state == nil {
 		return

@@ -37,7 +37,6 @@ import {
     toolCallFromPart,
     toolResultFromPart,
 } from "./aitypes";
-import { AskUserCard } from "./askusercard";
 import { TaskProgressPanel } from "./taskprogresspanel";
 import { WaveAIModel } from "./waveai-model";
 
@@ -919,7 +918,10 @@ const AIPanelComponentInner = memo(() => {
     useEffect(() => {
         const taskId = globalStore.get(model.chatId) || "waveai";
         const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
-        const latestTaskState = getLatestTaskStatePart(lastAssistantMessage);
+        const latestTaskStateMessage = [...messages]
+            .reverse()
+            .find((message) => message.role === "assistant" && getLatestTaskStatePart(message));
+        const latestTaskState = getLatestTaskStatePart(latestTaskStateMessage);
         const latestToolUse = getLatestVisibleToolUsePart(lastAssistantMessage);
         const latestToolProgress = getLatestVisibleToolProgressPart(lastAssistantMessage);
         if (latestTaskState?.data) {
@@ -1431,7 +1433,6 @@ const AIPanelComponentInner = memo(() => {
                 <AIErrorMessage />
                 <AIDroppedFiles model={model} />
                 <CommandInteractionInput />
-                <AskUserCard />
                 <AIPanelInput onSubmit={handleSubmit} status={status} model={model} />
             </div>
         </div>

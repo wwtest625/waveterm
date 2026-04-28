@@ -7,7 +7,7 @@ import { memo, useCallback, useEffect, useRef } from "react";
 import { getFileIcon } from "./ai-utils";
 import { AIFeedbackButtons } from "./aifeedbackbuttons";
 import { AIToolUseGroup } from "./aitooluse";
-import { WaveUIMessage, WaveUIMessagePart, AI_CODE_FONT_FAMILY, isToolDetailPart } from "./aitypes";
+import { AI_CODE_FONT_FAMILY, isToolDetailPart, WaveUIMessage, WaveUIMessagePart } from "./aitypes";
 import { WaveAIModel } from "./waveai-model";
 
 const AIThinking = memo(
@@ -128,7 +128,7 @@ const AIMessagePart = memo(({ part, role, isStreaming }: AIMessagePartProps) => 
             return (
                 <WaveStreamdown
                     text={content}
-                    parseIncompleteMarkdown={isStreaming}
+                    parseIncompleteMarkdown={true}
                     codeFontFamily={AI_CODE_FONT_FAMILY}
                     codeClassName="text-[14px]"
                     className="text-gray-100"
@@ -159,7 +159,9 @@ const isDisplayPart = (part: WaveUIMessagePart): boolean => {
 };
 
 const isTextLikeDisplayPart = (part: WaveUIMessagePart): boolean => {
-    return part.type === "text" || (part.type.startsWith("tool-") && "state" in part && part.state === "input-available");
+    return (
+        part.type === "text" || (part.type.startsWith("tool-") && "state" in part && part.state === "input-available")
+    );
 };
 
 export function getAssistantMessageLayout(parts: WaveUIMessagePart[], isStreaming: boolean) {

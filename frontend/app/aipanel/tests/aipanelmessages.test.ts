@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { getAssistantMessageLayout } from "../aimessage";
 import {
+    buildTaskChainFlowEntries,
     buildTaskChainSteps,
     buildTaskTurns,
-    splitReasoningFromText,
     formatCommandDuration,
     formatExitCodeLabel,
     getPendingApprovalToolUses,
     getRawOutputDisplayState,
-    getThinkingDisplayState,
     getTaskChainDetailLanguage,
     getTaskChainDisplayGroups,
     getTaskChainDisplayState,
+    getThinkingDisplayState,
     getTurnExitCode,
     resolveTurnFallbackOutput,
     shouldAnimateTaskStep,
@@ -19,6 +19,7 @@ import {
     shouldRenderStreamingPlainText,
     shouldRenderTaskChainBlockedReason,
     shouldShowTurnTaskChain,
+    splitReasoningFromText,
 } from "../aipanelmessages";
 import { getToolDisplayName, shouldHideProgressStatusLines, summarizeToolGroup } from "../aitooluse";
 
@@ -370,6 +371,37 @@ describe("aipanel task turns", () => {
         );
 
         expect(shouldShowTurnTaskChain(turns[0])).toBe(false);
+    });
+
+    it("does not expose internal todo JSON as fallback output", () => {
+        const turns = buildTaskTurns(
+            [
+                {
+                    id: "user-1",
+                    role: "user",
+                    parts: [{ type: "text", text: "挂载磁盘" }],
+                } as any,
+                {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-1",
+                                toolname: "waveai_todo_write",
+                                tooldesc: "writing todo list",
+                                status: "completed",
+                                outputtext: '{"reminder":"","state":{"source":"model-generated","status":"completed"}}',
+                            },
+                        },
+                    ],
+                } as any,
+            ],
+            "ready"
+        );
+
+        expect(resolveTurnFallbackOutput(turns[0], true, "")).toBe("");
     });
 
     it("finds pending approval tool uses even while the turn is still streaming", () => {
@@ -771,6 +803,67 @@ describe("aipanel task turns", () => {
         expect(shouldRenderStreamingPlainText(true, "正在输出 **bold**")).toBe(true);
         expect(shouldRenderStreamingPlainText(false, "最终结果")).toBe(false);
         expect(shouldRenderStreamingPlainText(true, "")).toBe(false);
+    });
+
+    it("interleaves assistant descriptions with command steps in source order", () => {
+        const turns = buildTaskTurns(
+            [
+                {
+                    id: "user-1",
+                    role: "user",
+                    parts: [{ type: "text", text: "检查磁盘" }],
+                } as any,
+                {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [
+                        { type: "text", text: "先看一眼磁盘使用情况。" },
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-1",
+                                toolname: "wave_run_command",
+                                tooldesc: 'running "df -h /"',
+                                status: "completed",
+                            },
+                        },
+                        { type: "text", text: "接着确认卷组可用空间。" },
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-2",
+                                toolname: "wave_run_command",
+                                tooldesc: 'running "vgs"',
+                                status: "completed",
+                            },
+                        },
+                        { type: "text", text: "可以看到根分区已经接近满了。" },
+                    ],
+                } as any,
+            ],
+            "ready"
+        );
+
+        const turn = turns[0];
+        const toolParts = turn.assistantMessages.flatMap((message) =>
+            (message.parts ?? []).filter((part) => part.type === "data-tooluse" || part.type === "data-toolprogress")
+        ) as any;
+        const displayGroups = getTaskChainDisplayGroups(buildTaskChainSteps(toolParts, false));
+        const entries = buildTaskChainFlowEntries(turn, displayGroups);
+
+        expect(entries.map((entry) => (entry.type === "narrative" ? entry.text : entry.group.primary.id))).toEqual([
+            "tool-1",
+            "tool-2",
+        ]);
+        expect(entries[0]).toMatchObject({
+            type: "step",
+            narrativeBefore: "先看一眼磁盘使用情况。",
+            narrativeAfter: "接着确认卷组可用空间。",
+        });
+        expect(entries[1]).toMatchObject({
+            type: "step",
+            narrativeAfter: "可以看到根分区已经接近满了。",
+        });
     });
 
     it("extracts <think> blocks into a separate reasoning section", () => {
