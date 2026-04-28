@@ -14,7 +14,7 @@
 
 仓库代码层面的构建和验证已经完成。`go build -a -o wsh.exe cmd/wsh/main-wsh.go` 能通过。`go test ./cmd/wsh/... ./pkg/wshrpc/... ./pkg/service/blockservice/...` 能通过。`task build:backend:quickdev:windows` 也已经跑完，新的 `dist/bin/wavesrv.x64.exe` 和 Windows `wsh` 都已经生成。
 
-命令实跑结果也已经确认过。`wsh agent blocks list` 正常返回当前三个终端 block。`wsh agent resolve-context -b <blockid>` 能正常生成 token。`wsh agent getmeta -b <blockid>` 和 `wsh agent getmeta --context-token <token>` 都能返回 block meta。`wsh agent run-command -b <blockid> -- /bin/sh -lc "pwd; echo __WAVE_OK__"` 可以成功执行并回收输出。`wsh agent termscrollback -b <blockid> --start 1 --end 20` 也已经能返回滚屏内容。
+命令实跑结果也已经确认过。`wsh agent blocks list` 正常返回当前三个终端 block。`wsh agent resolve-context -b <blockid>` 能正常生成 token。`wsh agent getmeta -b <blockid>` 和 `wsh agent getmeta --context-token <token>` 都能返回 block meta。`wsh agent run-command -b <blockid> -- /bin/bash -lc "pwd; echo __WAVE_OK__"` 可以成功执行并回收输出。`wsh agent termscrollback -b <blockid> --start 1 --end 20` 也已经能返回滚屏内容。
 
 现在还差的不是代码，而是运行中的 dev 服务端进程切换。刚才实跑 `wsh agent termscrollback -b c25ae369-d19e-42c3-98ec-298372c955f1 --lastcommand` 时，返回的是 `command "agenttermscrollback" not found`。这说明当前终端连接到的还是旧的 `wavesrv` 进程，不是刚编好的新版本。只要把当前 dev 实例重启起来，让它吃到新的 `wavesrv.x64.exe`，这条命令就会走到刚补好的后端实现。
 

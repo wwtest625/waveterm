@@ -305,12 +305,10 @@
           "type": "integer"
         },
         "skills:enabled": {
-          "type": "boolean",
-          "description": "Enable or disable the AI skills system"
+          "type": "boolean"
         },
         "skills:dir": {
-          "type": "string",
-          "description": "Custom directory for user skills (default: ~/.config/waveterm/skills)"
+          "type": "string"
         }
       },
       "additionalProperties": false,

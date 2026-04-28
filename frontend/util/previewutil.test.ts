@@ -347,7 +347,7 @@ describe("openPreviewInNewBlock", () => {
         }));
 
         const { sendCommandToTerminal } = await import("./previewutil");
-        await sendCommandToTerminal("docker exec -it web /bin/sh", "root@192.2.53.33", "block-1");
+        await sendCommandToTerminal("docker exec -it web /bin/bash", "root@192.2.53.33", "block-1");
 
         expect(createBlockSplitHorizontally).toHaveBeenCalledWith(
             {
@@ -362,7 +362,7 @@ describe("openPreviewInNewBlock", () => {
         );
         expect(ControllerInputCommand).toHaveBeenCalledWith("tab-rpc-client", {
             blockid: "term-2",
-            inputdata64: Buffer.from("docker exec -it web /bin/sh\n").toString("base64"),
+            inputdata64: Buffer.from("docker exec -it web /bin/bash\n").toString("base64"),
         });
         expect(refocusNode).toHaveBeenCalledWith("term-2");
     });
