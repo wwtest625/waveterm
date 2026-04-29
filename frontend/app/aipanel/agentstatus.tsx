@@ -7,6 +7,7 @@ import {
     AgentRuntimeSnapshot,
     AgentRuntimeState,
     WaveUIMessage,
+    WaveUIMessagePart,
     isInternalAssistantToolName,
     isTextPart,
 } from "./aitypes";
@@ -145,6 +146,17 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
         lastAssistantMessage?.parts?.some(
             (part) => part.type === "data-tooluse" && part.data?.approval === "needs-approval"
         ) ?? false;
+    const visibleToolUses =
+        [...(lastAssistantMessage?.parts ?? [])].filter(
+            (part): part is WaveUIMessagePart & { type: "data-tooluse" } =>
+                part.type === "data-tooluse" && !isInternalAssistantToolName(part.data?.toolname)
+        ) ?? [];
+    const runningToolUses = visibleToolUses.filter(
+        (part) => (part.data?.status === "running" || part.data?.partial === true) && Boolean(part.data?.jobid)
+    );
+    const activeJobIds = runningToolUses
+        .map((part) => part.data?.jobid)
+        .filter((jobId): jobId is string => Boolean(jobId));
     const hasObservedTerminalToolCall =
         assistantMessages.some((message) =>
             message.parts?.some(
@@ -231,16 +243,22 @@ export function deriveAgentRuntimeStatus(input: AgentRuntimeStatusInput): AgentR
                 blockedReason: progressPhase.blockedReason,
             };
         }
-        if (lastToolUse?.type === "data-tooluse" && lastToolUse.data?.status === "running" && toolPhase != null) {
+        if (
+            lastToolUse?.type === "data-tooluse" &&
+            (lastToolUse.data?.status === "running" || lastToolUse.data?.partial === true) &&
+            toolPhase != null
+        ) {
             return {
                 visible: true,
                 providerLabel: formatProviderLabel(input.provider),
                 modeLabel: formatModeLabel(input.mode),
                 state: toolPhase.state,
-                phaseLabel: toolPhase.phaseLabel,
+                phaseLabel: activeJobIds.length > 1 ? "Executing Commands" : toolPhase.phaseLabel,
                 lastCommand,
-                activeTool: lastToolUse.data?.toolname as string | undefined,
+                activeTool:
+                    activeJobIds.length > 1 ? `${activeJobIds.length} commands` : (lastToolUse.data?.toolname as string | undefined),
                 activeJobId: lastToolUse.data?.jobid as string | undefined,
+                activeJobIds,
                 blockedReason: lastToolUse.data?.errormessage || lastToolUse.data?.tooldesc,
             };
         }
@@ -283,7 +301,10 @@ export function AgentStatus({ snapshot }: { snapshot: AgentRuntimeStatusSnapshot
                     {isThinkingPhaseLabel(snapshot.phaseLabel) && (
                         <i className="fa-solid fa-spinner fa-spin text-[10px]" />
                     )}
-                    {snapshot.phaseLabel}
+                    {isThinkingPhaseLabel(snapshot.phaseLabel)
+                        ? <span className="bg-gradient-to-r from-zinc-300 via-white to-zinc-300 bg-[length:200%_100%] bg-clip-text text-transparent animate-[shimmer-sweep_2s_ease-in-out_infinite]">{snapshot.phaseLabel}</span>
+                        : snapshot.phaseLabel
+                    }
                 </span>
             </div>
             {(snapshot.activeTool || snapshot.lastCommand || snapshot.blockedReason) && (
