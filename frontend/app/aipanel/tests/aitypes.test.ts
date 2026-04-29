@@ -2,15 +2,145 @@ import { describe, expect, it } from "vitest";
 import {
     AgentTaskState,
     agentRuntimeSnapshotEquals,
+    deriveAIBlockOutputStatus,
     deriveContextLevel,
     getContextLevelBgColor,
     getContextLevelColor,
     getContextLevelLabel,
     getDefaultAgentRuntimeSnapshot,
     getLatestAskPart,
+    isAIBlockActive,
+    isAIBlockTerminal,
     reduceAgentRuntimeSnapshot,
 } from "../aitypes";
 import type { AskUserData, AskUserKind, AskUserOption } from "../aitypes";
+
+describe("deriveAIBlockOutputStatus", () => {
+    it("returns pending when streaming with no output", () => {
+        const result = deriveAIBlockOutputStatus({
+            isStreaming: true,
+            hasAnyOutput: false,
+            hasError: false,
+            isCancelled: false,
+        });
+        expect(result.status).toBe("pending");
+        expect(isAIBlockActive(result)).toBe(true);
+        expect(isAIBlockTerminal(result)).toBe(false);
+    });
+
+    it("returns partially_received when streaming with output", () => {
+        const result = deriveAIBlockOutputStatus({
+            isStreaming: true,
+            hasAnyOutput: true,
+            hasError: false,
+            isCancelled: false,
+        });
+        expect(result.status).toBe("partially_received");
+        expect(isAIBlockActive(result)).toBe(true);
+        expect(isAIBlockTerminal(result)).toBe(false);
+    });
+
+    it("returns complete when not streaming and no errors", () => {
+        const result = deriveAIBlockOutputStatus({
+            isStreaming: false,
+            hasAnyOutput: true,
+            hasError: false,
+            isCancelled: false,
+        });
+        expect(result.status).toBe("complete");
+        expect(isAIBlockActive(result)).toBe(false);
+        expect(isAIBlockTerminal(result)).toBe(true);
+    });
+
+    it("returns complete even when no output and not streaming", () => {
+        const result = deriveAIBlockOutputStatus({
+            isStreaming: false,
+            hasAnyOutput: false,
+            hasError: false,
+            isCancelled: false,
+        });
+        expect(result.status).toBe("complete");
+        expect(isAIBlockTerminal(result)).toBe(true);
+    });
+
+    it("returns cancelled with reason and partial output flag", () => {
+        const result = deriveAIBlockOutputStatus({
+            isStreaming: false,
+            hasAnyOutput: true,
+            hasError: false,
+            isCancelled: true,
+            cancellationReason: "manual",
+        });
+        expect(result.status).toBe("cancelled");
+        if (result.status === "cancelled") {
+            expect(result.cancellationReason).toBe("manual");
+            expect(result.hasPartialOutput).toBe(true);
+        }
+        expect(isAIBlockTerminal(result)).toBe(true);
+    });
+
+    it("returns cancelled without partial output when no output received", () => {
+        const result = deriveAIBlockOutputStatus({
+            isStreaming: false,
+            hasAnyOutput: false,
+            hasError: false,
+            isCancelled: true,
+            cancellationReason: "timeout",
+        });
+        expect(result.status).toBe("cancelled");
+        if (result.status === "cancelled") {
+            expect(result.hasPartialOutput).toBe(false);
+        }
+    });
+
+    it("returns failed with error message and partial output flag", () => {
+        const result = deriveAIBlockOutputStatus({
+            isStreaming: false,
+            hasAnyOutput: true,
+            hasError: true,
+            errorMessage: "connection refused",
+            isCancelled: false,
+        });
+        expect(result.status).toBe("failed");
+        if (result.status === "failed") {
+            expect(result.errorMessage).toBe("connection refused");
+            expect(result.hasPartialOutput).toBe(true);
+        }
+        expect(isAIBlockTerminal(result)).toBe(true);
+    });
+
+    it("prioritises cancelled over failed", () => {
+        const result = deriveAIBlockOutputStatus({
+            isStreaming: false,
+            hasAnyOutput: true,
+            hasError: true,
+            errorMessage: "something broke",
+            isCancelled: true,
+            cancellationReason: "follow_up",
+        });
+        expect(result.status).toBe("cancelled");
+    });
+
+    it("prioritises cancelled and failed over streaming states", () => {
+        const cancelledWhileStreaming = deriveAIBlockOutputStatus({
+            isStreaming: true,
+            hasAnyOutput: true,
+            hasError: false,
+            isCancelled: true,
+            cancellationReason: "manual",
+        });
+        expect(cancelledWhileStreaming.status).toBe("cancelled");
+
+        const failedWhileStreaming = deriveAIBlockOutputStatus({
+            isStreaming: true,
+            hasAnyOutput: true,
+            hasError: true,
+            isCancelled: false,
+            errorMessage: "api error",
+        });
+        expect(failedWhileStreaming.status).toBe("failed");
+    });
+});
 
 describe("agent runtime reducer", () => {
     it("enters interacting state when command input is required", () => {

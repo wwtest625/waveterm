@@ -13,11 +13,15 @@ import {
     type AgentRuntimeSnapshot,
     type AgentRuntimeState,
     type AgentTaskState,
+    type AIBlockOutputStatus,
     coalesceToolDetailParts,
+    deriveAIBlockOutputStatus,
     type WaveUIMessage,
     type WaveUIMessagePart,
     AI_CODE_FONT_FAMILY,
     getLatestTaskStatePart,
+    isAIBlockActive,
+    isAIBlockTerminal,
     isInternalAssistantToolName,
     isTextPart,
     isToolDetailPart,
@@ -40,6 +44,7 @@ type TaskTurn = {
     userMessage?: WaveUIMessage;
     assistantMessages: WaveUIMessage[];
     isStreaming: boolean;
+    blockOutputStatus: AIBlockOutputStatus;
 };
 
 type TaskChainStepStatus = "completed" | "running" | "failed" | "cancelled" | "pending";
@@ -88,6 +93,18 @@ const RAW_OUTPUT_COLLAPSE_LINES = 5;
 const TASK_CHAIN_OUTPUT_COLLAPSE_LINES = 3;
 const THINKING_OUTPUT_COLLAPSE_LINES = 4;
 const COMMAND_OUTPUT_STEP_TOOL = "command_output";
+
+const cancellationReasonLabels: Record<string, string> = {
+    manual: "用户手动取消",
+    follow_up: "用户提交了新的问题",
+    user_command: "用户执行了终端命令",
+    timeout: "响应超时",
+    error: "发生错误",
+};
+
+function cancellationReasonLabel(reason: string): string {
+    return cancellationReasonLabels[reason] ?? reason;
+}
 
 export function shouldFollowLatestOutput(
     status: string,
@@ -1203,6 +1220,67 @@ export function getTurnExitCode(messages: WaveUIMessage[]): number | undefined {
     return latestToolUse.data.exitcode ?? (latestToolUse.data.status === "completed" ? 0 : 1);
 }
 
+function hasTurnError(messages: WaveUIMessage[]): boolean {
+    return messages.some((message) =>
+        (message.parts ?? []).some(
+            (part) =>
+                part.type === "data-tooluse" &&
+                (part.data.status === "error" || part.data.approval === "user-denied" || part.data.approval === "timeout")
+        )
+    );
+}
+
+function hasTurnCancellation(messages: WaveUIMessage[]): boolean {
+    return messages.some((message) =>
+        (message.parts ?? []).some(
+            (part) => part.type === "data-tooluse" && part.data.status === "cancelled"
+        )
+    );
+}
+
+function getTurnCancellationReason(messages: WaveUIMessage[]): string | undefined {
+    for (const message of [...messages].reverse()) {
+        for (const part of [...(message.parts ?? [])].reverse()) {
+            if (part.type === "data-tooluse" && part.data.status === "cancelled" && part.data.cancellationreason) {
+                return part.data.cancellationreason;
+            }
+        }
+    }
+    return undefined;
+}
+
+function getTurnErrorMessage(messages: WaveUIMessage[]): string | undefined {
+    for (const message of [...messages].reverse()) {
+        for (const part of [...(message.parts ?? [])].reverse()) {
+            if (part.type === "data-tooluse" && part.data.status === "error" && part.data.errormessage) {
+                return part.data.errormessage;
+            }
+        }
+    }
+    return undefined;
+}
+
+function hasTurnAnyOutput(messages: WaveUIMessage[]): boolean {
+    return messages.some((message) =>
+        (message.parts ?? []).some(
+            (part) =>
+                (isTextPart(part) && Boolean(part.text?.trim())) ||
+                (part.type === "data-tooluse" && Boolean(part.data.outputtext?.trim()))
+        )
+    );
+}
+
+function deriveTurnBlockOutputStatus(turn: TaskTurn): AIBlockOutputStatus {
+    return deriveAIBlockOutputStatus({
+        isStreaming: turn.isStreaming,
+        hasAnyOutput: hasTurnAnyOutput(turn.assistantMessages),
+        hasError: hasTurnError(turn.assistantMessages),
+        errorMessage: getTurnErrorMessage(turn.assistantMessages),
+        isCancelled: hasTurnCancellation(turn.assistantMessages),
+        cancellationReason: getTurnCancellationReason(turn.assistantMessages),
+    });
+}
+
 export function buildTaskTurns(messages: WaveUIMessage[], status: string): TaskTurn[] {
     const turns: TaskTurn[] = [];
     let currentTurn: TaskTurn | null = null;
@@ -1214,6 +1292,7 @@ export function buildTaskTurns(messages: WaveUIMessage[], status: string): TaskT
                 userMessage: message,
                 assistantMessages: [],
                 isStreaming: false,
+                blockOutputStatus: { status: "pending" },
             };
             turns.push(currentTurn);
             continue;
@@ -1226,6 +1305,7 @@ export function buildTaskTurns(messages: WaveUIMessage[], status: string): TaskT
                 id: message.id,
                 assistantMessages: [],
                 isStreaming: false,
+                blockOutputStatus: { status: "pending" },
             };
             turns.push(currentTurn);
         }
@@ -1236,6 +1316,10 @@ export function buildTaskTurns(messages: WaveUIMessage[], status: string): TaskT
     if (lastTurn) {
         const lastAssistant = lastTurn.assistantMessages.at(-1);
         lastTurn.isStreaming = status === "streaming" && (Boolean(lastAssistant) || Boolean(lastTurn.userMessage));
+    }
+
+    for (const turn of turns) {
+        turn.blockOutputStatus = deriveTurnBlockOutputStatus(turn);
     }
 
     return turns;
@@ -1426,9 +1510,15 @@ const PanelHero = memo(() => {
 
 PanelHero.displayName = "PanelHero";
 
-const AssistantRail = memo(({ status }: { status: "streaming" | "ready" | "attention" }) => {
+const AssistantRail = memo(({ blockStatus }: { blockStatus: AIBlockOutputStatus }) => {
     const dotClass =
-        status === "streaming" ? "bg-emerald-400/60" : status === "attention" ? "bg-amber-300/60" : "bg-zinc-600";
+        blockStatus.status === "partially_received" || blockStatus.status === "pending"
+            ? "bg-emerald-400/60"
+            : blockStatus.status === "failed"
+              ? "bg-red-400/60"
+              : blockStatus.status === "cancelled"
+                ? "bg-zinc-500/60"
+                : "bg-zinc-600";
     return (
         <div className="flex shrink-0 flex-col items-center">
             <div className={cn("mt-1 h-2 w-2 rounded-full", dotClass)} />
@@ -1560,14 +1650,16 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
     const exitCodeLabel = formatExitCodeLabel(getTurnExitCode(turn.assistantMessages));
     const outputText = assistantText || fallbackOutput || "";
     const hasTaskChain = shouldShowTurnTaskChain(turn);
+    const blockStatus = turn.blockOutputStatus;
+    const isActive = isAIBlockActive(blockStatus);
+    const isTerminal = isAIBlockTerminal(blockStatus);
     const showAssistantMarkdown = assistantText.length > 0 && !hasTaskChain;
     const showRawOutputBlock =
-        !turn.isStreaming && rawToolOutput.length > 0 && (!showAssistantMarkdown || hasTaskChain);
+        isTerminal && rawToolOutput.length > 0 && (!showAssistantMarkdown || hasTaskChain);
     const showEmptyState =
-        !showAssistantMarkdown && !thinkingText && !rawToolOutput && !turn.isStreaming && !hasTaskChain;
-    const showCompletionHeader = !turn.isStreaming && showAssistantMarkdown;
+        !showAssistantMarkdown && !thinkingText && !rawToolOutput && isTerminal && !hasTaskChain;
+    const showCompletionHeader = blockStatus.status === "complete" && showAssistantMarkdown;
     const model = WaveAIModel.getInstance();
-    const railStatus = turn.isStreaming ? "streaming" : "ready";
     const [rawOutputExpanded, setRawOutputExpanded] = useState(false);
     const rawOutputDisplay = getRawOutputDisplayState(rawToolOutput);
     const displayedRawOutput = rawOutputExpanded ? rawOutputDisplay.expandedText : rawOutputDisplay.collapsedText;
@@ -1581,9 +1673,16 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
         setCopied(false);
     }, [assistantText, rawToolOutput]);
 
-    if (hasTaskChain && !showRawOutputBlock && !thinkingText && !turn.isStreaming) {
+    if (hasTaskChain && !showRawOutputBlock && !thinkingText && isTerminal) {
         return null;
     }
+
+    const blockBorderClass =
+        blockStatus.status === "failed"
+            ? "border-red-400/15"
+            : blockStatus.status === "cancelled"
+              ? "border-zinc-500/15"
+              : "border-white/[0.06]";
 
     const handleCopy = async () => {
         const copyText = assistantText || rawToolOutput || outputText;
@@ -1597,11 +1696,25 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
 
     return (
         <div className="flex items-stretch gap-3">
-            <AssistantRail status={railStatus} />
-            <div className="min-w-0 flex-1 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3.5">
+            <AssistantRail blockStatus={blockStatus} />
+            <div className={cn("min-w-0 flex-1 rounded-2xl border bg-white/[0.02] px-4 py-3.5", blockBorderClass)}>
                 {showCompletionHeader && <CompletionHeader />}
 
-                {thinkingText && <ThinkingTraceCard reasoningText={thinkingText} isStreaming={turn.isStreaming} />}
+                {blockStatus.status === "cancelled" && (
+                    <div className="mb-3 flex items-center gap-2 rounded-lg border border-zinc-500/15 bg-zinc-500/[0.06] px-3 py-2 text-[11px] text-zinc-300">
+                        <i className="fa-solid fa-ban text-zinc-400" />
+                        <span>已取消{blockStatus.cancellationReason ? `：${cancellationReasonLabel(blockStatus.cancellationReason)}` : ""}</span>
+                    </div>
+                )}
+
+                {blockStatus.status === "failed" && (
+                    <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-400/15 bg-red-400/[0.06] px-3 py-2 text-[11px] text-red-200">
+                        <i className="fa-solid fa-circle-exclamation text-red-400" />
+                        <span>执行出错{blockStatus.errorMessage ? `：${blockStatus.errorMessage}` : ""}</span>
+                    </div>
+                )}
+
+                {thinkingText && <ThinkingTraceCard reasoningText={thinkingText} isStreaming={isActive} />}
 
                 {showAssistantMarkdown && (
                     <div>
@@ -1651,7 +1764,7 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
                     </div>
                 )}
 
-                {turn.isStreaming && !assistantText && (
+                {isActive && !assistantText && (
                     <div className="mt-3 flex items-center gap-2 text-sm text-zinc-400">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                         <span className="bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-400 bg-[length:200%_100%] bg-clip-text text-transparent animate-[shimmer-sweep_2s_ease-in-out_infinite]">处理中</span>
@@ -1660,7 +1773,7 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
 
                 {showEmptyState && <div className="mt-3 text-sm text-zinc-400">No visible result returned.</div>}
 
-                {!turn.isStreaming && (assistantText || rawToolOutput) && (
+                {isTerminal && (assistantText || rawToolOutput) && (
                     <div className="mt-3 flex items-center gap-2 border-t border-white/[0.04] pt-2.5">
                         <button
                             type="button"
@@ -1707,7 +1820,7 @@ const TaskTurnCard = memo(
 TaskTurnCard.displayName = "TaskTurnCard";
 
 export function resolveTurnFallbackOutput(turn: TaskTurn, isLastTurn: boolean, runtimeLastToolStdout: string): string {
-    if (turn.isStreaming) {
+    if (isAIBlockActive(turn.blockOutputStatus)) {
         return "";
     }
     if (shouldShowTurnTaskChain(turn)) {
@@ -1738,13 +1851,13 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
     const turns = useBufferedTaskTurns(messages, status);
     const followLatestOutput = shouldFollowLatestOutput(status, runtimeState, runtimeActiveJobId);
     const latestTurn = turns.at(-1);
-    const latestTurnCanApprove = Boolean(latestTurn && (latestTurn.isStreaming || runtimeState === "awaiting_approval"));
+    const latestTurnCanApprove = Boolean(latestTurn && (isAIBlockActive(latestTurn.blockOutputStatus) || runtimeState === "awaiting_approval"));
     const latestApprovalTurn =
         latestTurnCanApprove &&
         latestTurn != null &&
         getPendingApprovalToolUses(
             latestTurn.assistantMessages,
-            latestTurn.isStreaming || runtimeState === "awaiting_approval"
+            isAIBlockActive(latestTurn.blockOutputStatus) || runtimeState === "awaiting_approval"
         ).length > 0
             ? latestTurn
             : null;

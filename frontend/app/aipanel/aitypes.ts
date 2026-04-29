@@ -341,6 +341,49 @@ export type ToolResultEnvelope = {
     retry?: RetryMeta;
 };
 
+export type AIBlockOutputStatus =
+    | { status: "pending" }
+    | { status: "partially_received" }
+    | { status: "complete" }
+    | { status: "cancelled"; cancellationReason?: string; hasPartialOutput: boolean }
+    | { status: "failed"; errorMessage?: string; hasPartialOutput: boolean };
+
+export function deriveAIBlockOutputStatus(params: {
+    isStreaming: boolean;
+    hasAnyOutput: boolean;
+    hasError: boolean;
+    errorMessage?: string;
+    isCancelled: boolean;
+    cancellationReason?: string;
+}): AIBlockOutputStatus {
+    if (params.isCancelled) {
+        return {
+            status: "cancelled",
+            cancellationReason: params.cancellationReason,
+            hasPartialOutput: params.hasAnyOutput,
+        };
+    }
+    if (params.hasError) {
+        return {
+            status: "failed",
+            errorMessage: params.errorMessage,
+            hasPartialOutput: params.hasAnyOutput,
+        };
+    }
+    if (params.isStreaming) {
+        return params.hasAnyOutput ? { status: "partially_received" } : { status: "pending" };
+    }
+    return { status: "complete" };
+}
+
+export function isAIBlockTerminal(blockStatus: AIBlockOutputStatus): boolean {
+    return blockStatus.status === "complete" || blockStatus.status === "cancelled" || blockStatus.status === "failed";
+}
+
+export function isAIBlockActive(blockStatus: AIBlockOutputStatus): boolean {
+    return blockStatus.status === "pending" || blockStatus.status === "partially_received";
+}
+
 export type AgentRuntimeState =
     | "idle"
     | "submitting"
