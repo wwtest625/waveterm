@@ -1298,6 +1298,10 @@ func (ws *WshServer) GetWaveAIChatCommand(ctx context.Context, data wshrpc.Comma
 		if session == nil {
 			return nil, nil
 		}
+		refreshedJobs, err := ws.ListWaveAIBackgroundJobsCommand(ctx, wshrpc.CommandListWaveAIBackgroundJobsData{ChatId: data.ChatId})
+		if err == nil {
+			session.BackgroundJobs = refreshedJobs
+		}
 		return &uctypes.UIChat{
 			ChatId:      data.ChatId,
 			SessionMeta: session,
@@ -1308,7 +1312,109 @@ func (ws *WshServer) GetWaveAIChatCommand(ctx context.Context, data wshrpc.Comma
 	if err != nil {
 		return nil, fmt.Errorf("error converting AI chat to UI chat: %w", err)
 	}
+	if uiChat.SessionMeta != nil {
+		refreshedJobs, refreshErr := ws.ListWaveAIBackgroundJobsCommand(ctx, wshrpc.CommandListWaveAIBackgroundJobsData{
+			ChatId: data.ChatId,
+		})
+		if refreshErr == nil {
+			uiChat.SessionMeta.BackgroundJobs = refreshedJobs
+		}
+	}
 	return uiChat, nil
+}
+
+const aiBackgroundJobPreviewMaxChars = 2400
+
+func trimBackgroundJobPreview(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return ""
+	}
+	if len(trimmed) <= aiBackgroundJobPreviewMaxChars {
+		return trimmed
+	}
+	return trimmed[len(trimmed)-aiBackgroundJobPreviewMaxChars:]
+}
+
+func normalizeBackgroundJobStatus(result *wshrpc.CommandAgentGetCommandResultRtnData) string {
+	if result == nil {
+		return "unknown"
+	}
+	switch strings.TrimSpace(result.Status) {
+	case "running":
+		return "running"
+	case "done":
+		return "completed"
+	case "error":
+		return "error"
+	case "gone":
+		return "gone"
+	default:
+		return strings.TrimSpace(result.Status)
+	}
+}
+
+func backgroundInteractionState(result *wshrpc.CommandAgentGetCommandResultRtnData) string {
+	if result == nil {
+		return ""
+	}
+	if result.AwaitingInput {
+		return "awaiting-input"
+	}
+	if result.TuiDetected {
+		return "tui-detected"
+	}
+	return ""
+}
+
+func (ws *WshServer) refreshWaveAIBackgroundJobs(
+	ctx context.Context,
+	chatId string,
+) ([]uctypes.UIChatBackgroundJobInfo, error) {
+	trimmedChatID := strings.TrimSpace(chatId)
+	if trimmedChatID == "" {
+		return nil, fmt.Errorf("chatid is required")
+	}
+	jobs := chatstore.DefaultChatStore.GetBackgroundJobs(trimmedChatID)
+	if len(jobs) == 0 {
+		return nil, nil
+	}
+	refreshed := make([]uctypes.UIChatBackgroundJobInfo, 0, len(jobs))
+	for _, job := range jobs {
+		jobCopy := job
+		jobId := strings.TrimSpace(jobCopy.JobId)
+		if jobId == "" {
+			continue
+		}
+		snapshot, err := ws.AgentGetCommandResultCommand(ctx, wshrpc.CommandAgentGetCommandResultData{
+			JobId:     jobId,
+			TailBytes: 16384,
+		})
+		if err != nil {
+			jobCopy.Status = "error"
+			jobCopy.Error = err.Error()
+		} else {
+			jobCopy.Status = normalizeBackgroundJobStatus(snapshot)
+			jobCopy.DurationMs = snapshot.DurationMs
+			jobCopy.ExitCode = snapshot.ExitCode
+			jobCopy.ExitSignal = snapshot.ExitSignal
+			jobCopy.Error = strings.TrimSpace(snapshot.Error)
+			jobCopy.OutputPreview = trimBackgroundJobPreview(snapshot.Output)
+			jobCopy.InteractionState = backgroundInteractionState(snapshot)
+			if jobCopy.InteractionState != "" && strings.TrimSpace(snapshot.PromptHint) != "" {
+				jobCopy.PromptHint = strings.TrimSpace(snapshot.PromptHint)
+			}
+		}
+		jobCopy.LastUpdatedTs = time.Now().UnixMilli()
+		refreshed = append(refreshed, jobCopy)
+	}
+	sort.Slice(refreshed, func(i, j int) bool {
+		if refreshed[i].CreatedTs != refreshed[j].CreatedTs {
+			return refreshed[i].CreatedTs > refreshed[j].CreatedTs
+		}
+		return refreshed[i].JobId > refreshed[j].JobId
+	})
+	return chatstore.DefaultChatStore.ReplaceBackgroundJobs(trimmedChatID, nil, refreshed), nil
 }
 
 func (ws *WshServer) ListWaveAISessionsCommand(ctx context.Context, data wshrpc.CommandListWaveAISessionsData) ([]*uctypes.UIChatSessionMeta, error) {
@@ -1345,6 +1451,83 @@ func (ws *WshServer) DeleteWaveAISessionCommand(ctx context.Context, data wshrpc
 	}
 	chatstore.DefaultChatStore.Delete(data.ChatId)
 	return nil
+}
+
+func (ws *WshServer) ListWaveAIBackgroundJobsCommand(
+	ctx context.Context,
+	data wshrpc.CommandListWaveAIBackgroundJobsData,
+) ([]uctypes.UIChatBackgroundJobInfo, error) {
+	return ws.refreshWaveAIBackgroundJobs(ctx, data.ChatId)
+}
+
+func (ws *WshServer) GetWaveAIBackgroundJobCommand(
+	ctx context.Context,
+	data wshrpc.CommandGetWaveAIBackgroundJobData,
+) (*uctypes.UIChatBackgroundJobInfo, error) {
+	chatId := strings.TrimSpace(data.ChatId)
+	if chatId == "" {
+		return nil, fmt.Errorf("chatid is required")
+	}
+	jobId := strings.TrimSpace(data.JobId)
+	toolCallId := strings.TrimSpace(data.ToolCallId)
+	job := chatstore.DefaultChatStore.GetBackgroundJob(chatId, jobId, toolCallId)
+	if job == nil {
+		return nil, nil
+	}
+	switch strings.TrimSpace(job.Status) {
+	case "completed", "error", "gone", "cancelled":
+		return job, nil
+	}
+	jobs, err := ws.refreshWaveAIBackgroundJobs(ctx, chatId)
+	if err != nil {
+		return nil, err
+	}
+	for _, refreshed := range jobs {
+		if (jobId != "" && refreshed.JobId == jobId) || (toolCallId != "" && refreshed.ToolCallId == toolCallId) {
+			jobCopy := refreshed
+			return &jobCopy, nil
+		}
+	}
+	return job, nil
+}
+
+func (ws *WshServer) CancelWaveAIBackgroundJobsCommand(
+	ctx context.Context,
+	data wshrpc.CommandCancelWaveAIBackgroundJobsData,
+) ([]uctypes.UIChatBackgroundJobInfo, error) {
+	if strings.TrimSpace(data.ChatId) == "" {
+		return nil, fmt.Errorf("chatid is required")
+	}
+	knownJobs := chatstore.DefaultChatStore.GetBackgroundJobs(data.ChatId)
+	knownJobIds := make(map[string]struct{}, len(knownJobs))
+	for _, job := range knownJobs {
+		if strings.TrimSpace(job.JobId) != "" {
+			knownJobIds[job.JobId] = struct{}{}
+		}
+	}
+	for _, jobId := range data.JobIds {
+		trimmedJobID := strings.TrimSpace(jobId)
+		if trimmedJobID == "" {
+			continue
+		}
+		if _, ok := knownJobIds[trimmedJobID]; !ok {
+			continue
+		}
+		if err := ws.AgentCancelCommand(ctx, trimmedJobID); err != nil {
+			log.Printf("waveai background job cancel failed for %s: %v", trimmedJobID, err)
+		}
+	}
+	return ws.refreshWaveAIBackgroundJobs(ctx, data.ChatId)
+}
+
+func (ws *WshServer) ClearWaveAIBackgroundJobsCommand(
+	ctx context.Context,
+	data wshrpc.CommandClearWaveAIBackgroundJobsData,
+) ([]uctypes.UIChatBackgroundJobInfo, error) {
+	if strings.TrimSpace(data.ChatId) == "" {
+		return nil, fmt.Errorf("chatid is required")
+	}
+	return chatstore.DefaultChatStore.ClearFinishedBackgroundJobs(data.ChatId, nil), nil
 }
 
 func (ws *WshServer) GetWaveAIRateLimitCommand(ctx context.Context) (*uctypes.RateLimitInfo, error) {

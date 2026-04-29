@@ -324,3 +324,75 @@ func TestChatStore_PersistenceRoundTripIncludesTaskState(t *testing.T) {
 		t.Fatalf("expected persisted task title, got %q", got)
 	}
 }
+
+func TestChatStore_BackgroundJobsAreCopiedDefensively(t *testing.T) {
+	cs := newTestChatStore()
+	opts := newTestAIOpts()
+
+	cs.UpsertBackgroundJob("chat-1", opts, uctypes.UIChatBackgroundJobInfo{
+		JobId:          "job-1",
+		ToolCallId:     "tool-1",
+		CommandSummary: "docker pull test/image:latest",
+		Status:         "running",
+		OutputPreview:  "layer 1: pulling",
+	})
+
+	jobs := cs.GetBackgroundJobs("chat-1")
+	if len(jobs) != 1 {
+		t.Fatalf("expected one background job, got %#v", jobs)
+	}
+	jobs[0].CommandSummary = "mutated"
+
+	reloaded := cs.GetBackgroundJobs("chat-1")
+	if got := reloaded[0].CommandSummary; got != "docker pull test/image:latest" {
+		t.Fatalf("expected defensive copy, got %q", got)
+	}
+}
+
+func TestChatStore_PersistenceRoundTripIncludesBackgroundJobs(t *testing.T) {
+	RegisterMessageCodec("test-api-bg", func(message uctypes.GenAIMessage) ([]byte, error) {
+		return json.Marshal(message)
+	}, func(data []byte) (uctypes.GenAIMessage, error) {
+		var message testPersistedGenAIMessage
+		if err := json.Unmarshal(data, &message); err != nil {
+			return nil, err
+		}
+		return &message, nil
+	})
+
+	storePath := filepath.Join(t.TempDir(), "chatstore.json")
+	opts := &uctypes.AIOptsType{
+		APIType:    "test-api-bg",
+		Model:      "model-a",
+		APIVersion: "2026-01-01",
+	}
+
+	firstStore := NewChatStore(storePath)
+	firstStore.UpsertBackgroundJob("chat-1", opts, uctypes.UIChatBackgroundJobInfo{
+		JobId:            "job-1",
+		ToolCallId:       "tool-1",
+		CommandSummary:   "docker pull test/image:latest",
+		Connection:       "root@server",
+		TargetLabel:      "root@server",
+		Status:           "running",
+		ApprovalState:    "user-approved",
+		InteractionState: "awaiting-input",
+		PromptHint:       "Password:",
+		OutputPreview:    "pulling fs layer",
+	})
+	if err := firstStore.PostMessage("chat-1", opts, &testPersistedGenAIMessage{MessageID: "msg-1", Role: "user"}); err != nil {
+		t.Fatalf("PostMessage returned error: %v", err)
+	}
+
+	secondStore := NewChatStore(storePath)
+	jobs := secondStore.GetBackgroundJobs("chat-1")
+	if len(jobs) != 1 {
+		t.Fatalf("expected one persisted background job, got %#v", jobs)
+	}
+	if jobs[0].CommandSummary != "docker pull test/image:latest" {
+		t.Fatalf("expected command summary to persist, got %#v", jobs[0])
+	}
+	if jobs[0].PromptHint != "Password:" {
+		t.Fatalf("expected prompt hint to persist, got %#v", jobs[0])
+	}
+}

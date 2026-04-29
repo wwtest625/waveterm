@@ -172,6 +172,10 @@ type WshRpcInterface interface {
 	ListWaveAISessionsCommand(ctx context.Context, data CommandListWaveAISessionsData) ([]*uctypes.UIChatSessionMeta, error)
 	UpdateWaveAISessionCommand(ctx context.Context, data CommandUpdateWaveAISessionData) (*uctypes.UIChatSessionMeta, error)
 	DeleteWaveAISessionCommand(ctx context.Context, data CommandDeleteWaveAISessionData) error
+	ListWaveAIBackgroundJobsCommand(ctx context.Context, data CommandListWaveAIBackgroundJobsData) ([]uctypes.UIChatBackgroundJobInfo, error)
+	GetWaveAIBackgroundJobCommand(ctx context.Context, data CommandGetWaveAIBackgroundJobData) (*uctypes.UIChatBackgroundJobInfo, error)
+	CancelWaveAIBackgroundJobsCommand(ctx context.Context, data CommandCancelWaveAIBackgroundJobsData) ([]uctypes.UIChatBackgroundJobInfo, error)
+	ClearWaveAIBackgroundJobsCommand(ctx context.Context, data CommandClearWaveAIBackgroundJobsData) ([]uctypes.UIChatBackgroundJobInfo, error)
 	GetWaveAIRateLimitCommand(ctx context.Context) (*uctypes.RateLimitInfo, error)
 	WaveAIToolApproveCommand(ctx context.Context, data CommandWaveAIToolApproveData) error
 	WaveAIAddContextCommand(ctx context.Context, data CommandWaveAIAddContextData) error
@@ -793,6 +797,25 @@ type CommandUpdateWaveAISessionData struct {
 }
 
 type CommandDeleteWaveAISessionData struct {
+	ChatId string `json:"chatid"`
+}
+
+type CommandListWaveAIBackgroundJobsData struct {
+	ChatId string `json:"chatid"`
+}
+
+type CommandGetWaveAIBackgroundJobData struct {
+	ChatId     string `json:"chatid"`
+	JobId      string `json:"jobid,omitempty"`
+	ToolCallId string `json:"toolcallid,omitempty"`
+}
+
+type CommandCancelWaveAIBackgroundJobsData struct {
+	ChatId string   `json:"chatid"`
+	JobIds []string `json:"jobids"`
+}
+
+type CommandClearWaveAIBackgroundJobsData struct {
 	ChatId string `json:"chatid"`
 }
 

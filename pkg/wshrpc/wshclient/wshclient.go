@@ -578,6 +578,12 @@ func GetWaveAIChatCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWaveAIChatDat
 	return resp, err
 }
 
+// command "getwaveaibackgroundjob", wshserver.GetWaveAIBackgroundJobCommand
+func GetWaveAIBackgroundJobCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWaveAIBackgroundJobData, opts *wshrpc.RpcOpts) (*uctypes.UIChatBackgroundJobInfo, error) {
+	resp, err := sendRpcRequestCallHelper[*uctypes.UIChatBackgroundJobInfo](w, "getwaveaibackgroundjob", data, opts)
+	return resp, err
+}
+
 // command "getwaveaimodeconfig", wshserver.GetWaveAIModeConfigCommand
 func GetWaveAIModeConfigCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wconfig.AIModeConfigUpdate, error) {
 	resp, err := sendRpcRequestCallHelper[wconfig.AIModeConfigUpdate](w, "getwaveaimodeconfig", nil, opts)
@@ -707,6 +713,12 @@ func ListAllEditableAppsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshr
 // command "listwaveaisessions", wshserver.ListWaveAISessionsCommand
 func ListWaveAISessionsCommand(w *wshutil.WshRpc, data wshrpc.CommandListWaveAISessionsData, opts *wshrpc.RpcOpts) ([]*uctypes.UIChatSessionMeta, error) {
 	resp, err := sendRpcRequestCallHelper[[]*uctypes.UIChatSessionMeta](w, "listwaveaisessions", data, opts)
+	return resp, err
+}
+
+// command "listwaveaibackgroundjobs", wshserver.ListWaveAIBackgroundJobsCommand
+func ListWaveAIBackgroundJobsCommand(w *wshutil.WshRpc, data wshrpc.CommandListWaveAIBackgroundJobsData, opts *wshrpc.RpcOpts) ([]uctypes.UIChatBackgroundJobInfo, error) {
+	resp, err := sendRpcRequestCallHelper[[]uctypes.UIChatBackgroundJobInfo](w, "listwaveaibackgroundjobs", data, opts)
 	return resp, err
 }
 
@@ -1100,6 +1112,18 @@ func UpdateWaveAISessionCommand(w *wshutil.WshRpc, data wshrpc.CommandUpdateWave
 	return resp, err
 }
 
+// command "cancelwaveaibackgroundjobs", wshserver.CancelWaveAIBackgroundJobsCommand
+func CancelWaveAIBackgroundJobsCommand(w *wshutil.WshRpc, data wshrpc.CommandCancelWaveAIBackgroundJobsData, opts *wshrpc.RpcOpts) ([]uctypes.UIChatBackgroundJobInfo, error) {
+	resp, err := sendRpcRequestCallHelper[[]uctypes.UIChatBackgroundJobInfo](w, "cancelwaveaibackgroundjobs", data, opts)
+	return resp, err
+}
+
+// command "clearwaveaibackgroundjobs", wshserver.ClearWaveAIBackgroundJobsCommand
+func ClearWaveAIBackgroundJobsCommand(w *wshutil.WshRpc, data wshrpc.CommandClearWaveAIBackgroundJobsData, opts *wshrpc.RpcOpts) ([]uctypes.UIChatBackgroundJobInfo, error) {
+	resp, err := sendRpcRequestCallHelper[[]uctypes.UIChatBackgroundJobInfo](w, "clearwaveaibackgroundjobs", data, opts)
+	return resp, err
+}
+
 // command "vdomasyncinitiation", wshserver.VDomAsyncInitiationCommand
 func VDomAsyncInitiationCommand(w *wshutil.WshRpc, data vdom.VDomAsyncInitiationRequest, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "vdomasyncinitiation", data, opts)
@@ -1223,5 +1247,4 @@ func WslStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.ConnSta
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.ConnStatus](w, "wslstatus", nil, opts)
 	return resp, err
 }
-
 

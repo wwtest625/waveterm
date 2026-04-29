@@ -328,6 +328,131 @@ func (cs *ChatStore) GetSession(chatId string) *uctypes.UIChatSessionMeta {
 	return copySessionMeta(cs.sessions[chatId])
 }
 
+func cloneBackgroundJobs(jobs []uctypes.UIChatBackgroundJobInfo) []uctypes.UIChatBackgroundJobInfo {
+	if len(jobs) == 0 {
+		return nil
+	}
+	cloned := make([]uctypes.UIChatBackgroundJobInfo, len(jobs))
+	copy(cloned, jobs)
+	return cloned
+}
+
+func (cs *ChatStore) UpsertBackgroundJob(
+	chatId string,
+	aiOpts *uctypes.AIOptsType,
+	job uctypes.UIChatBackgroundJobInfo,
+) *uctypes.UIChatBackgroundJobInfo {
+	cs.ensureLoaded()
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+	cs.upsertSessionMetaLocked(chatId, aiOpts, uctypes.UIChatSessionMetaUpdate{})
+	meta := cs.sessions[chatId]
+	now := time.Now().UnixMilli()
+	if job.CreatedTs == 0 {
+		job.CreatedTs = now
+	}
+	if job.LastUpdatedTs == 0 {
+		job.LastUpdatedTs = now
+	}
+	replaced := false
+	for idx := range meta.BackgroundJobs {
+		if meta.BackgroundJobs[idx].JobId == job.JobId || meta.BackgroundJobs[idx].ToolCallId == job.ToolCallId {
+			meta.BackgroundJobs[idx] = job
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		meta.BackgroundJobs = append(meta.BackgroundJobs, job)
+	}
+	slices.SortFunc(meta.BackgroundJobs, func(a, b uctypes.UIChatBackgroundJobInfo) int {
+		if a.CreatedTs != b.CreatedTs {
+			if a.CreatedTs > b.CreatedTs {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.JobId, b.JobId)
+	})
+	if chat := cs.chats[chatId]; chat != nil {
+		chat.SessionMeta = copySessionMeta(meta)
+	}
+	cs.sessions[chatId] = meta
+	cs.persistLocked()
+	jobCopy := job
+	return &jobCopy
+}
+
+func (cs *ChatStore) GetBackgroundJobs(chatId string) []uctypes.UIChatBackgroundJobInfo {
+	cs.ensureLoaded()
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+	meta := cs.sessions[chatId]
+	if meta == nil {
+		return nil
+	}
+	return cloneBackgroundJobs(meta.BackgroundJobs)
+}
+
+func (cs *ChatStore) GetBackgroundJob(chatId string, jobId string, toolCallId string) *uctypes.UIChatBackgroundJobInfo {
+	cs.ensureLoaded()
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+	meta := cs.sessions[chatId]
+	if meta == nil {
+		return nil
+	}
+	for _, job := range meta.BackgroundJobs {
+		if (jobId != "" && job.JobId == jobId) || (toolCallId != "" && job.ToolCallId == toolCallId) {
+			jobCopy := job
+			return &jobCopy
+		}
+	}
+	return nil
+}
+
+func (cs *ChatStore) ReplaceBackgroundJobs(
+	chatId string,
+	aiOpts *uctypes.AIOptsType,
+	jobs []uctypes.UIChatBackgroundJobInfo,
+) []uctypes.UIChatBackgroundJobInfo {
+	cs.ensureLoaded()
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+	cs.upsertSessionMetaLocked(chatId, aiOpts, uctypes.UIChatSessionMetaUpdate{})
+	meta := cs.sessions[chatId]
+	meta.BackgroundJobs = cloneBackgroundJobs(jobs)
+	if chat := cs.chats[chatId]; chat != nil {
+		chat.SessionMeta = copySessionMeta(meta)
+	}
+	cs.sessions[chatId] = meta
+	cs.persistLocked()
+	return cloneBackgroundJobs(meta.BackgroundJobs)
+}
+
+func (cs *ChatStore) ClearFinishedBackgroundJobs(chatId string, aiOpts *uctypes.AIOptsType) []uctypes.UIChatBackgroundJobInfo {
+	cs.ensureLoaded()
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+	cs.upsertSessionMetaLocked(chatId, aiOpts, uctypes.UIChatSessionMetaUpdate{})
+	meta := cs.sessions[chatId]
+	filtered := meta.BackgroundJobs[:0]
+	for _, job := range meta.BackgroundJobs {
+		switch strings.TrimSpace(job.Status) {
+		case "completed", "error", "gone", "cancelled":
+			continue
+		}
+		filtered = append(filtered, job)
+	}
+	meta.BackgroundJobs = cloneBackgroundJobs(filtered)
+	if chat := cs.chats[chatId]; chat != nil {
+		chat.SessionMeta = copySessionMeta(meta)
+	}
+	cs.sessions[chatId] = meta
+	cs.persistLocked()
+	return cloneBackgroundJobs(meta.BackgroundJobs)
+}
+
 func (cs *ChatStore) UpdateSessionPreviewFromMessage(chatId string, aiOpts *uctypes.AIOptsType, tabId string, message *uctypes.AIMessage) *uctypes.UIChatSessionMeta {
 	title, summary := extractSessionPreview(message)
 	update := uctypes.UIChatSessionMetaUpdate{
