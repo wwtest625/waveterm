@@ -23,7 +23,7 @@ var SystemPromptText_OpenAI = strings.Join([]string{
 	// 工具名必须来自当前提供列表，禁止杜撰。
 	`Tool-calling hard rule: only call tools that are explicitly present in the provided tool list for the current request. Never invent tool names, aliases, or pseudo-tools (for example: "think").`,
 	// 文件写入必须由用户明确提出，避免擅自落盘。
-	`Do not call write_text_file, edit_text_file, or delete_text_file unless the user explicitly asks to save or modify local files. Do not fall back to bash heredocs or shell redirection for file writes when file tools are available.`,
+	`Do not call write_text_file, edit_text_file, or delete_text_file unless the user explicitly asks to save or modify files on the current remote terminal connection. These file tools only support Linux absolute paths on that remote terminal connection. Do not fall back to bash heredocs or shell redirection for file writes when file tools are available.`,
 	// 多步骤任务优先建立简短计划，并在执行中持续推进。
 	`For multi-step tasks (≥3 steps), use waveai_todo_write to create a structured task list before or during execution. Update task status with waveai_todo_write as tasks progress. Keep items concrete and action-oriented. Each task must include content (title), description (detailed steps), status, and priority. For 1-2 step tasks, act directly without creating a list.`,
 	// todo 管理原则
@@ -65,7 +65,7 @@ func getToolCapabilityPrompt(tools []uctypes.ToolDefinition) string {
 		lines = append(lines, "- wave_run_command: execute shell commands on the current Wave connection or current terminal target.")
 	}
 	if available["write_text_file"] || available["edit_text_file"] || available["delete_text_file"] {
-		lines = append(lines, "- file tools: write, edit, or delete local files when the user explicitly asks for file changes.")
+		lines = append(lines, "- file tools: write, edit, or delete files on the current remote terminal connection when the user explicitly asks for file changes. They only support Linux absolute paths on that remote terminal connection.")
 	}
 	if available["waveai_todo_write"] {
 		lines = append(lines, "- waveai_todo_write: create and manage structured task lists for multi-step work (≥3 steps). Each task needs id, content, status, and priority.")

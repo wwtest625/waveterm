@@ -517,8 +517,7 @@ func lookupWaveCommandJob(jobID string) string {
 const (
 	waveCommandPollFastInterval    = 50 * time.Millisecond
 	waveCommandPollMaxInterval     = 2 * time.Second
-	waveCommandPollIdleTimeout     = 30 * time.Second
-	waveCommandPollAbsoluteTimeout = 5 * time.Minute
+	waveCommandPollAbsoluteTimeout = 30 * time.Minute
 	waveCommandPollChunkBytes      = 8192
 	waveCommandUiDurationStepMs    = int64(1000)
 )
@@ -590,7 +589,6 @@ func tryStartWaveCommandResultPoller(
 		currentInteractionDedupKey := ""
 		terminalSeenAt := time.Time{}
 		absoluteDeadline := time.Now().Add(waveCommandPollAbsoluteTimeout)
-		lastActivityAt := time.Now()
 		pollInterval := waveCommandPollFastInterval
 		lastStatus := snapshot.Status
 		offsetCursor := snapshot.NextOffset
@@ -601,15 +599,19 @@ func tryStartWaveCommandResultPoller(
 		for {
 			now := time.Now()
 			if err := ctx.Err(); err != nil {
-				current.Status = uctypes.ToolUseStatusError
+				current.Status = uctypes.ToolUseStatusCancelled
 				current.ErrorMessage = "command result polling canceled"
+				current.CancellationReason = uctypes.CancelReasonManual
+				current.Partial = uctypes.BoolPtr(false)
 				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
 			}
-			if now.After(absoluteDeadline) || now.Sub(lastActivityAt) > waveCommandPollIdleTimeout {
+			if now.After(absoluteDeadline) {
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = "command result polling timed out"
+				current.CancellationReason = uctypes.CancelReasonTimeout
+				current.Partial = uctypes.BoolPtr(false)
 				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
@@ -625,6 +627,7 @@ func tryStartWaveCommandResultPoller(
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = err.Error()
 				current.DurationMs = currentDuration
+				current.Partial = uctypes.BoolPtr(false)
 				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
@@ -659,7 +662,6 @@ func tryStartWaveCommandResultPoller(
 			statusChanged := result.Status != lastStatus
 			interactionChanged := detectedInteractionKey != currentInteractionDedupKey
 			if outputChanged || interactionChanged || statusChanged {
-				lastActivityAt = time.Now()
 				pollInterval = waveCommandPollFastInterval
 			} else {
 				pollInterval = nextWaveCommandPollInterval(pollInterval)
@@ -672,6 +674,7 @@ func tryStartWaveCommandResultPoller(
 					current.ErrorMessage = "command result is unavailable; rerun the command"
 				}
 				current.DurationMs = currentDuration
+				current.Partial = uctypes.BoolPtr(false)
 				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
@@ -679,6 +682,7 @@ func tryStartWaveCommandResultPoller(
 			if result.Status == "error" {
 				current.Status = uctypes.ToolUseStatusError
 				current.ErrorMessage = result.Error
+				current.Partial = uctypes.BoolPtr(false)
 				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 				return
@@ -686,6 +690,7 @@ func tryStartWaveCommandResultPoller(
 			if result.Status == "running" {
 				current.Status = "running"
 				current.ErrorMessage = ""
+				current.Partial = uctypes.BoolPtr(true)
 				durationChangedForUI := (current.DurationMs-currentDuration) >= waveCommandUiDurationStepMs || current.DurationMs < currentDuration
 				if current.OutputText != currentOutput || durationChangedForUI || detectedInteractionKey != currentInteractionDedupKey {
 					currentOutput = current.OutputText
@@ -703,6 +708,7 @@ func tryStartWaveCommandResultPoller(
 			if shouldReturnWaveCommandResult(result, time.Now(), absoluteDeadline, &terminalSeenAt) {
 				current.Status = uctypes.ToolUseStatusCompleted
 				current.ErrorMessage = ""
+				current.Partial = uctypes.BoolPtr(false)
 				applyWaveCommandInteractionState(&current, nil)
 				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
@@ -712,6 +718,7 @@ func tryStartWaveCommandResultPoller(
 				currentOutput = current.OutputText
 				currentDuration = current.DurationMs
 				currentInteractionDedupKey = detectedInteractionKey
+				current.Partial = uctypes.BoolPtr(true)
 				_ = sseHandler.AiMsgData("data-tooluse", toolCallID, current)
 				updateToolUseDataInChat(backend, chatOpts, toolCallID, current)
 			}
@@ -756,6 +763,7 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 			}
 		}
 		// ToolVerifyInput can modify the toolusedata.  re-send it here.
+		toolCall.ToolUseData.Partial = uctypes.BoolPtr(true)
 		_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, *toolCall.ToolUseData)
 		updateToolUseDataInChat(backend, chatOpts, toolCall.ID, *toolCall.ToolUseData)
 	}
@@ -764,6 +772,7 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 	if err := validateToolForAgentMode(agentMode, toolCall.Name); err != nil {
 		toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
 		toolCall.ToolUseData.ErrorMessage = err.Error()
+		toolCall.ToolUseData.Partial = uctypes.BoolPtr(false)
 		_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, *toolCall.ToolUseData)
 		updateToolUseDataInChat(backend, chatOpts, toolCall.ID, *toolCall.ToolUseData)
 		return uctypes.AIToolResult{
@@ -802,6 +811,16 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 				errorMsg = "Tool approval timed out"
 			} else if approval == uctypes.ApprovalCanceled {
 				errorMsg = "Tool approval canceled"
+				toolCall.ToolUseData.Status = uctypes.ToolUseStatusCancelled
+				toolCall.ToolUseData.CancellationReason = uctypes.CancelReasonManual
+				toolCall.ToolUseData.Partial = uctypes.BoolPtr(false)
+				_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, *toolCall.ToolUseData)
+				updateToolUseDataInChat(backend, chatOpts, toolCall.ID, *toolCall.ToolUseData)
+				return uctypes.AIToolResult{
+					ToolName:  toolCall.Name,
+					ToolUseID: toolCall.ID,
+					ErrorText: errorMsg,
+				}
 			}
 			toolCall.ToolUseData.Status = uctypes.ToolUseStatusError
 			toolCall.ToolUseData.ErrorMessage = errorMsg
@@ -813,6 +832,7 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 		}
 
 		// this still happens here because we need to update the FE to say the tool call was approved
+		toolCall.ToolUseData.Partial = uctypes.BoolPtr(true)
 		_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, *toolCall.ToolUseData)
 		updateToolUseDataInChat(backend, chatOpts, toolCall.ID, *toolCall.ToolUseData)
 	}
@@ -841,8 +861,16 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 		if toolCall.Name == "wave_run_command" {
 			jobID := parseWaveCommandJobID(result.Text)
 			toolCall.ToolUseData.JobId = jobID
+			commandText := ""
+			targetLabel := ""
+			connectionName := ""
 			if parsedCommandInput, parseErr := parseWaveRunCommandToolInput(toolCall.Input); parseErr == nil && parsedCommandInput != nil {
-				rememberWaveCommandJob(jobID, getWaveRunCommandDisplayText(parsedCommandInput))
+				commandText = getWaveRunCommandDisplayText(parsedCommandInput)
+				rememberWaveCommandJob(jobID, commandText)
+				if resolvedInput, resolvedTarget, resolveErr := resolveWaveRunCommandTarget(parsedCommandInput, toolCall.ToolUseData); resolveErr == nil && resolvedInput != nil {
+					targetLabel = resolvedTarget
+					connectionName = resolvedInput.Connection
+				}
 			}
 			if snapshot, ok := parseWaveCommandResultSnapshot(result.Text); ok {
 				toolCall.ToolUseData.DurationMs = snapshot.DurationMs
@@ -850,6 +878,32 @@ func processToolCallInternal(backend UseChatBackend, toolCall uctypes.WaveToolCa
 				toolCall.ToolUseData.ExitSignal = snapshot.ExitSignal
 				toolCall.ToolUseData.OutputText = extractToolOutputText(toolCall.Name, result.Text)
 				applyWaveCommandInteractionState(toolCall.ToolUseData, detectCommandInteraction(lookupWaveCommandJob(snapshot.JobId), snapshot))
+				if strings.TrimSpace(snapshot.JobId) != "" {
+					jobStatus := "running"
+					if snapshot.Status == "done" {
+						jobStatus = "completed"
+					} else if snapshot.Status == "error" || snapshot.Status == "gone" {
+						jobStatus = "error"
+					}
+					chatstore.DefaultChatStore.UpsertBackgroundJob(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatBackgroundJobInfo{
+						JobId:            snapshot.JobId,
+						ToolCallId:       toolCall.ID,
+						CommandSummary:   commandText,
+						Connection:       connectionName,
+						TargetLabel:      targetLabel,
+						Status:           jobStatus,
+						ApprovalState:    strings.TrimSpace(toolCall.ToolUseData.Approval),
+						InteractionState: func() string { if toolCall.ToolUseData.AwaitingInput { return "awaiting-input" }; if toolCall.ToolUseData.TuiDetected { return "tui-detected" }; return "" }(),
+						PromptHint:       strings.TrimSpace(toolCall.ToolUseData.PromptHint),
+						DurationMs:       snapshot.DurationMs,
+						ExitCode:         snapshot.ExitCode,
+						ExitSignal:       snapshot.ExitSignal,
+						Error:            strings.TrimSpace(snapshot.Error),
+						OutputPreview:    strings.TrimSpace(toolCall.ToolUseData.OutputText),
+						TurnId:           toolCall.ID,
+						LastUpdatedTs:    time.Now().UnixMilli(),
+					})
+				}
 				if snapshot.Status == "running" {
 					tryStartWaveCommandResultPoller(sseHandler.Context(), chatOpts, backend, sseHandler, toolCall.ID, snapshot)
 				}
@@ -909,6 +963,9 @@ func finalizeToolCallProcessing(
 	}
 
 	if toolCall.ToolUseData != nil {
+		if toolCall.ToolUseData.IsTerminal() {
+			toolCall.ToolUseData.Partial = uctypes.BoolPtr(false)
+		}
 		_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, *toolCall.ToolUseData)
 		updateToolUseDataInChat(backend, chatOpts, toolCall.ID, *toolCall.ToolUseData)
 	}
@@ -919,6 +976,14 @@ type toolExecutionGroup struct {
 	End      int
 	Parallel bool
 }
+
+type toolExecutionLane string
+
+const (
+	toolExecutionLaneSequential toolExecutionLane = ""
+	toolExecutionLaneReadOnly   toolExecutionLane = "readonly"
+	toolExecutionLaneCommand    toolExecutionLane = "command"
+)
 
 func isCommandChainTool(toolName string) bool {
 	return toolName == "wave_run_command"
@@ -952,7 +1017,20 @@ func canProcessToolCallInParallel(toolCall uctypes.WaveToolCall) bool {
 	if toolCall.ToolUseData.Approval == uctypes.ApprovalNeedsApproval {
 		return false
 	}
+	if isCommandChainTool(toolCall.Name) {
+		return true
+	}
 	return readOnlyAgentTools[toolCall.Name]
+}
+
+func getToolExecutionLane(toolCall uctypes.WaveToolCall) toolExecutionLane {
+	if !canProcessToolCallInParallel(toolCall) {
+		return toolExecutionLaneSequential
+	}
+	if isCommandChainTool(toolCall.Name) {
+		return toolExecutionLaneCommand
+	}
+	return toolExecutionLaneReadOnly
 }
 
 func buildToolExecutionPlan(toolCalls []uctypes.WaveToolCall) []toolExecutionGroup {
@@ -961,18 +1039,18 @@ func buildToolExecutionPlan(toolCalls []uctypes.WaveToolCall) []toolExecutionGro
 	}
 	var plan []toolExecutionGroup
 	for i := 0; i < len(toolCalls); {
-		parallel := canProcessToolCallInParallel(toolCalls[i])
+		lane := getToolExecutionLane(toolCalls[i])
 		start := i
 		i++
-		if parallel {
-			for i < len(toolCalls) && canProcessToolCallInParallel(toolCalls[i]) {
+		if lane != toolExecutionLaneSequential {
+			for i < len(toolCalls) && getToolExecutionLane(toolCalls[i]) == lane {
 				i++
 			}
 		}
 		plan = append(plan, toolExecutionGroup{
 			Start:    start,
 			End:      i,
-			Parallel: parallel,
+			Parallel: lane != toolExecutionLaneSequential,
 		})
 	}
 	return plan
@@ -1041,7 +1119,6 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 		_ = sseHandler.AiMsgData("data-taskstate", taskState.PlanId, *taskState)
 	}
 	// Create and send all data-tooluse packets at the beginning
-	commandToolSeen := false
 	for i := range stopReason.ToolCalls {
 		toolCall := &stopReason.ToolCalls[i]
 		// Create toolUseData from the tool call input
@@ -1053,14 +1130,6 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 			}
 		}
 		toolUseData := aiutil.CreateToolUseData(toolCall.ID, toolCall.Name, argsJSON, chatOpts)
-		if isCommandChainTool(toolCall.Name) {
-			if commandToolSeen {
-				toolUseData.Status = uctypes.ToolUseStatusError
-				toolUseData.ErrorMessage = "Only one command tool call is allowed per response; wait for the previous command result first."
-			} else {
-				commandToolSeen = true
-			}
-		}
 		stopReason.ToolCalls[i].ToolUseData = &toolUseData
 		log.Printf("AI data-tooluse %s\n", toolCall.ID)
 		_ = sseHandler.AiMsgData("data-tooluse", toolCall.ID, toolUseData)
@@ -1140,6 +1209,7 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 						stopReason.ToolCalls[dupIndex].ToolUseData.OutputText = stopReason.ToolCalls[origIndex].ToolUseData.OutputText
 						stopReason.ToolCalls[dupIndex].ToolUseData.DurationMs = stopReason.ToolCalls[origIndex].ToolUseData.DurationMs
 						stopReason.ToolCalls[dupIndex].ToolUseData.ToolDesc = stopReason.ToolCalls[origIndex].ToolUseData.ToolDesc
+						stopReason.ToolCalls[dupIndex].ToolUseData.Partial = stopReason.ToolCalls[origIndex].ToolUseData.Partial
 						_ = sseHandler.AiMsgData("data-tooluse", stopReason.ToolCalls[dupIndex].ID, *stopReason.ToolCalls[dupIndex].ToolUseData)
 						updateToolUseDataInChat(backend, chatOpts, stopReason.ToolCalls[dupIndex].ID, *stopReason.ToolCalls[dupIndex].ToolUseData)
 					}
@@ -1687,7 +1757,29 @@ func CreateWriteTextFileDiff(ctx context.Context, chatId string, toolCallId stri
 	}
 
 	if toolName == "edit_text_file" {
-		originalContent, modifiedContent, err := EditTextFileDryRun(parsedArguments, backupFileName)
+		var originalContentOverride []byte
+		if backupFileName != "" {
+			originalContentOverride, err = os.ReadFile(backupFileName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to read backup file: %w", err)
+			}
+		} else {
+			params, parseErr := parseEditTextFileInput(parsedArguments)
+			if parseErr != nil {
+				return nil, nil, fmt.Errorf("failed to parse edit_text_file input: %w", parseErr)
+			}
+			remoteTarget, targetErr := requireRemoteFileTarget(params.Filename, funcCallInput.ToolUseData)
+			if targetErr != nil {
+				return nil, nil, fmt.Errorf("failed to resolve remote file target: %w", targetErr)
+			}
+			originalText, readErr := runRemoteReadFileCommand(remoteTarget, params.Filename)
+			if readErr != nil {
+				return nil, nil, fmt.Errorf("failed to read original remote file: %w", readErr)
+			}
+			originalContentOverride = []byte(originalText)
+		}
+
+		originalContent, modifiedContent, err := EditTextFileDryRun(parsedArguments, string(originalContentOverride))
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to generate diff: %w", err)
 		}
@@ -1699,21 +1791,19 @@ func CreateWriteTextFileDiff(ctx context.Context, chatId string, toolCallId stri
 		return nil, nil, fmt.Errorf("failed to parse write_text_file input: %w", err)
 	}
 
+	remoteTarget, err := requireRemoteFileTarget(params.Filename, funcCallInput.ToolUseData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve remote file target: %w", err)
+	}
+
 	var originalContent []byte
-	if backupFileName != "" {
-		originalContent, err = os.ReadFile(backupFileName)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read backup file: %w", err)
+	originalText, err := runRemoteReadFileCommand(remoteTarget, params.Filename)
+	if err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "no such file") {
+			return nil, nil, fmt.Errorf("failed to read original remote file: %w", err)
 		}
 	} else {
-		expandedPath, err := wavebase.ExpandHomeDir(params.Filename)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to expand path: %w", err)
-		}
-		originalContent, err = os.ReadFile(expandedPath)
-		if err != nil && !os.IsNotExist(err) {
-			return nil, nil, fmt.Errorf("failed to read original file: %w", err)
-		}
+		originalContent = []byte(originalText)
 	}
 
 	modifiedContent := []byte(params.Contents)

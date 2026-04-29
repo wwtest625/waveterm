@@ -378,6 +378,7 @@ func CreateToolUseData(toolCallID, toolName string, arguments string, chatOpts u
 		ToolCallId: toolCallID,
 		ToolName:   toolName,
 		Status:     uctypes.ToolUseStatusPending,
+		Partial:    uctypes.BoolPtr(true),
 	}
 	if chatOpts.TabId != "" {
 		toolUseData.TabId = chatOpts.TabId

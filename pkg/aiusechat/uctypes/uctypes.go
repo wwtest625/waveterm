@@ -298,18 +298,19 @@ func (s *UITaskProgressState) Clone() *UITaskProgressState {
 }
 
 type UIChatSessionMeta struct {
-	ChatId        string               `json:"chatid"`
-	TabId         string               `json:"tabid,omitempty"`
-	Title         string               `json:"title,omitempty"`
-	Summary       string               `json:"summary,omitempty"`
-	Cheatsheet    *SessionCheatsheet   `json:"cheatsheet,omitempty"`
-	TaskState     *UITaskProgressState `json:"taskstate,omitempty"`
-	CreatedTs     int64                `json:"createdts,omitempty"`
-	UpdatedTs     int64                `json:"updatedts,omitempty"`
-	Favorite      bool                 `json:"favorite,omitempty"`
-	LastTaskState string               `json:"lasttaskstate,omitempty"`
-	Archived      bool                 `json:"archived,omitempty"`
-	Deleted       bool                 `json:"deleted,omitempty"`
+	ChatId         string                    `json:"chatid"`
+	TabId          string                    `json:"tabid,omitempty"`
+	Title          string                    `json:"title,omitempty"`
+	Summary        string                    `json:"summary,omitempty"`
+	Cheatsheet     *SessionCheatsheet        `json:"cheatsheet,omitempty"`
+	TaskState      *UITaskProgressState      `json:"taskstate,omitempty"`
+	BackgroundJobs []UIChatBackgroundJobInfo `json:"backgroundjobs,omitempty"`
+	CreatedTs      int64                     `json:"createdts,omitempty"`
+	UpdatedTs      int64                     `json:"updatedts,omitempty"`
+	Favorite       bool                      `json:"favorite,omitempty"`
+	LastTaskState  string                    `json:"lasttaskstate,omitempty"`
+	Archived       bool                      `json:"archived,omitempty"`
+	Deleted        bool                      `json:"deleted,omitempty"`
 }
 
 func (m *UIChatSessionMeta) Clone() *UIChatSessionMeta {
@@ -324,7 +325,31 @@ func (m *UIChatSessionMeta) Clone() *UIChatSessionMeta {
 	if m.TaskState != nil {
 		copied.TaskState = m.TaskState.Clone()
 	}
+	if len(m.BackgroundJobs) > 0 {
+		copied.BackgroundJobs = make([]UIChatBackgroundJobInfo, len(m.BackgroundJobs))
+		copy(copied.BackgroundJobs, m.BackgroundJobs)
+	}
 	return &copied
+}
+
+type UIChatBackgroundJobInfo struct {
+	JobId            string `json:"jobid"`
+	ToolCallId       string `json:"toolcallid"`
+	CommandSummary   string `json:"commandsummary,omitempty"`
+	Connection       string `json:"connection,omitempty"`
+	TargetLabel      string `json:"targetlabel,omitempty"`
+	CreatedTs        int64  `json:"createdts,omitempty"`
+	LastUpdatedTs    int64  `json:"lastupdatedts,omitempty"`
+	Status           string `json:"status,omitempty"`
+	ApprovalState    string `json:"approvalstate,omitempty"`
+	InteractionState string `json:"interactionstate,omitempty"`
+	PromptHint       string `json:"prompthint,omitempty"`
+	DurationMs       int64  `json:"durationms,omitempty"`
+	ExitCode         *int   `json:"exitcode,omitempty"`
+	ExitSignal       string `json:"exitsignal,omitempty"`
+	Error            string `json:"error,omitempty"`
+	OutputPreview    string `json:"outputpreview,omitempty"`
+	TurnId           string `json:"turnid,omitempty"`
 }
 
 type SessionCheatsheet struct {
@@ -427,6 +452,7 @@ const (
 	ToolUseStatusPending   = "pending"
 	ToolUseStatusError     = "error"
 	ToolUseStatusCompleted = "completed"
+	ToolUseStatusCancelled = "cancelled"
 )
 
 const (
@@ -445,12 +471,21 @@ const (
 	ApprovalBlocked       = "blocked"
 )
 
+const (
+	CancelReasonManual      = "manual"
+	CancelReasonFollowUp    = "follow_up"
+	CancelReasonUserCommand = "user_command"
+	CancelReasonTimeout     = "timeout"
+	CancelReasonError       = "error"
+)
+
 // when updating this struct, also modify frontend/app/aipanel/aitypes.ts WaveUIDataTypes.tooluse
 type UIMessageDataToolUse struct {
 	ToolCallId          string   `json:"toolcallid"`
 	ToolName            string   `json:"toolname"`
 	ToolDesc            string   `json:"tooldesc"`
 	Status              string   `json:"status"`
+	Partial             *bool    `json:"partial,omitempty"`
 	JobId               string   `json:"jobid,omitempty"`
 	RunTs               int64    `json:"runts,omitempty"`
 	DurationMs          int64    `json:"durationms,omitempty"`
@@ -464,6 +499,7 @@ type UIMessageDataToolUse struct {
 	TuiDetected         bool     `json:"tuidetected,omitempty"`
 	TuiSuppressed       bool     `json:"tuisuppressed,omitempty"`
 	Approval            string   `json:"approval,omitempty"`
+	CancellationReason  string   `json:"cancellationreason,omitempty"`
 	TabId               string   `json:"tabid,omitempty"`
 	BlockId             string   `json:"blockid,omitempty"`
 	WriteBackupFileName string   `json:"writebackupfilename,omitempty"`
@@ -472,6 +508,14 @@ type UIMessageDataToolUse struct {
 
 func (d *UIMessageDataToolUse) IsApproved() bool {
 	return d.Approval == "" || d.Approval == ApprovalUserApproved || d.Approval == ApprovalAutoApproved
+}
+
+func (d *UIMessageDataToolUse) IsTerminal() bool {
+	return d.Status == ToolUseStatusCompleted || d.Status == ToolUseStatusError || d.Status == ToolUseStatusCancelled
+}
+
+func BoolPtr(b bool) *bool {
+	return &b
 }
 
 // when updating this struct, also modify frontend/app/aipanel/aitypes.ts WaveUIDataTypes.toolprogress
