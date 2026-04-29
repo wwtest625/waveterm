@@ -18,6 +18,24 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 )
 
+func adaptWaveRunCommandToolResultText(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return text
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return text
+	}
+	if modelText, ok := payload["modeltext"].(string); ok && strings.TrimSpace(modelText) != "" {
+		return strings.TrimSpace(modelText)
+	}
+	if summary, ok := payload["summary"].(string); ok && strings.TrimSpace(summary) != "" {
+		return strings.TrimSpace(summary)
+	}
+	return text
+}
+
 // cleanSchemaForGemini removes fields from JSON Schema that Gemini doesn't accept
 // Gemini uses a strict subset of JSON Schema and rejects fields like $schema, units, title, etc.
 func cleanSchemaForGemini(schema map[string]any) map[string]any {
@@ -267,7 +285,11 @@ func ConvertToolResultsToGeminiChatMessage(toolResults []uctypes.AIToolResult) (
 			}
 		} else {
 			response["ok"] = true
-			response["result"] = result.Text
+			if result.ToolName == "wave_run_command" {
+				response["result"] = adaptWaveRunCommandToolResultText(result.Text)
+			} else {
+				response["result"] = result.Text
+			}
 		}
 
 		parts = append(parts, GeminiMessagePart{

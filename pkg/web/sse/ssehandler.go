@@ -422,10 +422,13 @@ func (h *SSEHandlerCh) AiMsgReasoningDelta(reasoningId string, reasoning string)
 	return h.WriteJsonData(resp)
 }
 
-func (h *SSEHandlerCh) AiMsgReasoningEnd(reasoningId string) error {
+func (h *SSEHandlerCh) AiMsgReasoningEnd(reasoningId string, durationMs ...int64) error {
 	resp := map[string]interface{}{
 		"type": AiMsgReasoningEnd,
 		"id":   reasoningId,
+	}
+	if len(durationMs) > 0 && durationMs[0] > 0 {
+		resp["durationms"] = durationMs[0]
 	}
 	return h.WriteJsonData(resp)
 }

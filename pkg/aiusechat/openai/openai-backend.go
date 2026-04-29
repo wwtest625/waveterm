@@ -395,6 +395,7 @@ type openaiBlockState struct {
 	summaryCount    int    // For reasoning: number of summary parts seen
 	partialJSON     []byte // For function calls: accumulated JSON arguments
 	accumulatedText string // For text blocks: accumulated text content
+	startedAt       time.Time
 }
 
 type openaiStreamingState struct {
@@ -757,12 +758,12 @@ func handleOpenAIEvent(
 
 		switch ev.Item.Type {
 		case "reasoning":
-			// Create reasoning block - emit start immediately
 			id := uuid.New().String()
 			state.blockMap[ev.Item.Id] = &openaiBlockState{
 				kind:         openaiBlockReasoning,
 				localID:      id,
 				summaryCount: 0,
+				startedAt:    time.Now(),
 			}
 			_ = sse.AiMsgReasoningStart(id)
 		case "message":
@@ -791,7 +792,8 @@ func handleOpenAIEvent(
 		if st := state.blockMap[ev.Item.Id]; st != nil {
 			switch st.kind {
 			case openaiBlockReasoning:
-				_ = sse.AiMsgReasoningEnd(st.localID)
+				durationMs := time.Since(st.startedAt).Milliseconds()
+				_ = sse.AiMsgReasoningEnd(st.localID, durationMs)
 			case openaiBlockToolUse:
 				// Tool input completion notification was already sent in function_call_arguments.done
 				// This just marks the end of the tool item itself

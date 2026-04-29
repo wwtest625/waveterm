@@ -273,14 +273,12 @@ const (
 
 type blockState struct {
 	kind blockKind
-	// For text/reasoning: local SSE id
 	localID string
-	// Content block being built for rtnMessage
 	contentBlock *anthropicMessageContentBlock
-	// For tool_use:
-	toolCallID string // Anthropic tool_use.id
+	toolCallID string
 	toolName   string
-	accumJSON  *partialJSON // accumulator for input_json_delta
+	accumJSON  *partialJSON
+	startedAt  time.Time
 }
 
 // partialJSON is a minimal, allocation-friendly accumulator for Anthropic
@@ -680,6 +678,7 @@ func handleAnthropicEvent(
 					Type:     "thinking",
 					Thinking: "",
 				},
+				startedAt: time.Now(),
 			}
 			_ = sse.AiMsgReasoningStart(id)
 		case "tool_use":
@@ -764,7 +763,8 @@ func handleAnthropicEvent(
 				state.rtnMessage.Content = append(state.rtnMessage.Content, *st.contentBlock)
 			}
 		case blockThinking:
-			_ = sse.AiMsgReasoningEnd(st.localID)
+			durationMs := time.Since(st.startedAt).Milliseconds()
+			_ = sse.AiMsgReasoningEnd(st.localID, durationMs)
 			// Add completed thinking block to rtnMessage
 			if st.contentBlock != nil {
 				state.rtnMessage.Content = append(state.rtnMessage.Content, *st.contentBlock)

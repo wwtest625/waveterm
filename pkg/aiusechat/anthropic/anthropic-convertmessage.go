@@ -21,6 +21,24 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
+func adaptWaveRunCommandToolResultText(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return text
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return text
+	}
+	if modelText, ok := payload["modeltext"].(string); ok && strings.TrimSpace(modelText) != "" {
+		return strings.TrimSpace(modelText)
+	}
+	if summary, ok := payload["summary"].(string); ok && strings.TrimSpace(summary) != "" {
+		return strings.TrimSpace(summary)
+	}
+	return text
+}
+
 // these conversions are based off the anthropic spec
 // and the aiprompts/aisdk-uimessage-type.md doc (v5)
 
@@ -779,7 +797,11 @@ func ConvertToolResultsToAnthropicChatMessage(toolResults []uctypes.AIToolResult
 					isError = true
 				}
 			} else {
-				content = result.Text
+				if result.ToolName == "wave_run_command" {
+					content = adaptWaveRunCommandToolResultText(result.Text)
+				} else {
+					content = result.Text
+				}
 				isError = false
 			}
 		}
