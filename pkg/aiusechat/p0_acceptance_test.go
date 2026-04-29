@@ -87,8 +87,8 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	if strings.Contains(basePrompt, "Do not wrap it in ssh") {
 		t.Fatalf("expected base prompt to omit old ssh-specific guidance, got %q", basePrompt)
 	}
-	if strings.Contains(basePrompt, "Filesystem tools read the Wave host machine's local files only") {
-		t.Fatalf("expected base prompt to omit filesystem-only wording after removing read-only file tools, got %q", basePrompt)
+	if strings.Contains(basePrompt, "support absolute paths") {
+		t.Fatalf("expected base prompt to keep file tools scoped to the current remote terminal connection, got %q", basePrompt)
 	}
 
 	noToolsStylePrompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
@@ -123,8 +123,11 @@ func TestP0AcceptanceCriteria_DocumentsCriteriaRatherThanClaimingCompletion(t *t
 	if !strings.Contains(toolCapabilityPrompt, "wave_run_command: execute shell commands") {
 		t.Fatalf("expected tool capability prompt to describe command execution when wave_run_command is present, got %q", toolCapabilityPrompt)
 	}
-	if !strings.Contains(toolCapabilityPrompt, "file tools: write, edit, or delete local files") {
+	if !strings.Contains(toolCapabilityPrompt, "file tools: write, edit, or delete files") {
 		t.Fatalf("expected tool capability prompt to describe file tools, got %q", toolCapabilityPrompt)
+	}
+	if !strings.Contains(toolCapabilityPrompt, "They only support Linux absolute paths on that remote terminal connection") {
+		t.Fatalf("expected tool capability prompt to mention remote Linux paths, got %q", toolCapabilityPrompt)
 	}
 
 	legacyOutputPrompt := getToolCapabilityPrompt([]uctypes.ToolDefinition{{Name: "term_command_output"}})

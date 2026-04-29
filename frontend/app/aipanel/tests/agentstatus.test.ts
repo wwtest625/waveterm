@@ -72,6 +72,50 @@ describe("deriveAgentRuntimeStatus", () => {
         expect(snapshot.activeTool).toBe("wave_run_command");
     });
 
+    it("summarizes multiple running commands in the same assistant turn", () => {
+        const messages: WaveUIMessage[] = [
+            {
+                id: "assistant-1",
+                role: "assistant",
+                parts: [
+                    {
+                        type: "data-tooluse",
+                        data: {
+                            toolcallid: "tool-1",
+                            toolname: "wave_run_command",
+                            tooldesc: 'running "pwd" on current terminal',
+                            status: "running",
+                            jobid: "job-1",
+                        },
+                    },
+                    {
+                        type: "data-tooluse",
+                        data: {
+                            toolcallid: "tool-2",
+                            toolname: "wave_run_command",
+                            tooldesc: 'running "uname -a" on current terminal',
+                            status: "running",
+                            jobid: "job-2",
+                        },
+                    },
+                ],
+            },
+        ];
+
+        const snapshot = deriveAgentRuntimeStatus({
+            provider: "Wave AI",
+            mode: "default",
+            chatStatus: "streaming",
+            messages,
+            errorMessage: null,
+        });
+
+        expect(snapshot.state).toBe("executing");
+        expect(snapshot.phaseLabel).toBe("Executing Commands");
+        expect(snapshot.activeJobIds).toEqual(["job-1", "job-2"]);
+        expect(snapshot.activeTool).toBe("2 commands");
+    });
+
     it("ignores internal running tool snapshots once the turn is otherwise complete", () => {
         const messages: WaveUIMessage[] = [
             {

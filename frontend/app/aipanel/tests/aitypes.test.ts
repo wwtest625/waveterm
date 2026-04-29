@@ -43,6 +43,56 @@ describe("agent runtime reducer", () => {
         expect(next.phaseLabel).toBe("Thinking");
     });
 
+    it("tracks multiple active jobs across tool start and finish events", () => {
+        const firstStarted = reduceAgentRuntimeSnapshot(getDefaultAgentRuntimeSnapshot(), {
+            type: "TOOL_CALL_STARTED",
+            tool: {
+                requestId: "req-1",
+                taskId: "task-1",
+                toolName: "wave_run_command",
+                jobId: "job-1",
+                capability: "bash",
+                args: { command: "pwd" },
+                hostScope: { type: "remote", hostId: "root@host" },
+                requiresApproval: false,
+            },
+        });
+        const secondStarted = reduceAgentRuntimeSnapshot(firstStarted, {
+            type: "TOOL_CALL_STARTED",
+            tool: {
+                requestId: "req-2",
+                taskId: "task-1",
+                toolName: "wave_run_command",
+                jobId: "job-2",
+                capability: "bash",
+                args: { command: "uname -a" },
+                hostScope: { type: "remote", hostId: "root@host" },
+                requiresApproval: false,
+            },
+        });
+
+        expect(secondStarted.activeJobIds).toEqual(["job-1", "job-2"]);
+        expect(Object.keys(secondStarted.activeToolCalls ?? {})).toEqual(["req-1", "req-2"]);
+
+        const firstFinished = reduceAgentRuntimeSnapshot(secondStarted, {
+            type: "TOOL_CALL_FINISHED",
+            result: {
+                requestId: "req-1",
+                taskId: "task-1",
+                toolName: "wave_run_command",
+                jobId: "job-1",
+                ok: true,
+                exitCode: 0,
+                stdout: "/root",
+                durationMs: 25,
+            },
+        });
+
+        expect(firstFinished.state).toBe("executing");
+        expect(firstFinished.activeJobIds).toEqual(["job-2"]);
+        expect(Object.keys(firstFinished.activeToolCalls ?? {})).toEqual(["req-2"]);
+    });
+
     it("treats tool args as equal regardless of object key order", () => {
         const base = getDefaultAgentRuntimeSnapshot();
         const left = {

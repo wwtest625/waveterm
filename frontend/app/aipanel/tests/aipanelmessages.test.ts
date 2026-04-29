@@ -22,6 +22,7 @@ import {
     splitReasoningFromText,
 } from "../aipanelmessages";
 import { getToolDisplayName, shouldHideProgressStatusLines, summarizeToolGroup } from "../aitooluse";
+import { coalesceMessageParts } from "../aitypes";
 
 describe("aipanel task turns", () => {
     it("groups multiple assistant retries into one turn", () => {
@@ -405,27 +406,109 @@ describe("aipanel task turns", () => {
     });
 
     it("finds pending approval tool uses even while the turn is still streaming", () => {
-        const pendingApprovals = getPendingApprovalToolUses([
-            {
-                id: "assistant-1",
-                role: "assistant",
-                parts: [
-                    {
-                        type: "data-tooluse",
-                        data: {
-                            toolcallid: "tool-1",
-                            toolname: "wave_run_command",
-                            tooldesc: 'running "mkdir -p /home/ssl"',
-                            status: "pending",
-                            approval: "needs-approval",
+        const pendingApprovals = getPendingApprovalToolUses(
+            [
+                {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-1",
+                                toolname: "wave_run_command",
+                                tooldesc: 'running "mkdir -p /home/ssl"',
+                                status: "pending",
+                                approval: "needs-approval",
+                            },
                         },
-                    },
-                ],
-            } as any,
-        ]);
+                    ],
+                } as any,
+            ],
+            true
+        );
 
         expect(pendingApprovals).toHaveLength(1);
         expect(pendingApprovals[0].data.toolcallid).toBe("tool-1");
+    });
+
+    it("does not keep finished needs-approval tool uses clickable after streaming ends", () => {
+        const pendingApprovals = getPendingApprovalToolUses(
+            [
+                {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-1",
+                                toolname: "delete_text_file",
+                                tooldesc: 'deleting "/tmp/a.txt"',
+                                status: "error",
+                                approval: "needs-approval",
+                            },
+                        },
+                    ],
+                } as any,
+            ],
+            false
+        );
+
+        expect(pendingApprovals).toHaveLength(0);
+    });
+
+    it("keeps historical pending approvals out of the latest active turn", () => {
+        const turns = buildTaskTurns(
+            [
+                {
+                    id: "user-1",
+                    role: "user",
+                    parts: [{ type: "text", text: "删除文件" }],
+                } as any,
+                {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-old",
+                                toolname: "delete_text_file",
+                                tooldesc: 'deleting "/tmp/old.txt"',
+                                status: "error",
+                                approval: "needs-approval",
+                            },
+                        },
+                    ],
+                } as any,
+                {
+                    id: "user-2",
+                    role: "user",
+                    parts: [{ type: "text", text: "继续检查容器" }],
+                } as any,
+                {
+                    id: "assistant-2",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-new",
+                                toolname: "wave_run_command",
+                                tooldesc: 'running "docker ps"',
+                                status: "completed",
+                            },
+                        },
+                    ],
+                } as any,
+            ],
+            "ready"
+        );
+
+        expect(turns).toHaveLength(2);
+        expect(getPendingApprovalToolUses(turns[0].assistantMessages, turns[0].isStreaming)).toHaveLength(0);
+        expect(getPendingApprovalToolUses(turns[1].assistantMessages, turns[1].isStreaming)).toHaveLength(0);
     });
 
     it("keeps full bash command details intact", () => {
@@ -754,6 +837,38 @@ describe("aipanel task turns", () => {
         expect(fallbackOutput).toBe("old stdout");
     });
 
+    it("does not use runtime fallback output when the turn already shows a task chain", () => {
+        const turns = buildTaskTurns(
+            [
+                {
+                    id: "user-1",
+                    role: "user",
+                    parts: [{ type: "text", text: "检查镜像" }],
+                } as any,
+                {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [
+                        {
+                            type: "data-tooluse",
+                            data: {
+                                toolcallid: "tool-1",
+                                toolname: "wave_run_command",
+                                tooldesc: 'running "docker images"',
+                                status: "completed",
+                                outputtext: "repo tag imageid",
+                            },
+                        },
+                    ],
+                } as any,
+            ],
+            "ready"
+        );
+
+        const fallbackOutput = resolveTurnFallbackOutput(turns[0], true, "repo tag imageid");
+        expect(fallbackOutput).toBe("");
+    });
+
     it("collapses identical consecutive tool steps into one visual row", () => {
         const steps = buildTaskChainSteps(
             [
@@ -783,6 +898,113 @@ describe("aipanel task turns", () => {
 
         expect(steps).toHaveLength(1);
         expect(steps[0].duplicateCount).toBe(2);
+    });
+
+    it("replaces repeated snapshots for the same tool call instead of appending rows", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "docker pull example/app:latest"',
+                        status: "running",
+                        outputtext: "layer 1: pulling",
+                    },
+                } as any,
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "docker pull example/app:latest"',
+                        status: "running",
+                        outputtext: "layer 1: pulling\nlayer 2: extracting",
+                    },
+                } as any,
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "docker pull example/app:latest"',
+                        status: "completed",
+                        exitcode: 0,
+                        outputtext: "Digest: sha256:abc",
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(steps).toHaveLength(2);
+        expect(steps[0].status).toBe("completed");
+        expect(steps[1].detail).toBe("Digest: sha256:abc");
+    });
+
+    it("does not create a separate output row for synthetic process-exit text", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "docker ps | grep -i pull"',
+                        status: "error",
+                        errormessage: "Process exited with status 1",
+                        exitcode: 1,
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(steps).toHaveLength(1);
+        expect(steps[0].exitCode).toBe(1);
+    });
+
+    it("treats partial=true as running status in deriveToolUseStatus", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "docker pull"',
+                        status: "pending",
+                        partial: true,
+                    },
+                } as any,
+            ],
+            false
+        );
+
+        expect(steps).toHaveLength(1);
+        expect(steps[0].status).toBe("running");
+    });
+
+    it("treats partial=false as completed status in deriveToolUseStatus", () => {
+        const steps = buildTaskChainSteps(
+            [
+                {
+                    type: "data-tooluse",
+                    data: {
+                        toolcallid: "tool-1",
+                        toolname: "wave_run_command",
+                        tooldesc: 'running "docker pull"',
+                        status: "pending",
+                        partial: false,
+                    },
+                } as any,
+            ],
+            true
+        );
+
+        expect(steps).toHaveLength(1);
+        expect(steps[0].status).toBe("completed");
     });
 
     it("collapses raw output after five lines", () => {
@@ -1062,5 +1284,53 @@ describe("aitooluse summaries", () => {
 
         expect(summary.title).toBe("命令执行处理中");
         expect(summary.defaultExpanded).toBe(true);
+    });
+});
+
+describe("coalesceMessageParts", () => {
+    it("replaces duplicate data-tooluse parts by toolcallid", () => {
+        const parts = [
+            { type: "text", text: "hello" } as any,
+            { type: "data-tooluse", data: { toolcallid: "tool-1", toolname: "wave_run_command", status: "pending", partial: true } } as any,
+            { type: "data-tooluse", data: { toolcallid: "tool-1", toolname: "wave_run_command", status: "running", partial: true } } as any,
+            { type: "data-tooluse", data: { toolcallid: "tool-1", toolname: "wave_run_command", status: "completed", partial: false } } as any,
+        ];
+
+        const result = coalesceMessageParts(parts);
+        expect(result).toHaveLength(2);
+        expect(result[0].type).toBe("text");
+        expect(result[1].type).toBe("data-tooluse");
+        expect((result[1] as any).data.status).toBe("completed");
+        expect((result[1] as any).data.partial).toBe(false);
+    });
+
+    it("keeps different toolcallids as separate parts", () => {
+        const parts = [
+            { type: "data-tooluse", data: { toolcallid: "tool-1", toolname: "wave_run_command", status: "completed", partial: false } } as any,
+            { type: "data-tooluse", data: { toolcallid: "tool-2", toolname: "read_file", status: "completed", partial: false } } as any,
+        ];
+
+        const result = coalesceMessageParts(parts);
+        expect(result).toHaveLength(2);
+        expect((result[0] as any).data.toolcallid).toBe("tool-1");
+        expect((result[1] as any).data.toolcallid).toBe("tool-2");
+    });
+
+    it("preserves non-tool-detail parts in order", () => {
+        const parts = [
+            { type: "text", text: "first" } as any,
+            { type: "data-tooluse", data: { toolcallid: "tool-1", toolname: "wave_run_command", status: "running", partial: true } } as any,
+            { type: "text", text: "second" } as any,
+            { type: "data-tooluse", data: { toolcallid: "tool-1", toolname: "wave_run_command", status: "completed", partial: false } } as any,
+        ];
+
+        const result = coalesceMessageParts(parts);
+        expect(result).toHaveLength(3);
+        expect(result[0].type).toBe("text");
+        expect((result[0] as any).text).toBe("first");
+        expect(result[1].type).toBe("data-tooluse");
+        expect((result[1] as any).data.status).toBe("completed");
+        expect(result[2].type).toBe("text");
+        expect((result[2] as any).text).toBe("second");
     });
 });
