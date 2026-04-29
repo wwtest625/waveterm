@@ -328,6 +328,7 @@ interface WaveStreamdownProps {
     codeFontFamily?: string;
     codeClassName?: string;
     onClickExecute?: (cmd: string) => void;
+    isStreaming?: boolean;
 }
 
 export const WaveStreamdown = ({
@@ -339,6 +340,7 @@ export const WaveStreamdown = ({
     codeFontFamily,
     codeClassName,
     onClickExecute,
+    isStreaming,
 }: WaveStreamdownProps) => {
     const components = useMemo(
         () => ({
@@ -434,27 +436,32 @@ export const WaveStreamdown = ({
     );
 
     return (
-        <Streamdown
-            parseIncompleteMarkdown={parseIncompleteMarkdown}
-            className={cn(
-                "wave-streamdown text-secondary [&>*:first-child]:mt-0 [&>*:first-child>*:first-child]:mt-0 space-y-2",
-                className
+        <>
+            <Streamdown
+                parseIncompleteMarkdown={parseIncompleteMarkdown}
+                className={cn(
+                    "wave-streamdown text-secondary [&>*:first-child]:mt-0 [&>*:first-child>*:first-child]:mt-0 space-y-2",
+                    className
+                )}
+                shikiTheme={[ShikiTheme, ShikiTheme]}
+                controls={{
+                    code: false,
+                    table: false,
+                    mermaid: true,
+                }}
+                mermaid={{
+                    config: {
+                        theme: "dark",
+                        darkMode: true,
+                    },
+                }}
+                components={components}
+            >
+                {text}
+            </Streamdown>
+            {isStreaming && (
+                <span className="inline-block w-[3px] h-[14px] ml-0.5 bg-emerald-400 animate-pulse rounded-sm" />
             )}
-            shikiTheme={[ShikiTheme, ShikiTheme]}
-            controls={{
-                code: false,
-                table: false,
-                mermaid: true,
-            }}
-            mermaid={{
-                config: {
-                    theme: "dark",
-                    darkMode: true,
-                },
-            }}
-            components={components}
-        >
-            {text}
-        </Streamdown>
+        </>
     );
 };

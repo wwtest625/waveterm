@@ -3,6 +3,7 @@
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { Button } from "@/app/element/button";
+import { CopyButton } from "@/app/element/copybutton";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { Modal } from "@/app/modals/modal";
 import type { TabModel } from "@/app/store/tab-model";
@@ -117,6 +118,32 @@ function DockerTabButton({ active, label, onClick }: { active: boolean; label: s
         >
             {label}
         </button>
+    );
+}
+
+function DockerIdRow({
+    label,
+    value,
+}: {
+    label: string;
+    value: string;
+}) {
+    if (!value) {
+        return null;
+    }
+    return (
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            <span className="rounded-md border border-zinc-800 bg-zinc-900/80 px-2 py-1 font-mono text-zinc-300">
+                {label}: {value}
+            </span>
+            <CopyButton
+                className="copy-button"
+                onClick={() => {
+                    void navigator.clipboard.writeText(value);
+                }}
+                title={`复制${label}`}
+            />
+        </div>
     );
 }
 
@@ -545,6 +572,7 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                                     <div className="mt-1 truncate text-sm text-zinc-400">
                                                         {container.image}
                                                     </div>
+                                                    <DockerIdRow label="容器 ID" value={container.id} />
                                                 </div>
                                                 <div className="flex flex-wrap gap-2 lg:justify-end">
                                                     {isRunningLike ? (
@@ -634,6 +662,7 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                                             </span>
                                                         ) : null}
                                                     </div>
+                                                    <DockerIdRow label="镜像 ID" value={image.id} />
                                                 </div>
                                                 <div className="flex flex-wrap gap-2 lg:justify-end">
                                                     <RowActionButton

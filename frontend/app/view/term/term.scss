@@ -80,6 +80,7 @@
         align-items: flex-end;
         gap: 8px;
         min-width: 0;
+        width: 100%;
     }
 
     .term-quick-input-compact {
@@ -123,10 +124,17 @@
         min-width: 0;
     }
 
+    .term-quick-input-actions {
+        display: flex;
+        flex-shrink: 0;
+        align-items: flex-end;
+        gap: 8px;
+        min-width: fit-content;
+    }
+
     .term-quick-input-shell {
         display: flex;
         align-items: flex-end;
-        gap: 6px;
         width: 100%;
         min-width: 0;
         padding: 5px;
@@ -224,6 +232,7 @@
         padding-bottom: 7px;
 
         .term-quick-input-editor,
+        .term-quick-input-actions,
         .term-quick-input-shell,
         .term-quick-input-completion,
         .term-quick-input-notify-toggle {

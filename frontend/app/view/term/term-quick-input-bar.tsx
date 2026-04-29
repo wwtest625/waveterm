@@ -89,32 +89,34 @@ export function TermQuickInputBar({
                                     className={cn("term-quick-input-field text-sm", compact && "term-quick-input-field-compact")}
                                 />
                             </div>
-                            <button
-                                type="button"
-                                className={notifyClassName}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                    if (!notifyAvailable) {
-                                        return;
-                                    }
-                                    setNotifyEnabled(!notifyEnabled);
-                                }}
-                                disabled={!notifyAvailable}
-                                title={model.getQuickInputCompletionNotificationTitle()}
-                            >
-                                <i className="fa-solid fa-bell text-[10px]" />
-                                <span>通知</span>
-                            </button>
                         </div>
                     </div>
-                    <Button
-                        className={cn("term-quick-input-send", compact && "term-quick-input-send-compact")}
-                        onClick={onSubmit}
-                        disabled={value.trim() === ""}
-                        title={submitTitle}
-                    >
-                        {submitLabel}
-                    </Button>
+                    <div className="term-quick-input-actions">
+                        <button
+                            type="button"
+                            className={notifyClassName}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                                if (!notifyAvailable) {
+                                    return;
+                                }
+                                setNotifyEnabled(!notifyEnabled);
+                            }}
+                            disabled={!notifyAvailable}
+                            title={model.getQuickInputCompletionNotificationTitle()}
+                        >
+                            <i className="fa-solid fa-bell text-[10px]" />
+                            <span>通知</span>
+                        </button>
+                        <Button
+                            className={cn("term-quick-input-send", compact && "term-quick-input-send-compact")}
+                            onClick={onSubmit}
+                            disabled={value.trim() === ""}
+                            title={submitTitle}
+                        >
+                            {submitLabel}
+                        </Button>
+                    </div>
                 </div>
             )}
         </div>
