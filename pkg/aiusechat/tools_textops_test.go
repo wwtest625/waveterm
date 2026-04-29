@@ -5,11 +5,11 @@ package aiusechat
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/anthropic"
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/gemini"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/openai"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/openaichat"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
@@ -17,63 +17,37 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
-func TestWriteTextFileCallbackCreatesNestedFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	targetFile := filepath.Join(tmpDir, "nested", "created.txt")
+func TestVerifyWriteTextFileInputRejectsNonLinuxAbsolutePath(t *testing.T) {
 	toolUseData := &uctypes.UIMessageDataToolUse{}
-
-	result, err := writeTextFileCallback(map[string]any{
-		"filename": targetFile,
-		"contents": "hello\nworld\n",
+	err := verifyWriteTextFileInput(map[string]any{
+		"filename": "notes/output.txt",
+		"contents": "hello",
 	}, toolUseData)
-	if err != nil {
-		t.Fatalf("writeTextFileCallback returned error: %v", err)
+	if err == nil {
+		t.Fatal("expected non-linux absolute path to be rejected")
 	}
-
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map result, got %T", result)
-	}
-	if resultMap["success"] != true {
-		t.Fatalf("expected success flag, got %#v", resultMap["success"])
-	}
-
-	content, err := os.ReadFile(targetFile)
-	if err != nil {
-		t.Fatalf("failed to read written file: %v", err)
-	}
-	if string(content) != "hello\nworld\n" {
-		t.Fatalf("unexpected file contents: %q", string(content))
+	if !strings.Contains(err.Error(), "Linux absolute paths") {
+		t.Fatalf("expected linux absolute path validation error, got %v", err)
 	}
 }
 
-func TestVerifyWriteTextFileInputStoresInputFileName(t *testing.T) {
-	tmpDir := t.TempDir()
-	targetFile := filepath.Join(tmpDir, "write.txt")
+func TestVerifyWriteTextFileInputRejectsWindowsPath(t *testing.T) {
 	toolUseData := &uctypes.UIMessageDataToolUse{}
-
 	err := verifyWriteTextFileInput(map[string]any{
-		"filename": targetFile,
+		"filename": `C:\temp\write.txt`,
 		"contents": "hello",
 	}, toolUseData)
-	if err != nil {
-		t.Fatalf("verifyWriteTextFileInput returned error: %v", err)
+	if err == nil {
+		t.Fatal("expected windows path to be rejected")
 	}
-	if toolUseData.InputFileName != targetFile {
-		t.Fatalf("expected InputFileName to be recorded, got %q", toolUseData.InputFileName)
+	if !strings.Contains(err.Error(), "Linux absolute paths") {
+		t.Fatalf("expected linux absolute path validation error, got %v", err)
 	}
 }
 
 func TestEditTextFileDryRunAppliesEdit(t *testing.T) {
-	tmpDir := t.TempDir()
-	targetFile := filepath.Join(tmpDir, "edit.txt")
-	err := os.WriteFile(targetFile, []byte("alpha\nbeta\ngamma\n"), 0644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
 	original, modified, err := EditTextFileDryRun(map[string]any{
-		"filename": targetFile,
+		"filename": "/remote/edit.txt",
 		"edits": []map[string]any{
 			{
 				"old_str": "beta",
@@ -81,7 +55,7 @@ func TestEditTextFileDryRunAppliesEdit(t *testing.T) {
 				"desc":    "rename middle line",
 			},
 		},
-	}, "")
+	}, "alpha\nbeta\ngamma\n")
 	if err != nil {
 		t.Fatalf("EditTextFileDryRun returned error: %v", err)
 	}
@@ -95,15 +69,8 @@ func TestEditTextFileDryRunAppliesEdit(t *testing.T) {
 }
 
 func TestEditTextFileDryRunFailsWhenOldStringAppearsMultipleTimes(t *testing.T) {
-	tmpDir := t.TempDir()
-	targetFile := filepath.Join(tmpDir, "duplicate.txt")
-	err := os.WriteFile(targetFile, []byte("repeat\nrepeat\n"), 0644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	_, _, err = EditTextFileDryRun(map[string]any{
-		"filename": targetFile,
+	_, _, err := EditTextFileDryRun(map[string]any{
+		"filename": "/remote/duplicate.txt",
 		"edits": []fileutil.EditSpec{
 			{
 				OldStr: "repeat",
@@ -111,7 +78,7 @@ func TestEditTextFileDryRunFailsWhenOldStringAppearsMultipleTimes(t *testing.T) 
 				Desc:   "replace duplicate",
 			},
 		},
-	}, "")
+	}, "repeat\nrepeat\n")
 	if err == nil {
 		t.Fatal("expected duplicate match to fail")
 	}
@@ -121,15 +88,8 @@ func TestEditTextFileDryRunFailsWhenOldStringAppearsMultipleTimes(t *testing.T) 
 }
 
 func TestEditTextFileDryRunReportsAppliedEditCountOnFailure(t *testing.T) {
-	tmpDir := t.TempDir()
-	targetFile := filepath.Join(tmpDir, "count.txt")
-	err := os.WriteFile(targetFile, []byte("alpha\nbeta\ngamma\n"), 0644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	_, _, err = EditTextFileDryRun(map[string]any{
-		"filename": targetFile,
+	_, _, err := EditTextFileDryRun(map[string]any{
+		"filename": "/remote/count.txt",
 		"edits": []map[string]any{
 			{
 				"old_str": "beta",
@@ -142,7 +102,7 @@ func TestEditTextFileDryRunReportsAppliedEditCountOnFailure(t *testing.T) {
 				"desc":    "second change",
 			},
 		},
-	}, "")
+	}, "alpha\nbeta\ngamma\n")
 	if err == nil {
 		t.Fatal("expected second edit to fail")
 	}
@@ -197,15 +157,8 @@ func TestEditTextFileToolDefinitionMentionsSmallBatchesAndLatestFile(t *testing.
 }
 
 func TestEditTextFileDryRunSupportsLineEndingFallback(t *testing.T) {
-	tmpDir := t.TempDir()
-	targetFile := filepath.Join(tmpDir, "crlf.txt")
-	err := os.WriteFile(targetFile, []byte("alpha\r\nbeta\r\ngamma\r\n"), 0644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
 	_, modified, err := EditTextFileDryRun(map[string]any{
-		"filename": targetFile,
+		"filename": "/remote/crlf.txt",
 		"edits": []map[string]any{
 			{
 				"old_str": "beta\ngamma\n",
@@ -213,7 +166,7 @@ func TestEditTextFileDryRunSupportsLineEndingFallback(t *testing.T) {
 				"desc":    "line ending fallback replacement",
 			},
 		},
-	}, "")
+	}, "alpha\r\nbeta\r\ngamma\r\n")
 	if err != nil {
 		t.Fatalf("EditTextFileDryRun should succeed with line-ending fallback, got: %v", err)
 	}
@@ -391,8 +344,11 @@ func TestGetToolCapabilityPrompt_AlwaysMentionsFileToolsWhenProvided(t *testing.
 		GetEditTextFileToolDefinition(),
 		GetDeleteTextFileToolDefinition(),
 	})
-	if !strings.Contains(prompt, "file tools: write, edit, or delete local files") {
+	if !strings.Contains(prompt, "file tools: write, edit, or delete files") {
 		t.Fatalf("expected file tools capability prompt, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "They only support Linux absolute paths on that remote terminal connection") {
+		t.Fatalf("expected file tools prompt to mention remote Linux paths, got %q", prompt)
 	}
 }
 
@@ -1295,6 +1251,37 @@ func TestWaveRunCommandChatCompletionsAdaptationUsesSummaryText(t *testing.T) {
 	}
 }
 
+func TestWaveRunCommandAnthropicAdaptationUsesSummaryText(t *testing.T) {
+	payload := map[string]any{"jobid": "job-123", "status": "running", "summary": "Command is still running in the background."}
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	msg, err := anthropic.ConvertToolResultsToAnthropicChatMessage([]uctypes.AIToolResult{{ToolUseID: "call-1", ToolName: "wave_run_command", Text: string(bytes)}})
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+	if got, ok := msg.Content[0].Content.(string); !ok || got != "Command is still running in the background." {
+		t.Fatalf("unexpected output: %#v", msg.Content[0].Content)
+	}
+}
+
+func TestWaveRunCommandGeminiAdaptationUsesSummaryText(t *testing.T) {
+	payload := map[string]any{"jobid": "job-123", "status": "running", "summary": "Command is still running in the background."}
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	msg, err := gemini.ConvertToolResultsToGeminiChatMessage([]uctypes.AIToolResult{{ToolUseID: "call-1", ToolName: "wave_run_command", Text: string(bytes)}})
+	if err != nil {
+		t.Fatalf("convert failed: %v", err)
+	}
+	got := msg.Parts[0].FunctionResponse.Response["result"]
+	if got != "Command is still running in the background." {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}
+
 func TestGenerateTabStateAndTools_FileToolsNotBlockedByWidgetAccess(t *testing.T) {
 	_, tools, err := GenerateTabStateAndTools(t.Context(), "", false, nil)
 	if err != nil {
@@ -1698,15 +1685,8 @@ func TestWaveRunCommandSummaryKeepsUiPayloadFields(t *testing.T) {
 	}
 }
 func TestEditTextFileDryRunLineEndingFallbackStillRequiresUniqueMatch(t *testing.T) {
-	tmpDir := t.TempDir()
-	targetFile := filepath.Join(tmpDir, "ambiguous-crlf.txt")
-	err := os.WriteFile(targetFile, []byte("x\r\ny\r\nx\r\ny\r\n"), 0644)
-	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	_, _, err = EditTextFileDryRun(map[string]any{
-		"filename": targetFile,
+	_, _, err := EditTextFileDryRun(map[string]any{
+		"filename": "/remote/ambiguous-crlf.txt",
 		"edits": []map[string]any{
 			{
 				"old_str": "x\ny\n",
@@ -1714,7 +1694,7 @@ func TestEditTextFileDryRunLineEndingFallbackStillRequiresUniqueMatch(t *testing
 				"desc":    "ambiguous line ending fallback",
 			},
 		},
-	}, "")
+	}, "x\r\ny\r\nx\r\ny\r\n")
 	if err == nil {
 		t.Fatal("expected ambiguous line-ending fallback to fail")
 	}

@@ -303,11 +303,15 @@ func isLikelyStreamingWaveRunCommand(parsed *WaveRunCommandToolInput) bool {
 	if parsed == nil {
 		return false
 	}
-	commandText := strings.ToLower(strings.TrimSpace(getWaveRunCommandDisplayText(parsed)))
-	if commandText == "" {
+	return isLikelyStreamingWaveRunCommandText(getWaveRunCommandDisplayText(parsed))
+}
+
+func isLikelyStreamingWaveRunCommandText(commandText string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(commandText))
+	if normalized == "" {
 		return false
 	}
-	return streamPreferredWaveCommandPattern.MatchString(commandText)
+	return streamPreferredWaveCommandPattern.MatchString(normalized)
 }
 
 func getWaveRunCommandPromptHint(parsed *WaveRunCommandToolInput) string {
