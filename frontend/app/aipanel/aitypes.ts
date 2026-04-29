@@ -143,7 +143,8 @@ type WaveUIDataTypes = {
         toolcallid: string;
         toolname: string;
         tooldesc: string;
-        status: "pending" | "running" | "error" | "completed";
+        status: "pending" | "running" | "error" | "completed" | "cancelled";
+        partial?: boolean;
         jobid?: string;
         runts?: number;
         durationms?: number;
@@ -161,6 +162,7 @@ type WaveUIDataTypes = {
         exitkey?: string;
         exitappendnewline?: boolean;
         approval?: "needs-approval" | "user-approved" | "user-denied" | "auto-approved" | "timeout" | "blocked";
+        cancellationreason?: "manual" | "follow_up" | "user_command" | "timeout" | "error";
         tabid?: string;
         blockid?: string;
         writebackupfilename?: string;
@@ -226,9 +228,30 @@ export type UIChatSessionMeta = {
         nextstep?: string;
     };
     taskstate?: AgentTaskState;
+    backgroundjobs?: ChatBackgroundJobDetail[];
 };
 
 export type WaveChatSessionMeta = UIChatSessionMeta;
+
+export type ChatBackgroundJobDetail = {
+    jobid: string;
+    toolcallid: string;
+    commandsummary?: string;
+    connection?: string;
+    targetlabel?: string;
+    createdts?: number;
+    lastupdatedts?: number;
+    status?: string;
+    approvalstate?: string;
+    interactionstate?: string;
+    prompthint?: string;
+    durationms?: number;
+    exitcode?: number;
+    exitsignal?: string;
+    error?: string;
+    outputpreview?: string;
+    turnid?: string;
+};
 
 export type WaveUIMessage = UIMessage<unknown, WaveUIDataTypes, any>;
 export type WaveUIMessagePart = UIMessagePart<WaveUIDataTypes, any>;
@@ -348,6 +371,8 @@ export type AgentRuntimeSnapshot = {
     blockedReason?: string;
     activeTool?: string;
     activeJobId?: string;
+    activeJobIds?: string[];
+    activeToolCalls?: Record<string, ToolCallEnvelope>;
     lastToolCall?: ToolCallEnvelope;
     lastToolResult?: ToolResultEnvelope;
     retry?: RetryMeta;
@@ -391,6 +416,24 @@ export function mergeAgentRuntimeSnapshot(
         ...current,
         ...patch,
     };
+}
+
+function stringArrayEquals(left?: string[], right?: string[]): boolean {
+    if (left === right) {
+        return true;
+    }
+    if (!left || !right) {
+        return left == null && right == null;
+    }
+    if (left.length !== right.length) {
+        return false;
+    }
+    for (let i = 0; i < left.length; i++) {
+        if (left[i] !== right[i]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 function toolArgsDeepEqual(left: any, right: any, depth = 0): boolean {
@@ -479,6 +522,34 @@ function toolResultEnvelopeEquals(left?: ToolResultEnvelope, right?: ToolResultE
     );
 }
 
+function toolCallEnvelopeMapEquals(
+    left?: Record<string, ToolCallEnvelope>,
+    right?: Record<string, ToolCallEnvelope>
+): boolean {
+    if (left === right) {
+        return true;
+    }
+    if (!left || !right) {
+        return left == null && right == null;
+    }
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) {
+        return false;
+    }
+    leftKeys.sort();
+    rightKeys.sort();
+    for (let i = 0; i < leftKeys.length; i++) {
+        if (leftKeys[i] !== rightKeys[i]) {
+            return false;
+        }
+        if (!toolCallEnvelopeEquals(left[leftKeys[i]], right[rightKeys[i]])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function retryMetaEquals(left?: RetryMeta, right?: RetryMeta): boolean {
     if (left === right) {
         return true;
@@ -505,6 +576,8 @@ export function agentRuntimeSnapshotEquals(left: AgentRuntimeSnapshot, right: Ag
         left.blockedReason === right.blockedReason &&
         left.activeTool === right.activeTool &&
         left.activeJobId === right.activeJobId &&
+        stringArrayEquals(left.activeJobIds, right.activeJobIds) &&
+        toolCallEnvelopeMapEquals(left.activeToolCalls, right.activeToolCalls) &&
         toolCallEnvelopeEquals(left.lastToolCall, right.lastToolCall) &&
         toolResultEnvelopeEquals(left.lastToolResult, right.lastToolResult) &&
         retryMetaEquals(left.retry, right.retry)
@@ -648,9 +721,20 @@ export function reduceAgentRuntimeSnapshot(
                 visible: true,
                 state: "submitting",
                 phaseLabel: "Thinking",
+                activeTool: undefined,
+                activeJobId: undefined,
+                activeJobIds: [],
+                activeToolCalls: {},
+                lastToolCall: undefined,
+                lastToolResult: undefined,
                 blockedReason: undefined,
             };
         case "TOOL_CALL_STARTED":
+            const nextActiveToolCalls = { ...(current.activeToolCalls ?? {}) };
+            nextActiveToolCalls[event.tool.requestId] = event.tool;
+            const nextActiveJobIds = Object.values(nextActiveToolCalls)
+                .map((tool) => tool.jobId)
+                .filter((jobId): jobId is string => Boolean(jobId));
             return {
                 ...current,
                 visible: true,
@@ -658,28 +742,54 @@ export function reduceAgentRuntimeSnapshot(
                 phaseLabel: "Executing",
                 activeTool: event.tool.toolName,
                 activeJobId: event.tool.jobId,
+                activeJobIds: nextActiveJobIds,
+                activeToolCalls: nextActiveToolCalls,
                 lastToolCall: event.tool,
                 blockedReason: undefined,
             };
         case "TOOL_CALL_FINISHED":
+            const remainingToolCallsAfterFinish = { ...(current.activeToolCalls ?? {}) };
+            delete remainingToolCallsAfterFinish[event.result.requestId];
+            const remainingJobIdsAfterFinish = Object.values(remainingToolCallsAfterFinish)
+                .map((tool) => tool.jobId)
+                .filter((jobId): jobId is string => Boolean(jobId));
             return {
                 ...current,
                 visible: true,
-                state: "verifying",
-                phaseLabel: "Verifying",
-                activeTool: undefined,
-                activeJobId: undefined,
+                state: remainingJobIdsAfterFinish.length > 0 ? "executing" : "verifying",
+                phaseLabel: remainingJobIdsAfterFinish.length > 0 ? "Executing" : "Verifying",
+                activeTool: remainingJobIdsAfterFinish.length > 0 ? current.activeTool : undefined,
+                activeJobId: remainingJobIdsAfterFinish.at(-1),
+                activeJobIds: remainingJobIdsAfterFinish,
+                activeToolCalls: remainingToolCallsAfterFinish,
                 lastToolResult: event.result,
                 blockedReason: undefined,
             };
         case "TOOL_CALL_FAILED":
+            const remainingToolCallsAfterFailure = { ...(current.activeToolCalls ?? {}) };
+            delete remainingToolCallsAfterFailure[event.result.requestId];
+            const remainingJobIdsAfterFailure = Object.values(remainingToolCallsAfterFailure)
+                .map((tool) => tool.jobId)
+                .filter((jobId): jobId is string => Boolean(jobId));
             return {
                 ...current,
                 visible: true,
-                state: event.retryable ? "failed_retryable" : "failed_fatal",
-                phaseLabel: event.retryable ? "Retry Available" : "Failed",
-                activeTool: undefined,
-                activeJobId: undefined,
+                state:
+                    remainingJobIdsAfterFailure.length > 0
+                        ? "executing"
+                        : event.retryable
+                          ? "failed_retryable"
+                          : "failed_fatal",
+                phaseLabel:
+                    remainingJobIdsAfterFailure.length > 0
+                        ? "Executing"
+                        : event.retryable
+                          ? "Retry Available"
+                          : "Failed",
+                activeTool: remainingJobIdsAfterFailure.length > 0 ? current.activeTool : undefined,
+                activeJobId: remainingJobIdsAfterFailure.at(-1),
+                activeJobIds: remainingJobIdsAfterFailure,
+                activeToolCalls: remainingToolCallsAfterFailure,
                 lastToolResult: event.result,
                 blockedReason: event.result.stderr || event.result.errorCode,
             };
@@ -762,6 +872,8 @@ export function reduceAgentRuntimeSnapshot(
                 phaseLabel: "Cancelled",
                 activeTool: undefined,
                 activeJobId: undefined,
+                activeJobIds: [],
+                activeToolCalls: {},
                 blockedReason: event.reason ?? "Execution stopped",
             };
         case "HEALTH_UNAVAILABLE":
@@ -831,6 +943,48 @@ export function isToolDetailPart(
     part: WaveUIMessagePart
 ): part is WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" } {
     return part.type === "data-tooluse" || part.type === "data-toolprogress";
+}
+
+export function coalesceToolDetailParts(
+    parts: Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }>
+): Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }> {
+    const coalesced: Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }> = [];
+    const indexByKey = new Map<string, number>();
+
+    for (const part of parts) {
+        const key = `${part.type}:${part.data.toolcallid}`;
+        const existingIndex = indexByKey.get(key);
+        if (existingIndex == null) {
+            indexByKey.set(key, coalesced.length);
+            coalesced.push(part);
+            continue;
+        }
+        coalesced[existingIndex] = part;
+    }
+
+    return coalesced;
+}
+
+export function coalesceMessageParts(parts: WaveUIMessagePart[]): WaveUIMessagePart[] {
+    const result: WaveUIMessagePart[] = [];
+    const toolDetailIndexByKey = new Map<string, number>();
+
+    for (const part of parts) {
+        if (isToolDetailPart(part)) {
+            const key = `${part.type}:${part.data.toolcallid}`;
+            const existingIndex = toolDetailIndexByKey.get(key);
+            if (existingIndex != null) {
+                result[existingIndex] = part;
+            } else {
+                toolDetailIndexByKey.set(key, result.length);
+                result.push(part);
+            }
+        } else {
+            result.push(part);
+        }
+    }
+
+    return result;
 }
 
 export function isTextPart(part: WaveUIMessagePart): part is WaveUIMessagePart & { type: "text"; text: string } {

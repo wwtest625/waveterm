@@ -13,6 +13,7 @@ import {
     type AgentRuntimeSnapshot,
     type AgentRuntimeState,
     type AgentTaskState,
+    coalesceToolDetailParts,
     type WaveUIMessage,
     type WaveUIMessagePart,
     AI_CODE_FONT_FAMILY,
@@ -41,7 +42,7 @@ type TaskTurn = {
     isStreaming: boolean;
 };
 
-type TaskChainStepStatus = "completed" | "running" | "failed" | "pending";
+type TaskChainStepStatus = "completed" | "running" | "failed" | "cancelled" | "pending";
 
 type TaskChainStep = {
     id: string;
@@ -217,7 +218,7 @@ export function getThinkingDisplayState(outputText: string, maxLines = THINKING_
 function getToolParts(
     messages: WaveUIMessage[]
 ): Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }> {
-    return messages.flatMap((message) => (message.parts ?? []).filter(isToolDetailPart));
+    return coalesceToolDetailParts(messages.flatMap((message) => (message.parts ?? []).filter(isToolDetailPart)));
 }
 
 function getVisibleToolParts(
@@ -334,6 +335,18 @@ function getMeaningfulOutputPreview(text?: string, maxLines = 5): string | undef
     return `${preview}\n...`;
 }
 
+function isSyntheticProcessExitMessage(text?: string): boolean {
+    const normalized = text?.trim();
+    if (!normalized) {
+        return false;
+    }
+    return /^process exited with status \d+$/i.test(normalized);
+}
+
+function isApprovalStillPending(approval?: string, isStreaming = false): boolean {
+    return approval === "needs-approval" && isStreaming;
+}
+
 function isPollingCommandPlaceholder(text?: string): boolean {
     const normalized = text?.trim();
     if (!normalized) {
@@ -427,6 +440,9 @@ function deriveToolUseStatus(
     if (part.data.status === "error" || approval === "user-denied" || approval === "timeout") {
         return "failed";
     }
+    if (part.data.status === "cancelled") {
+        return "cancelled";
+    }
     if (part.data.status === "running") {
         return "running";
     }
@@ -436,6 +452,12 @@ function deriveToolUseStatus(
     if (approval === "needs-approval") {
         return "pending";
     }
+    if (part.data.partial === true) {
+        return "running";
+    }
+    if (part.data.partial === false) {
+        return "completed";
+    }
     return isStreaming ? "running" : "pending";
 }
 
@@ -443,6 +465,7 @@ export function buildTaskChainSteps(
     parts: Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }>,
     isStreaming: boolean
 ): TaskChainStep[] {
+    parts = coalesceToolDetailParts(parts);
     const steps: TaskChainStep[] = [];
     const byToolCallId = new Map<string, TaskChainStep>();
 
@@ -465,7 +488,8 @@ export function buildTaskChainSteps(
     for (const part of parts) {
         if (part.type === "data-tooluse") {
             const toolUseStatus = deriveToolUseStatus(part, isStreaming);
-            const commandOutput = part.data.outputtext?.trim() || part.data.errormessage?.trim();
+            const rawCommandOutput = part.data.outputtext?.trim() || part.data.errormessage?.trim();
+            const commandOutput = isSyntheticProcessExitMessage(rawCommandOutput) ? undefined : rawCommandOutput;
             const step: TaskChainStep = {
                 id: part.data.toolcallid,
                 title: getToolStepTitle(part.data.toolname),
@@ -682,6 +706,8 @@ function getTaskStepStateLabel(status: TaskChainStepStatus): string {
             return "进行中";
         case "failed":
             return "失败";
+        case "cancelled":
+            return "已取消";
         default:
             return "等待中";
     }
@@ -716,9 +742,10 @@ function getTaskChainToneClass(state?: AgentRuntimeSnapshot["state"] | TaskChain
         case "failed_retryable":
         case "failed_fatal":
         case "unavailable":
-        case "cancelled":
         case "failed":
             return "border-red-500/20 bg-red-500/[0.04] text-red-100";
+        case "cancelled":
+            return "border-zinc-500/20 bg-zinc-500/[0.04] text-zinc-300";
         case "awaiting_approval":
         case "interacting":
         case "retrying":
@@ -800,6 +827,7 @@ const TaskChainStepGroup = memo(
 
         return (
             <div
+                data-toolcallid={step.id}
                 className={cn(
                     "rounded-lg border px-2.5 py-2 transition-all duration-200",
                     "border-white/[0.05] bg-black/[0.08] hover:bg-white/[0.055]",
@@ -1072,18 +1100,19 @@ const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRunti
 TaskChain.displayName = "TaskChain";
 
 export function getPendingApprovalToolUses(
-    messages: WaveUIMessage[]
+    messages: WaveUIMessage[],
+    isStreaming = false
 ): Array<WaveUIMessagePart & { type: "data-tooluse" }> {
     return getVisibleToolParts(messages).filter(
         (part): part is WaveUIMessagePart & { type: "data-tooluse" } =>
-            part.type === "data-tooluse" && part.data.approval === "needs-approval"
+            part.type === "data-tooluse" && isApprovalStillPending(part.data.approval, isStreaming)
     );
 }
 
 const TaskChainApprovalActions = memo(({ turn }: { turn: TaskTurn }) => {
     const model = WaveAIModel.getInstance();
     const approveButtonRef = useRef<HTMLButtonElement | null>(null);
-    const pendingApprovals = getPendingApprovalToolUses(turn.assistantMessages);
+    const pendingApprovals = getPendingApprovalToolUses(turn.assistantMessages, turn.isStreaming);
     const pendingApprovalKey = pendingApprovals.map((part) => part.data.toolcallid).join(":");
 
     useEffect(() => {
@@ -1312,7 +1341,10 @@ const StreamingTextBlock = memo(({ text }: { text: string }) => {
     return (
         <div className="relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
             <div className="absolute inset-y-0 left-0 w-0.5 bg-emerald-400/50" />
-            <div className="whitespace-pre-wrap break-words pl-2 text-[13px] leading-6 text-zinc-100">{text}</div>
+            <div className="whitespace-pre-wrap break-words pl-2 text-[13px] leading-6 text-zinc-100">
+                {text}
+                <span className="inline-block w-[3px] h-[14px] ml-0.5 bg-emerald-400 animate-pulse rounded-sm align-text-bottom" />
+            </div>
         </div>
     );
 });
@@ -1454,12 +1486,26 @@ const ThinkingTraceCard = memo(({ reasoningText, isStreaming }: { reasoningText:
     const [expanded, setExpanded] = useState(false);
     const displayState = getThinkingDisplayState(reasoningText);
     const displayedText = expanded ? displayState.expandedText : displayState.collapsedText;
+    const startedAtRef = useRef<number | null>(null);
+    const [durationMs, setDurationMs] = useState<number | null>(null);
+
+    if (startedAtRef.current == null && reasoningText) {
+        startedAtRef.current = performance.now();
+    }
 
     useEffect(() => {
         if (isStreaming) {
             setExpanded(false);
+        } else if (startedAtRef.current != null && durationMs == null) {
+            setDurationMs(Math.round(performance.now() - startedAtRef.current));
         }
-    }, [isStreaming, reasoningText]);
+    }, [isStreaming, reasoningText, durationMs]);
+
+    const durationLabel = useMemo(() => {
+        if (durationMs == null) return null;
+        if (durationMs < 1000) return `${durationMs}ms`;
+        return `${(durationMs / 1000).toFixed(1)}s`;
+    }, [durationMs]);
 
     if (!reasoningText) {
         return null;
@@ -1471,7 +1517,15 @@ const ThinkingTraceCard = memo(({ reasoningText, isStreaming }: { reasoningText:
                 <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.12em] text-emerald-200/70">
                     <i className="fa-solid fa-brain" />
                     <span>深度思考</span>
-                    {isStreaming && <span className="text-emerald-200/50">处理中</span>}
+                    {isStreaming && (
+                        <span className="flex items-center gap-1">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <span className="bg-gradient-to-r from-emerald-200/70 via-emerald-100 to-emerald-200/70 bg-[length:200%_100%] bg-clip-text text-transparent animate-[shimmer-sweep_2s_ease-in-out_infinite]">处理中</span>
+                        </span>
+                    )}
+                    {!isStreaming && durationLabel && (
+                        <span className="text-emerald-200/50">{durationLabel}</span>
+                    )}
                 </div>
                 {displayState.shouldCollapse && (
                     <button
@@ -1597,7 +1651,12 @@ const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fa
                     </div>
                 )}
 
-                {turn.isStreaming && !assistantText && <div className="mt-3 text-sm text-zinc-400">处理中...</div>}
+                {turn.isStreaming && !assistantText && (
+                    <div className="mt-3 flex items-center gap-2 text-sm text-zinc-400">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-400 bg-[length:200%_100%] bg-clip-text text-transparent animate-[shimmer-sweep_2s_ease-in-out_infinite]">处理中</span>
+                    </div>
+                )}
 
                 {showEmptyState && <div className="mt-3 text-sm text-zinc-400">No visible result returned.</div>}
 
@@ -1630,7 +1689,7 @@ const TaskTurnCard = memo(
             return null;
         }
         return (
-            <div className="space-y-4">
+            <div className="space-y-4" data-turnid={turn.id}>
                 <UserPromptCard message={turn.userMessage} />
                 {shouldShowTurnTaskChain(turn) && <TaskChain turn={turn} runtime={isLatestTurn ? runtime : null} />}
                 <AssistantOutputCard turn={turn} fallbackOutput={fallbackOutput} />
@@ -1651,6 +1710,9 @@ export function resolveTurnFallbackOutput(turn: TaskTurn, isLastTurn: boolean, r
     if (turn.isStreaming) {
         return "";
     }
+    if (shouldShowTurnTaskChain(turn)) {
+        return "";
+    }
     const turnOutput = getLatestRawToolOutput(turn.assistantMessages);
     if (turnOutput) {
         return turnOutput;
@@ -1658,7 +1720,7 @@ export function resolveTurnFallbackOutput(turn: TaskTurn, isLastTurn: boolean, r
     if (!isLastTurn || turn.assistantMessages.length === 0) {
         return "";
     }
-    return runtimeLastToolStdout;
+    return isSyntheticProcessExitMessage(runtimeLastToolStdout) ? "" : runtimeLastToolStdout;
 }
 
 export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPanelMessagesProps) => {
@@ -1675,9 +1737,17 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
     const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
     const turns = useBufferedTaskTurns(messages, status);
     const followLatestOutput = shouldFollowLatestOutput(status, runtimeState, runtimeActiveJobId);
-    const latestApprovalTurn = [...turns]
-        .reverse()
-        .find((turn) => getPendingApprovalToolUses(turn.assistantMessages).length > 0);
+    const latestTurn = turns.at(-1);
+    const latestTurnCanApprove = Boolean(latestTurn && (latestTurn.isStreaming || runtimeState === "awaiting_approval"));
+    const latestApprovalTurn =
+        latestTurnCanApprove &&
+        latestTurn != null &&
+        getPendingApprovalToolUses(
+            latestTurn.assistantMessages,
+            latestTurn.isStreaming || runtimeState === "awaiting_approval"
+        ).length > 0
+            ? latestTurn
+            : null;
 
     const checkIfAtBottom = () => {
         const container = messagesContainerRef.current;

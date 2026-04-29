@@ -8,6 +8,7 @@ import {
     AgentRuntimeSnapshotPatch,
     AgentTaskState,
     AskUserData,
+    ChatBackgroundJobDetail,
     CommandInteractionState,
     ToolCallEnvelope,
     ToolResultEnvelope,
@@ -102,6 +103,7 @@ export class WaveAIModel {
     chatId!: jotai.PrimitiveAtom<string>;
     sessionsAtom: jotai.PrimitiveAtom<WaveChatSessionMeta[]> = jotai.atom([]);
     hiddenSessionIdsAtom: jotai.PrimitiveAtom<string[]> = jotai.atom([]);
+    backgroundJobsAtom: jotai.PrimitiveAtom<ChatBackgroundJobDetail[]> = jotai.atom([]);
     commandInteractionAtom: jotai.PrimitiveAtom<CommandInteractionState | null> = jotai.atom(
         null
     ) as jotai.PrimitiveAtom<CommandInteractionState | null>;
@@ -247,6 +249,21 @@ export class WaveAIModel {
             }
             return (left.title ?? "").localeCompare(right.title ?? "");
         });
+    }
+
+    private sortBackgroundJobs(jobs: ChatBackgroundJobDetail[]): ChatBackgroundJobDetail[] {
+        return [...jobs].sort((left, right) => {
+            const leftCreated = left.createdts ?? 0;
+            const rightCreated = right.createdts ?? 0;
+            if (leftCreated !== rightCreated) {
+                return rightCreated - leftCreated;
+            }
+            return (right.jobid ?? "").localeCompare(left.jobid ?? "");
+        });
+    }
+
+    private setBackgroundJobs(jobs: ChatBackgroundJobDetail[] | null | undefined): void {
+        globalStore.set(this.backgroundJobsAtom, this.sortBackgroundJobs(jobs ?? []));
     }
 
     private summarizeSessionText(text: string, limit: number): string {
@@ -574,6 +591,7 @@ export class WaveAIModel {
         this.clearFiles();
         this.clearError();
         globalStore.set(this.isChatEmptyAtom, true);
+        globalStore.set(this.backgroundJobsAtom, []);
         globalStore.set(this.agentRuntimeAtom, getDefaultAgentRuntimeSnapshot());
         globalStore.set(this.taskStateAtom, null);
         globalStore.set(this.focusChainAtom, null);
@@ -639,7 +657,8 @@ export class WaveAIModel {
         if (
             current.activeJobId !== next.activeJobId ||
             current.activeTool !== next.activeTool ||
-            current.blockedReason !== next.blockedReason
+            current.blockedReason !== next.blockedReason ||
+            JSON.stringify(current.activeJobIds ?? []) !== JSON.stringify(next.activeJobIds ?? [])
         ) {
             return false;
         }
@@ -728,6 +747,7 @@ export class WaveAIModel {
         const messages: UIMessage[] = chatData?.messages ?? [];
         if (chatData?.sessionmeta) {
             this.upsertLocalSession(chatData.sessionmeta);
+            this.setBackgroundJobs((chatData.sessionmeta as WaveChatSessionMeta).backgroundjobs ?? []);
             const taskState = ((chatData.sessionmeta as any).taskstate as AgentTaskState | undefined) ?? null;
             globalStore.set(this.taskStateAtom, taskState);
             if (taskState?.focuschain) {
@@ -746,6 +766,7 @@ export class WaveAIModel {
                 globalStore.set(this.securityBlockedAtom, false);
             }
         } else {
+            this.setBackgroundJobs([]);
             globalStore.set(this.taskStateAtom, null);
             globalStore.set(this.focusChainAtom, null);
             globalStore.set(this.contextUsageAtom, 0);
@@ -753,6 +774,90 @@ export class WaveAIModel {
         }
         globalStore.set(this.isChatEmptyAtom, messages.length === 0);
         return messages as WaveUIMessage[];
+    }
+
+    async refreshBackgroundJobs(chatIdValue?: string): Promise<ChatBackgroundJobDetail[]> {
+        const chatId = chatIdValue ?? globalStore.get(this.chatId);
+        if (!chatId) {
+            this.setBackgroundJobs([]);
+            return [];
+        }
+        const jobs = await RpcApi.ListWaveAIBackgroundJobsCommand(TabRpcClient, { chatid: chatId }, null);
+        this.setBackgroundJobs(jobs ?? []);
+        const session = globalStore.get(this.sessionsAtom).find((item) => item.chatid === chatId);
+        if (session) {
+            this.upsertLocalSession({
+                ...session,
+                backgroundjobs: jobs ?? [],
+            });
+        }
+        return jobs ?? [];
+    }
+
+    async cancelBackgroundJobs(jobIds: string[]): Promise<void> {
+        const chatId = globalStore.get(this.chatId);
+        const normalizedJobIds = [...new Set(jobIds.filter(Boolean))];
+        if (!chatId || normalizedJobIds.length === 0) {
+            return;
+        }
+        const jobs = await RpcApi.CancelWaveAIBackgroundJobsCommand(
+            TabRpcClient,
+            {
+                chatid: chatId,
+                jobids: normalizedJobIds,
+            },
+            null
+        );
+        this.setBackgroundJobs(jobs ?? []);
+        const session = globalStore.get(this.sessionsAtom).find((item) => item.chatid === chatId);
+        if (session) {
+            this.upsertLocalSession({
+                ...session,
+                backgroundjobs: jobs ?? [],
+            });
+        }
+    }
+
+    async clearFinishedBackgroundJobs(): Promise<void> {
+        const chatId = globalStore.get(this.chatId);
+        if (!chatId) {
+            return;
+        }
+        const jobs = await RpcApi.ClearWaveAIBackgroundJobsCommand(TabRpcClient, { chatid: chatId }, null);
+        this.setBackgroundJobs(jobs ?? []);
+        const session = globalStore.get(this.sessionsAtom).find((item) => item.chatid === chatId);
+        if (session) {
+            this.upsertLocalSession({
+                ...session,
+                backgroundjobs: jobs ?? [],
+            });
+        }
+    }
+
+    async cancelAllRunningBackgroundJobs(): Promise<void> {
+        const jobs = globalStore.get(this.backgroundJobsAtom);
+        const runningJobIds = jobs
+            .filter((job) => job.status === "running")
+            .map((job) => job.jobid)
+            .filter(Boolean);
+        await this.cancelBackgroundJobs(runningJobIds);
+    }
+
+    scrollToBackgroundJob(job: ChatBackgroundJobDetail): void {
+        const toolCallId = job.toolcallid?.trim();
+        const turnId = job.turnid?.trim();
+        const selectors = [
+            toolCallId ? `[data-toolcallid="${CSS.escape(toolCallId)}"]` : "",
+            turnId ? `[data-turnid="${CSS.escape(turnId)}"]` : "",
+        ].filter(Boolean);
+        for (const selector of selectors) {
+            const element = document.querySelector(selector);
+            if (element instanceof HTMLElement) {
+                element.scrollIntoView({ behavior: "smooth", block: "center" });
+                return;
+            }
+        }
+        this.scrollToBottom();
     }
 
     async cancelGeneration() {
@@ -774,12 +879,18 @@ export class WaveAIModel {
 
     async cancelExecution() {
         const runtime = globalStore.get(this.agentRuntimeAtom);
-        const activeJobId = runtime.activeJobId || runtime.lastToolResult?.jobId;
-        if (activeJobId) {
+        const activeJobIds = Array.from(
+            new Set(
+                [...(runtime.activeJobIds ?? []), runtime.activeJobId, runtime.lastToolResult?.jobId].filter(
+                    (jobId): jobId is string => Boolean(jobId)
+                )
+            )
+        );
+        for (const jobId of activeJobIds) {
             try {
-                await RpcApi.AgentCancelCommand(TabRpcClient, activeJobId);
+                await RpcApi.AgentCancelCommand(TabRpcClient, jobId);
             } catch (error) {
-                console.error("Failed to stop execution job:", error);
+                console.error(`Failed to stop execution job ${jobId}:`, error);
             }
         }
         this.clearInteractionResult();
@@ -994,10 +1105,11 @@ export class WaveAIModel {
         let outputOffset = 0;
         let combinedOutput = "";
         let pollDelayMs = 250;
-        const absoluteDeadline = Date.now() + 5 * 60 * 1000;
+        const absoluteDeadline = Date.now() + 30 * 60 * 1000;
+        const inactivityTimeoutMs = 3 * 60 * 1000;
         let lastActivityAt = Date.now();
         let lastStatus = "running";
-        while (Date.now() < absoluteDeadline && Date.now() - lastActivityAt <= 30000) {
+        while (Date.now() < absoluteDeadline && Date.now() - lastActivityAt <= inactivityTimeoutMs) {
             commandResult = await RpcApi.AgentGetCommandResultCommand(
                 TabRpcClient,
                 {
@@ -1103,17 +1215,20 @@ export class WaveAIModel {
         );
         this.clearInteractionResult();
         const runtime = globalStore.get(this.agentRuntimeAtom);
-        if (!runtime.lastToolCall) {
+        const interactionToolCall =
+            Object.values(runtime.activeToolCalls ?? {}).find((tool) => tool.jobId === interaction.jobId) ??
+            runtime.lastToolCall;
+        if (!interactionToolCall) {
             return;
         }
         this.dispatchAgentEvent({
             type: "TOOL_CALL_STARTED",
             tool: {
-                ...runtime.lastToolCall,
+                ...interactionToolCall,
                 jobId: interaction.jobId,
             },
         });
-        const polled = await this.pollCommandJob(runtime.lastToolCall, interaction.jobId, Date.now());
+        const polled = await this.pollCommandJob(interactionToolCall, interaction.jobId, Date.now());
         if (polled.requiresInteraction || !polled.result) {
             return;
         }

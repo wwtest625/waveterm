@@ -25,6 +25,12 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     const [input, setInput] = useAtom(model.inputAtom);
     const runtime = useAtomValue(model.agentRuntimeAtom);
     const isThinking = runtime.state === "submitting" || runtime.state === "planning";
+    const canStopSession =
+        isThinking ||
+        status === "streaming" ||
+        runtime.state === "executing" ||
+        runtime.state === "awaiting_approval" ||
+        runtime.state === "interacting";
     const isFocused = useAtomValue(model.isWaveAIFocusedAtom);
     const isChatEmpty = useAtomValue(model.isChatEmptyAtom);
     const droppedFiles = useAtomValue(model.droppedFiles);
@@ -187,15 +193,9 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                     <div className="shrink-0">
                         {queuedSubmissions.length > 0
                             ? `Queued ${queuedSubmissions.length}`
-                            : isThinking
-                              ? "Thinking"
-                              : runtime.state === "executing" ||
-                                  runtime.state === "awaiting_approval" ||
-                                  runtime.state === "interacting"
+                            : canStopSession
                                 ? "Executing"
-                                : status === "streaming"
-                                  ? "Responding"
-                                  : "Ready"}
+                                : "Ready"}
                     </div>
                 </div>
                 <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-black/15">
@@ -238,43 +238,23 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                     <i className="fa fa-rotate-right text-xs"></i>
                                 </button>
                             </Tooltip>
-                        ) : runtime.state === "executing" ||
-                          runtime.state === "awaiting_approval" ||
-                          runtime.state === "interacting" ? (
-                            <Tooltip content="Stop execution" placement="top">
+                        ) : canStopSession ? (
+                            <Tooltip content="Stop" placement="top">
                                 <button
                                     type="button"
-                                    onClick={() => void model.cancelExecution()}
+                                    onClick={() =>
+                                        void (runtime.state === "executing" ||
+                                        runtime.state === "awaiting_approval" ||
+                                        runtime.state === "interacting"
+                                            ? model.cancelExecution()
+                                            : model.cancelGeneration())
+                                    }
                                     className={cn(
                                         "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition-colors",
                                         "bg-red-300/[0.06] text-red-300/70 hover:bg-red-300/10 hover:text-red-200"
                                     )}
                                 >
                                     <i className="fa fa-stop text-xs"></i>
-                                </button>
-                            </Tooltip>
-                        ) : isThinking ? (
-                            <Tooltip content="Thinking" placement="top">
-                                <div
-                                    className={cn(
-                                        "flex h-8 w-8 items-center justify-center rounded-lg",
-                                        "border border-lime-300/10 bg-lime-300/[0.05] text-lime-200/70"
-                                    )}
-                                >
-                                    <i className="fa fa-spinner fa-spin text-xs"></i>
-                                </div>
-                            </Tooltip>
-                        ) : status === "streaming" ? (
-                            <Tooltip content="Stop Response" placement="top">
-                                <button
-                                    type="button"
-                                    onClick={() => void model.cancelGeneration()}
-                                    className={cn(
-                                        "flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition-colors",
-                                        "bg-emerald-300/[0.06] text-emerald-300/70 hover:bg-emerald-300/10 hover:text-emerald-200"
-                                    )}
-                                >
-                                    <i className="fa fa-square text-xs"></i>
                                 </button>
                             </Tooltip>
                         ) : (

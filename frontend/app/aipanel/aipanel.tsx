@@ -26,8 +26,10 @@ import { shouldHideProgressStatusLines } from "./aitooluse";
 import {
     AgentTaskState,
     AskUserData,
+    ChatBackgroundJobDetail,
     WaveChatSessionMeta,
     WaveUIMessage,
+    coalesceMessageParts,
     getLatestAskPart,
     getLatestTaskStatePart,
     getLatestVisibleToolProgressPart,
@@ -803,6 +805,192 @@ const CommandInteractionInput = memo(() => {
 
 CommandInteractionInput.displayName = "CommandInteractionInput";
 
+function isTerminalBackgroundJobStatus(status: string | undefined): boolean {
+    return status === "completed" || status === "error" || status === "gone" || status === "cancelled";
+}
+
+function formatBackgroundJobStatusLabel(job: ChatBackgroundJobDetail): string {
+    if (job.approvalstate === "needs-approval") {
+        return "Awaiting Approval";
+    }
+    if (job.interactionstate === "awaiting-input") {
+        return "Awaiting Input";
+    }
+    if (job.interactionstate === "tui-detected") {
+        return "Interactive UI Detected";
+    }
+    switch (job.status) {
+        case "running":
+            return "Running";
+        case "completed":
+            return "Completed";
+        case "error":
+            return "Failed";
+        case "gone":
+            return "Gone";
+        case "cancelled":
+            return "Cancelled";
+        default:
+            return "Unknown";
+    }
+}
+
+function formatBackgroundJobDuration(durationMs: number | undefined): string {
+    if (!durationMs || durationMs <= 0) {
+        return "";
+    }
+    if (durationMs < 1000) {
+        return `${durationMs}ms`;
+    }
+    if (durationMs < 60_000) {
+        return `${(durationMs / 1000).toFixed(durationMs < 10_000 ? 1 : 0)}s`;
+    }
+    const totalSeconds = Math.floor(durationMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}m ${seconds}s`;
+}
+
+const BackgroundJobsPanel = memo(() => {
+    const model = WaveAIModel.getInstance();
+    const backgroundJobs = jotai.useAtomValue(model.backgroundJobsAtom);
+    const [expandedJobIds, setExpandedJobIds] = useState<Record<string, boolean>>({});
+
+    useEffect(() => {
+        setExpandedJobIds((prev) => {
+            const next: Record<string, boolean> = {};
+            for (const job of backgroundJobs) {
+                if (prev[job.jobid]) {
+                    next[job.jobid] = true;
+                }
+            }
+            return next;
+        });
+    }, [backgroundJobs]);
+
+    if (backgroundJobs.length === 0) {
+        return null;
+    }
+
+    const runningCount = backgroundJobs.filter((job) => !isTerminalBackgroundJobStatus(job.status)).length;
+    const finishedCount = backgroundJobs.length - runningCount;
+
+    return (
+        <div className="mx-3 mt-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <div className="text-sm font-medium text-zinc-100">Background Jobs</div>
+                    <div className="mt-1 text-[11px] text-zinc-400">
+                        {backgroundJobs.length} job{backgroundJobs.length !== 1 ? "s" : ""} in this session
+                        {runningCount > 0 ? `, ${runningCount} running` : ""}
+                        {finishedCount > 0 ? `, ${finishedCount} finished` : ""}
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        disabled={runningCount === 0}
+                        onClick={() => void model.cancelAllRunningBackgroundJobs()}
+                        className={cn(
+                            "rounded-lg px-2.5 py-1 text-[11px]",
+                            runningCount > 0
+                                ? "border border-red-300/15 bg-red-300/[0.06] text-red-100 hover:bg-red-300/[0.1]"
+                                : "border border-white/[0.05] bg-white/[0.03] text-zinc-500"
+                        )}
+                    >
+                        Cancel All Running
+                    </button>
+                    <button
+                        type="button"
+                        disabled={finishedCount === 0}
+                        onClick={() => void model.clearFinishedBackgroundJobs()}
+                        className={cn(
+                            "rounded-lg px-2.5 py-1 text-[11px]",
+                            finishedCount > 0
+                                ? "border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.08]"
+                                : "border border-white/[0.05] bg-white/[0.03] text-zinc-500"
+                        )}
+                    >
+                        Clear Finished
+                    </button>
+                </div>
+            </div>
+            <div className="mt-3 space-y-2">
+                {backgroundJobs.map((job) => {
+                    const expanded = expandedJobIds[job.jobid] === true;
+                    const preview = job.outputpreview?.trim() ?? "";
+                    return (
+                        <div
+                            key={job.jobid}
+                            className="rounded-xl border border-white/[0.05] bg-black/15 px-3 py-2.5"
+                        >
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="truncate text-[13px] font-medium text-zinc-100">
+                                        {job.commandsummary || job.jobid}
+                                    </div>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
+                                        <span>{formatBackgroundJobStatusLabel(job)}</span>
+                                        {job.targetlabel && <span>{job.targetlabel}</span>}
+                                        {job.durationms ? <span>{formatBackgroundJobDuration(job.durationms)}</span> : null}
+                                        {job.exitcode != null && (
+                                            <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                                                Exit {job.exitcode}
+                                            </span>
+                                        )}
+                                    </div>
+                                    {job.error && (
+                                        <div className="mt-1 text-[11px] text-red-200/70">{job.error}</div>
+                                    )}
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2">
+                                    {preview && (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setExpandedJobIds((prev) => ({
+                                                    ...prev,
+                                                    [job.jobid]: !prev[job.jobid],
+                                                }))
+                                            }
+                                            className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/[0.06]"
+                                        >
+                                            {expanded ? "Hide Output" : "Show Output"}
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => model.scrollToBackgroundJob(job)}
+                                        className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/[0.06]"
+                                    >
+                                        Jump
+                                    </button>
+                                    {!isTerminalBackgroundJobStatus(job.status) && (
+                                        <button
+                                            type="button"
+                                            onClick={() => void model.cancelBackgroundJobs([job.jobid])}
+                                            className="rounded-lg border border-red-300/15 bg-red-300/[0.06] px-2 py-1 text-[11px] text-red-100 hover:bg-red-300/[0.1]"
+                                        >
+                                            Cancel
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            {expanded && preview && (
+                                <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-black/30 px-3 py-2 text-[12px] text-zinc-200">
+                                    {preview}
+                                </pre>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+});
+
+BackgroundJobsPanel.displayName = "BackgroundJobsPanel";
+
 const STREAM_UPDATE_THROTTLE_MS = 34;
 
 const AIPanelComponentInner = memo(() => {
@@ -820,6 +1008,8 @@ const AIPanelComponentInner = memo(() => {
     const agentRuntimeSnapshot = jotai.useAtomValue(model.agentRuntimeAtom);
     const taskState = jotai.useAtomValue(model.taskStateAtom);
     const commandInteraction = jotai.useAtomValue(model.commandInteractionAtom);
+    const backgroundJobs = jotai.useAtomValue(model.backgroundJobsAtom);
+    const chatIdValue = jotai.useAtomValue(model.chatId);
     const agentMode = jotai.useAtomValue(model.agentModeAtom);
     const tabModel = maybeUseTabModel();
     const defaultMode = jotai.useAtomValue(getSettingsKeyAtom("waveai:defaultmode")) ?? "waveai@balanced";
@@ -880,16 +1070,21 @@ const AIPanelComponentInner = memo(() => {
 
     model.registerUseChatData(sendMessage, setMessages, status, stop);
 
+    const coalescedMessages = useMemo(
+        () => messages.map((msg) => ({ ...msg, parts: coalesceMessageParts(msg.parts) })),
+        [messages]
+    );
+
     const derivedAgentStatusSnapshot = deriveAgentRuntimeStatus({
         provider: "Wave AI",
         mode: agentMode,
         chatStatus: status,
-        messages,
+        messages: coalescedMessages,
         errorMessage,
     });
 
     useEffect(() => {
-        if (commandInteraction || agentRuntimeSnapshot.activeJobId) {
+        if (commandInteraction || (agentRuntimeSnapshot.activeJobIds?.length ?? 0) > 0) {
             return;
         }
         if (
@@ -900,7 +1095,7 @@ const AIPanelComponentInner = memo(() => {
         }
         model.mergeAgentRuntimeSnapshot(derivedAgentStatusSnapshot);
     }, [
-        agentRuntimeSnapshot.activeJobId,
+        agentRuntimeSnapshot.activeJobIds,
         agentRuntimeSnapshot.state,
         commandInteraction,
         derivedAgentStatusSnapshot,
@@ -916,13 +1111,43 @@ const AIPanelComponentInner = memo(() => {
     }, [status, model]);
 
     useEffect(() => {
+        if (!chatIdValue || !isPanelVisible) {
+            return;
+        }
+        void model.refreshBackgroundJobs(chatIdValue);
+    }, [chatIdValue, isPanelVisible, model]);
+
+    useEffect(() => {
+        if (!chatIdValue || !isPanelVisible || backgroundJobs.length === 0) {
+            return;
+        }
+        const timer = window.setInterval(() => {
+            void model.refreshBackgroundJobs(chatIdValue);
+        }, backgroundJobs.some((job) => !isTerminalBackgroundJobStatus(job.status)) ? 1500 : 4000);
+        return () => window.clearInterval(timer);
+    }, [backgroundJobs, chatIdValue, isPanelVisible, model]);
+
+    useEffect(() => {
         const taskId = globalStore.get(model.chatId) || "waveai";
-        const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
-        const latestTaskStateMessage = [...messages]
+        const lastAssistantMessage = [...coalescedMessages].reverse().find((message) => message.role === "assistant");
+        const latestTaskStateMessage = [...coalescedMessages]
             .reverse()
             .find((message) => message.role === "assistant" && getLatestTaskStatePart(message));
         const latestTaskState = getLatestTaskStatePart(latestTaskStateMessage);
-        const latestToolUse = getLatestVisibleToolUsePart(lastAssistantMessage);
+        const visibleToolUses =
+            [...(lastAssistantMessage?.parts ?? [])]
+                .filter(
+                    (part): part is WaveUIMessage["parts"][number] & { type: "data-tooluse" } =>
+                        part.type === "data-tooluse" && !isInternalAssistantToolName(part.data?.toolname)
+                ) ?? [];
+        const latestToolUse = visibleToolUses.at(-1) ?? getLatestVisibleToolUsePart(lastAssistantMessage);
+        const latestCompletedToolUse = [...visibleToolUses]
+            .reverse()
+            .find((part) => part.data.status !== "pending" && part.data.partial !== true);
+        const runningToolUses = visibleToolUses.filter(
+            (part) => (part.data.status === "running" || part.data.partial === true) && Boolean(part.data.jobid)
+        );
+        const pendingApprovalToolUse = visibleToolUses.find((part) => part.data.approval === "needs-approval");
         const latestToolProgress = getLatestVisibleToolProgressPart(lastAssistantMessage);
         if (latestTaskState?.data) {
             const taskStateData = latestTaskState.data as AgentTaskState;
@@ -944,22 +1169,26 @@ const AIPanelComponentInner = memo(() => {
             }
         }
         const currentInteraction = globalStore.get(model.commandInteractionAtom);
-        if (
-            latestToolUse?.data?.toolname === "wave_run_command" &&
-            latestToolUse.data.status === "running" &&
-            latestToolUse.data.jobid &&
-            (latestToolUse.data.awaitinginput || latestToolUse.data.tuidetected)
-        ) {
+        const latestInteractiveToolUse = [...visibleToolUses]
+            .reverse()
+            .find(
+                (part) =>
+                    part.data.toolname === "wave_run_command" &&
+                    part.data.status === "running" &&
+                    part.data.jobid &&
+                    (part.data.awaitinginput || part.data.tuidetected)
+            );
+        if (latestInteractiveToolUse?.data?.jobid) {
             // The backend detector is the single source of truth for interaction state.
             // The frontend only maps structured RPC fields into UI state.
             const nextInteraction = {
-                jobId: latestToolUse.data.jobid,
-                awaitingInput: Boolean(latestToolUse.data.awaitinginput),
-                promptHint: latestToolUse.data.prompthint || "Command is waiting for terminal input",
-                inputOptions: latestToolUse.data.inputoptions,
-                tuiDetected: latestToolUse.data.tuidetected,
-                tuiSuppressed: latestToolUse.data.tuisuppressed,
-                outputPreview: latestToolUse.data.outputtext,
+                jobId: latestInteractiveToolUse.data.jobid,
+                awaitingInput: Boolean(latestInteractiveToolUse.data.awaitinginput),
+                promptHint: latestInteractiveToolUse.data.prompthint || "Command is waiting for terminal input",
+                inputOptions: latestInteractiveToolUse.data.inputoptions,
+                tuiDetected: latestInteractiveToolUse.data.tuidetected,
+                tuiSuppressed: latestInteractiveToolUse.data.tuisuppressed,
+                outputPreview: latestInteractiveToolUse.data.outputtext,
             };
             const changed =
                 currentInteraction?.jobId !== nextInteraction.jobId ||
@@ -979,10 +1208,13 @@ const AIPanelComponentInner = memo(() => {
             }
         } else if (
             currentInteraction?.jobId &&
-            latestToolUse?.data?.toolname === "wave_run_command" &&
-            latestToolUse.data.jobid === currentInteraction.jobId &&
-            (latestToolUse.data.status !== "running" ||
-                (!latestToolUse.data.awaitinginput && !latestToolUse.data.tuidetected))
+            !visibleToolUses.some(
+                (part) =>
+                    part.data.toolname === "wave_run_command" &&
+                    part.data.jobid === currentInteraction.jobId &&
+                    part.data.status === "running" &&
+                    (part.data.awaitinginput || part.data.tuidetected)
+            )
         ) {
             globalStore.set(model.commandInteractionAtom, null);
         }
@@ -1003,8 +1235,13 @@ const AIPanelComponentInner = memo(() => {
 
         if (latestToolUse) {
             const lastToolCall = toolCallFromPart(latestToolUse, taskId);
-            const lastToolResult = toolResultFromPart(latestToolUse, taskId) ?? undefined;
-            const isRunningTool = latestToolUse.data.status === "running";
+            const lastToolResult = toolResultFromPart(latestCompletedToolUse ?? latestToolUse, taskId) ?? undefined;
+            const activeToolCalls = Object.fromEntries(
+                runningToolUses.map((part) => [part.data.toolcallid, toolCallFromPart(part, taskId)])
+            );
+            const activeJobIds = runningToolUses
+                .map((part) => part.data.jobid)
+                .filter((jobId): jobId is string => Boolean(jobId));
             const progressBlockedReason =
                 !shouldHideProgressStatusLines(latestToolProgress?.data?.toolname) &&
                 latestToolProgress?.data?.statuslines?.find((line) => Boolean(line?.trim()));
@@ -1012,22 +1249,24 @@ const AIPanelComponentInner = memo(() => {
                 lastToolCall,
                 lastToolResult,
                 blockedReason: latestToolUse.data.errormessage ?? latestToolUse.data.tooldesc ?? progressBlockedReason,
-                ...(isRunningTool && latestToolUse.data.jobid
+                activeToolCalls,
+                activeJobIds,
+                ...(activeJobIds.length > 0
                     ? {
                           state: "executing" as const,
-                          phaseLabel: "Executing Command",
-                          activeTool: latestToolUse.data.toolname,
-                          activeJobId: latestToolUse.data.jobid,
+                          phaseLabel: activeJobIds.length > 1 ? "Executing Commands" : "Executing Command",
+                          activeTool: activeJobIds.length > 1 ? `${activeJobIds.length} commands` : latestToolUse.data.toolname,
+                          activeJobId: activeJobIds.at(-1),
                       }
                     : {
                           activeTool: undefined,
                           activeJobId: undefined,
                       }),
             });
-            if (latestToolUse.data.approval === "needs-approval") {
+            if (pendingApprovalToolUse) {
                 model.dispatchAgentEvent({
                     type: "APPROVAL_REQUIRED",
-                    reason: latestToolUse.data.tooldesc || "Waiting for tool approval",
+                    reason: pendingApprovalToolUse.data.tooldesc || "Waiting for tool approval",
                 });
             }
             if (
@@ -1048,7 +1287,7 @@ const AIPanelComponentInner = memo(() => {
                     : latestToolProgress.data.statuslines?.find((line) => Boolean(line?.trim())),
             });
         }
-    }, [messages, model]);
+    }, [coalescedMessages, model]);
 
     useEffect(() => {
         if (status === "streaming") {
@@ -1060,10 +1299,10 @@ const AIPanelComponentInner = memo(() => {
         if (commandInteraction) {
             return;
         }
-        if (messages.length > 0) {
+        if (coalescedMessages.length > 0) {
             model.dispatchAgentEvent({ type: "VERIFY_FINISHED", ok: true });
         }
-    }, [status, errorMessage, messages.length, commandInteraction, model]);
+    }, [status, errorMessage, coalescedMessages.length, commandInteraction, model]);
 
     useEffect(() => {
         if (agentRuntimeSnapshot.state !== "submitting") {
@@ -1089,7 +1328,7 @@ const AIPanelComponentInner = memo(() => {
         if (!perf.active || perf.firstTokenAt > 0 || status !== "streaming") {
             return;
         }
-        const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+        const lastAssistantMessage = [...coalescedMessages].reverse().find((message) => message.role === "assistant");
         const hasAssistantPayload =
             (lastAssistantMessage?.parts?.some(
                 (part) =>
@@ -1108,7 +1347,7 @@ const AIPanelComponentInner = memo(() => {
             "waveai:traceid": perf.traceId,
             "waveai:ttfbms": firstTokenAt - perf.submitAt,
         } as any);
-    }, [messages, status]);
+    }, [coalescedMessages, status]);
 
     useEffect(() => {
         const perf = runtimePerfRef.current;
@@ -1414,9 +1653,10 @@ const AIPanelComponentInner = memo(() => {
             {(isDragOver || isReactDndDragOver) && <AIDragOverlay />}
             {showBlockMask && <AIBlockMask />}
             <div key="main-content" className="flex-1 flex flex-col min-h-0">
-                <AISessionToolbar messages={messages} />
+                <AISessionToolbar messages={coalescedMessages} />
                 <TaskProgressPanel taskState={taskState} compact={true} />
-                {messages.length === 0 && initialLoadDone ? (
+                <BackgroundJobsPanel />
+                {coalescedMessages.length === 0 && initialLoadDone ? (
                     <div
                         className="flex-1 overflow-y-auto p-2 relative"
                         onContextMenu={(e) => handleWaveAIContextMenu(e, true)}
@@ -1425,7 +1665,7 @@ const AIPanelComponentInner = memo(() => {
                     </div>
                 ) : (
                     <AIPanelMessages
-                        messages={messages}
+                        messages={coalescedMessages}
                         status={status}
                         onContextMenu={(e) => handleWaveAIContextMenu(e, true)}
                     />

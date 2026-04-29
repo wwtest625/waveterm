@@ -459,10 +459,22 @@ declare global {
         chatid: string;
     };
 
+    // wshrpc.CommandGetWaveAIBackgroundJobData
+    type CommandGetWaveAIBackgroundJobData = {
+        chatid: string;
+        jobid?: string;
+        toolcallid?: string;
+    };
+
     // wshrpc.CommandImportSkillZipData
     type CommandImportSkillZipData = {
         zippath: string;
         overwrite?: boolean;
+    };
+
+    // wshrpc.CommandListWaveAIBackgroundJobsData
+    type CommandListWaveAIBackgroundJobsData = {
+        chatid: string;
     };
 
     // wshrpc.CommandJobCmdExitedData
@@ -769,6 +781,17 @@ declare global {
         archived?: boolean;
         deleted?: boolean;
         lasttaskstate?: string;
+    };
+
+    // wshrpc.CommandCancelWaveAIBackgroundJobsData
+    type CommandCancelWaveAIBackgroundJobsData = {
+        chatid: string;
+        jobids: string[];
+    };
+
+    // wshrpc.CommandClearWaveAIBackgroundJobsData
+    type CommandClearWaveAIBackgroundJobsData = {
+        chatid: string;
     };
 
     // wshrpc.CommandVarData
@@ -2123,12 +2146,34 @@ declare global {
         summary?: string;
         cheatsheet?: SessionCheatsheet;
         taskstate?: UITaskProgressState;
+        backgroundjobs?: UIChatBackgroundJobInfo[];
         createdts?: number;
         updatedts?: number;
         favorite?: boolean;
         lasttaskstate?: string;
         archived?: boolean;
         deleted?: boolean;
+    };
+
+    // uctypes.UIChatBackgroundJobInfo
+    type UIChatBackgroundJobInfo = {
+        jobid: string;
+        toolcallid: string;
+        commandsummary?: string;
+        connection?: string;
+        targetlabel?: string;
+        createdts?: number;
+        lastupdatedts?: number;
+        status?: string;
+        approvalstate?: string;
+        interactionstate?: string;
+        prompthint?: string;
+        durationms?: number;
+        exitcode?: number;
+        exitsignal?: string;
+        error?: string;
+        outputpreview?: string;
+        turnid?: string;
     };
 
     // waveobj.UIContext

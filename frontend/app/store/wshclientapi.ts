@@ -477,6 +477,15 @@ class RpcApiType {
         return client.wshRpcCall("getwaveaichat", data, opts);
     }
 
+    // command "getwaveaibackgroundjob" [call]
+    GetWaveAIBackgroundJobCommand(
+        client: WshClient,
+        data: CommandGetWaveAIBackgroundJobData,
+        opts?: RpcOpts
+    ): Promise<UIChatBackgroundJobInfo> {
+        return client.wshRpcCall("getwaveaibackgroundjob", data, opts);
+    }
+
     // command "getwaveaimodeconfig" [call]
     GetWaveAIModeConfigCommand(client: WshClient, opts?: RpcOpts): Promise<AIModeConfigUpdate> {
         return client.wshRpcCall("getwaveaimodeconfig", null, opts);
@@ -585,6 +594,15 @@ class RpcApiType {
     // command "listwaveaisessions" [call]
     ListWaveAISessionsCommand(client: WshClient, data: CommandListWaveAISessionsData, opts?: RpcOpts): Promise<UIChatSessionMeta[]> {
         return client.wshRpcCall("listwaveaisessions", data, opts);
+    }
+
+    // command "listwaveaibackgroundjobs" [call]
+    ListWaveAIBackgroundJobsCommand(
+        client: WshClient,
+        data: CommandListWaveAIBackgroundJobsData,
+        opts?: RpcOpts
+    ): Promise<UIChatBackgroundJobInfo[]> {
+        return client.wshRpcCall("listwaveaibackgroundjobs", data, opts);
     }
 
     // command "makedraftfromlocal" [call]
@@ -915,6 +933,24 @@ class RpcApiType {
     // command "updatewaveaisession" [call]
     UpdateWaveAISessionCommand(client: WshClient, data: CommandUpdateWaveAISessionData, opts?: RpcOpts): Promise<UIChatSessionMeta> {
         return client.wshRpcCall("updatewaveaisession", data, opts);
+    }
+
+    // command "cancelwaveaibackgroundjobs" [call]
+    CancelWaveAIBackgroundJobsCommand(
+        client: WshClient,
+        data: CommandCancelWaveAIBackgroundJobsData,
+        opts?: RpcOpts
+    ): Promise<UIChatBackgroundJobInfo[]> {
+        return client.wshRpcCall("cancelwaveaibackgroundjobs", data, opts);
+    }
+
+    // command "clearwaveaibackgroundjobs" [call]
+    ClearWaveAIBackgroundJobsCommand(
+        client: WshClient,
+        data: CommandClearWaveAIBackgroundJobsData,
+        opts?: RpcOpts
+    ): Promise<UIChatBackgroundJobInfo[]> {
+        return client.wshRpcCall("clearwaveaibackgroundjobs", data, opts);
     }
 
     // command "vdomasyncinitiation" [call]

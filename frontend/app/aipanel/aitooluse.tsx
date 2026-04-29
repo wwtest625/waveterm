@@ -9,6 +9,7 @@ import { base64ToString, cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { memo, useEffect, useRef, useState } from "react";
 import { WaveUIMessagePart } from "./aitypes";
+import { coalesceToolDetailParts } from "./aitypes";
 import { formatCommandDuration } from "./command-duration";
 import { RestoreBackupModal } from "./restorebackupmodal";
 import { WaveAIModel } from "./waveai-model";
@@ -94,6 +95,7 @@ export function summarizeToolGroup(
     parts: Array<WaveUIMessagePart & { type: "data-tooluse" | "data-toolprogress" }>,
     isStreaming: boolean
 ): ToolGroupSummary {
+    parts = coalesceToolDetailParts(parts);
     const tooluseParts = parts.filter((part) => part.type === "data-tooluse") as Array<
         WaveUIMessagePart & { type: "data-tooluse" }
     >;
@@ -142,10 +144,36 @@ export function summarizeToolGroup(
             description:
                 summarizeErrorMessage(failedToolUse.data.toolname, failedToolUse.data.errormessage) ??
                 primaryDescription ??
-                "执行未完成",
-            toneClassName: "border-red-900/60 bg-red-950/20 text-red-100",
+                "执行出错",
+            toneClassName: "border-red-500/20 bg-red-500/[0.04] text-red-100",
             iconClassName: "text-red-400",
             icon: "fa-circle-xmark",
+            defaultExpanded: false,
+            canRetry: true,
+            needsApproval: false,
+            hasDetails: parts.length > 1,
+        };
+    }
+
+    const cancelledToolUse = tooluseParts.find((part) => part.data.status === "cancelled");
+    if (cancelledToolUse) {
+        const cancelMessages: Record<string, string> = {
+            manual: "用户手动取消",
+            follow_up: "用户提交了新的问题",
+            user_command: "用户执行了终端命令",
+            timeout: "响应超时",
+            error: "发生错误",
+        };
+        const cancelDesc = cancelMessages[cancelledToolUse.data.cancellationreason ?? ""] ?? "用户取消执行";
+        return {
+            title: `${leadToolName}已取消`,
+            description:
+                summarizeErrorMessage(cancelledToolUse.data.toolname, cancelledToolUse.data.errormessage) ??
+                primaryDescription ??
+                cancelDesc,
+            toneClassName: "border-zinc-500/20 bg-zinc-500/[0.04] text-zinc-300",
+            iconClassName: "text-zinc-400",
+            icon: "fa-ban",
             defaultExpanded: false,
             canRetry: true,
             needsApproval: false,
@@ -359,7 +387,9 @@ const AIToolUseBatchItem = memo(({ part, effectiveApproval }: AIToolUseBatchItem
               ? "✗"
               : part.data.status === "running"
                 ? "↻"
-                : "•";
+                : part.data.status === "cancelled"
+                  ? "⊘"
+                  : "•";
     const statusColor =
         part.data.status === "completed"
             ? "text-success"
@@ -367,12 +397,15 @@ const AIToolUseBatchItem = memo(({ part, effectiveApproval }: AIToolUseBatchItem
               ? "text-error"
               : part.data.status === "running"
                 ? "text-yellow-400"
-                : "text-gray-400";
+                : part.data.status === "cancelled"
+                  ? "text-zinc-400"
+                  : "text-gray-400";
+    const isRunning = part.data.status === "running" || (part.data.partial === true && part.data.status === "pending");
     const effectiveErrorMessage = part.data.errormessage || (effectiveApproval === "timeout" ? "Not approved" : null);
 
     return (
         <div className="text-sm pl-2 flex items-start gap-1.5">
-            <span className={cn("font-bold flex-shrink-0", statusColor)}>{statusIcon}</span>
+            <span className={cn("font-bold flex-shrink-0", statusColor, isRunning && "animate-spin")}>{statusIcon}</span>
             <div className="flex-1">
                 <div className="flex items-center gap-2">
                     <span className="text-gray-400">{part.data.tooldesc}</span>
@@ -460,7 +493,9 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
               ? "✗"
               : toolData.status === "running"
                 ? "↻"
-                : "•";
+                : toolData.status === "cancelled"
+                  ? "⊘"
+                  : "•";
     const statusColor =
         toolData.status === "completed"
             ? "text-success"
@@ -468,7 +503,9 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
               ? "text-error"
               : toolData.status === "running"
                 ? "text-yellow-400"
-                : "text-gray-400";
+                : toolData.status === "cancelled"
+                  ? "text-zinc-400"
+                  : "text-gray-400";
 
     const baseApproval = userApprovalOverride || toolData.approval;
     const effectiveApproval = getEffectiveApprovalStatus(baseApproval, isStreaming);
@@ -585,7 +622,7 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
             onMouseLeave={handleMouseLeave}
         >
             <div className="flex items-center gap-2">
-                <span className="font-bold">{statusIcon}</span>
+                <span className={cn("font-bold", (toolData.status === "running" || (toolData.partial === true && toolData.status === "pending")) && "animate-spin")}>{statusIcon}</span>
                 <div className="font-semibold">{toolData.toolname}</div>
                 {toolData.durationms != null && toolData.durationms > 0 && (
                     <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] text-zinc-300">
@@ -698,21 +735,22 @@ type ToolGroupItem =
 
 export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps) => {
     const model = WaveAIModel.getInstance();
-    const tooluseParts = parts.filter((p) => p.type === "data-tooluse") as Array<
+    const displayParts = coalesceToolDetailParts(parts);
+    const tooluseParts = displayParts.filter((p) => p.type === "data-tooluse") as Array<
         WaveUIMessagePart & { type: "data-tooluse" }
     >;
-    const toolprogressParts = parts.filter((p) => p.type === "data-toolprogress") as Array<
+    const toolprogressParts = displayParts.filter((p) => p.type === "data-toolprogress") as Array<
         WaveUIMessagePart & { type: "data-toolprogress" }
     >;
 
     const tooluseCallIds = new Set(tooluseParts.map((p) => p.data.toolcallid));
     const filteredProgressParts = toolprogressParts.filter((p) => !tooluseCallIds.has(p.data.toolcallid));
-    const groupSummary = summarizeToolGroup(parts, isStreaming);
+    const groupSummary = summarizeToolGroup(displayParts, isStreaming);
     const [detailsOpen, setDetailsOpen] = useState(groupSummary.defaultExpanded);
-    const groupStateKey = parts
+    const groupStateKey = displayParts
         .map((part) => {
             if (part.type === "data-tooluse") {
-                return `${part.data.toolcallid}:${part.data.toolname}:${part.data.status}:${part.data.approval ?? ""}:${part.data.errormessage ?? ""}`;
+                return `${part.data.toolcallid}:${part.data.toolname}:${part.data.status}:${part.data.partial ?? ""}:${part.data.approval ?? ""}:${part.data.errormessage ?? ""}`;
             }
             return `${part.data.toolcallid}:${part.data.toolname}:${(part.data.statuslines ?? []).join("|")}`;
         })

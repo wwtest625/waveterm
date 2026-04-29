@@ -134,6 +134,7 @@ const AIMessagePart = memo(({ part, role, isStreaming }: AIMessagePartProps) => 
                     className="text-gray-100"
                     codeBlockMaxWidthAtom={model.codeBlockMaxWidth}
                     onClickExecute={handleExecuteCommand}
+                    isStreaming={isStreaming}
                 />
             );
         }
