@@ -5,7 +5,7 @@ type FocusedBlockContext = {
     view?: string;
     connection?: string;
     cwd?: string;
-    previewDefaultDir?: string;
+    savedDirPath?: string;
 };
 
 export function buildWidgetBlockDef(widget: WidgetConfigType, focusedBlock?: FocusedBlockContext): BlockDef {
@@ -13,23 +13,20 @@ export function buildWidgetBlockDef(widget: WidgetConfigType, focusedBlock?: Foc
     const meta = { ...(source.meta ?? {}) };
 
     if (meta.view === "preview") {
-        if (focusedBlock?.view === "term") {
+        console.log("[FileBrowserState] buildWidgetBlockDef: preview widget, focusedBlock=", focusedBlock, "original meta.file=", meta.file);
+        if (focusedBlock?.savedDirPath != null && focusedBlock.savedDirPath !== "") {
+            console.log("[FileBrowserState] buildWidgetBlockDef: using savedDirPath=", focusedBlock.savedDirPath);
+            meta.file = focusedBlock.savedDirPath;
+        } else if (focusedBlock?.view === "term") {
             if (focusedBlock.connection != null && focusedBlock.connection !== "") {
                 meta.connection = focusedBlock.connection;
             }
             if (focusedBlock.cwd != null && focusedBlock.cwd !== "") {
+                console.log("[FileBrowserState] buildWidgetBlockDef: using terminal cwd=", focusedBlock.cwd);
                 meta.file = focusedBlock.cwd;
-            } else if (
-                focusedBlock.previewDefaultDir != null &&
-                focusedBlock.previewDefaultDir !== ""
-            ) {
-                meta.file = focusedBlock.previewDefaultDir;
-            }
-        } else if (focusedBlock?.previewDefaultDir != null && focusedBlock.previewDefaultDir !== "") {
-            if (meta.file == null || meta.file === "~") {
-                meta.file = focusedBlock.previewDefaultDir;
             }
         }
+        console.log("[FileBrowserState] buildWidgetBlockDef: final meta.file=", meta.file, "meta.connection=", meta.connection);
     }
 
     if (meta.view === "docker" && focusedBlock?.view === "term") {

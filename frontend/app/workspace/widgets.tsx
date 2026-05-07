@@ -12,7 +12,7 @@ import { getLayoutStateAtomFromTab } from "@/layout/lib/layoutAtom";
 import { getLayoutModelForStaticTab } from "@/layout/lib/layoutModelHooks";
 import { findParent } from "@/layout/lib/layoutNode";
 import { FlexDirection, LayoutTreeActionType, type LayoutTreeResizeNodeAction } from "@/layout/lib/types";
-import { atoms, createBlock, createBlockSplitHorizontally, getSettingsKeyAtom, globalStore, isDev, refocusNode, WOS } from "@/store/global";
+import { atoms, createBlock, createBlockSplitHorizontally, globalStore, isDev, refocusNode, WOS } from "@/store/global";
 import { fireAndForget, isBlank, makeIconClass } from "@/util/util";
 import {
     autoUpdate,
@@ -30,6 +30,7 @@ import { buildWidgetBlockDef } from "./widgetblockdef";
 import { getTrackedWidgetBlockIds } from "./widgetopenstate";
 import { getWidgetToggleAction, isWidgetOpen } from "./widgettoggle";
 import { getHorizontalSplitSizes, getOpenWidgetWidthPercent, getWidgetPreferredWidth } from "./widgetwidth";
+import { loadFileBrowserState } from "@/app/view/preview/preview-directory-state";
 
 type WidgetListEntry = {
     key: string;
@@ -92,10 +93,20 @@ async function handleWidgetSelect(widgetKey: string, widget: WidgetConfigType) {
     }
 
     const focusedBlock = getFocusedBlockContext(targetBlockId);
-    const previewDefaultDir = widgetKey === "defwidget@files" ? (globalStore.get(getSettingsKeyAtom("preview:defaultdir")) ?? "") : "";
+    let savedDirPath: string | undefined;
+    if (widgetKey === "defwidget@files") {
+        const connection = focusedBlock?.connection ?? "";
+        console.log("[FileBrowserState] handleWidgetSelect: loading saved state for files widget, connection=", connection);
+        const savedState = loadFileBrowserState(window.localStorage, connection || "local");
+        console.log("[FileBrowserState] handleWidgetSelect: savedState=", savedState);
+        if (savedState?.dirPath) {
+            savedDirPath = savedState.dirPath;
+        }
+    }
+    console.log("[FileBrowserState] handleWidgetSelect: widgetKey=", widgetKey, "savedDirPath=", savedDirPath, "focusedBlock=", focusedBlock);
     const blockDef = buildWidgetBlockDef(widget, {
         ...focusedBlock,
-        previewDefaultDir,
+        savedDirPath,
     });
     const blockId = await createWidgetBlock(widgetKey, widget, blockDef, targetBlockId);
     trackedBlockIds[widgetKey] = blockId;

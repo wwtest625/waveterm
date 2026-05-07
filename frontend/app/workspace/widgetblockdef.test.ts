@@ -45,7 +45,7 @@ test("buildWidgetBlockDef keeps preview widget unchanged when focused block is n
     assert.equal(result.meta?.file, "~");
 });
 
-test("buildWidgetBlockDef uses preview default dir for files widget when no terminal is focused", () => {
+test("buildWidgetBlockDef uses saved dir path for files widget when available", () => {
     const widget = {
         blockdef: {
             meta: {
@@ -57,31 +57,13 @@ test("buildWidgetBlockDef uses preview default dir for files widget when no term
 
     const result = buildWidgetBlockDef(widget, {
         view: "web",
-        previewDefaultDir: "/srv/projects",
+        savedDirPath: "/srv/projects",
     });
 
     assert.equal(result.meta?.file, "/srv/projects");
 });
 
-test("buildWidgetBlockDef keeps a custom preview file path when preview default dir is set", () => {
-    const widget = {
-        blockdef: {
-            meta: {
-                view: "preview",
-                file: "/opt/custom",
-            },
-        },
-    } as WidgetConfigType;
-
-    const result = buildWidgetBlockDef(widget, {
-        view: "web",
-        previewDefaultDir: "/srv/projects",
-    });
-
-    assert.equal(result.meta?.file, "/opt/custom");
-});
-
-test("buildWidgetBlockDef uses preview default dir when focused terminal has no cwd", () => {
+test("buildWidgetBlockDef prefers saved dir path over terminal cwd", () => {
     const widget = {
         blockdef: {
             meta: {
@@ -94,20 +76,19 @@ test("buildWidgetBlockDef uses preview default dir when focused terminal has no 
     const result = buildWidgetBlockDef(widget, {
         view: "term",
         connection: "ssh://devbox",
-        cwd: "",
-        previewDefaultDir: "/srv/projects",
+        cwd: "/srv/app",
+        savedDirPath: "/srv/projects",
     });
 
-    assert.equal(result.meta?.connection, "ssh://devbox");
     assert.equal(result.meta?.file, "/srv/projects");
 });
 
-test("buildWidgetBlockDef uses preview default dir when focused terminal has no cwd even with custom meta.file", () => {
+test("buildWidgetBlockDef falls back to terminal cwd when no saved dir path", () => {
     const widget = {
         blockdef: {
             meta: {
                 view: "preview",
-                file: "/opt/custom",
+                file: "~",
             },
         },
     } as WidgetConfigType;
@@ -115,12 +96,11 @@ test("buildWidgetBlockDef uses preview default dir when focused terminal has no 
     const result = buildWidgetBlockDef(widget, {
         view: "term",
         connection: "ssh://devbox",
-        cwd: "",
-        previewDefaultDir: "/srv/projects",
+        cwd: "/srv/app",
     });
 
     assert.equal(result.meta?.connection, "ssh://devbox");
-    assert.equal(result.meta?.file, "/srv/projects");
+    assert.equal(result.meta?.file, "/srv/app");
 });
 
 test("buildWidgetBlockDef does not mutate original widget blockdef", () => {

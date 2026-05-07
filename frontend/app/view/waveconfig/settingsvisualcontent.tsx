@@ -237,13 +237,6 @@ export const SettingsVisualContent = memo(({ model }: SettingsContentProps) => {
                 </SettingSection>
 
                 <SettingSection title="预览" icon="fa-folder-open">
-                    <SettingItem label="默认目录" description="文件管理器默认打开的目录；留空表示使用内置默认值">
-                        <TextInput
-                            value={settings["preview:defaultdir"] || ""}
-                            onChange={(v) => updateSetting("preview:defaultdir", v || undefined)}
-                            placeholder="~"
-                        />
-                    </SettingItem>
                     <SettingItem label="显示隐藏文件" description="在目录预览中显示隐藏文件">
                         <ToggleSwitch
                             checked={settings["preview:showhiddenfiles"] !== false}

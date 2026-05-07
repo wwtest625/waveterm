@@ -55,7 +55,7 @@ import {
 } from "./preview-directory-utils";
 import { buildRemoteFileError } from "./preview-error-util";
 import { type PreviewModel } from "./preview-model";
-import { persistPreviewDefaultDirectorySelection } from "@/app/workspace/widgetsettings";
+import { loadFileBrowserState, saveFileBrowserState, type FileBrowserState } from "./preview-directory-state";
 
 const PageJumpSize = 20;
 const TreeMaxWidth = 100000;
@@ -303,12 +303,6 @@ function buildDirectoryMenuItems(options: DirectoryMenuOptions): ContextMenuItem
                 openUploadFilePicker(actionDirPath);
             },
         },
-        {
-            label: "设置为默认目录 ★",
-            click: () => {
-                fireAndForget(() => persistPreviewDefaultDirectorySelection(actionDirPath));
-            },
-        },
     ];
 
     if (targetFile != null) {
@@ -550,6 +544,8 @@ interface DirectoryTableProps {
     newFile: (basePath?: string) => void;
     newDirectory: (basePath?: string) => void;
     openUploadFilePicker: (targetDir: string) => void;
+    savedListScrollPosition: number;
+    onListScrollPositionChange: (position: number) => void;
 }
 
 const columnHelper = createColumnHelper<FileInfo>();
@@ -590,6 +586,8 @@ function DirectoryTable({
     newFile,
     newDirectory,
     openUploadFilePicker,
+    savedListScrollPosition,
+    onListScrollPositionChange,
 }: DirectoryTableProps) {
     const searchActive = useAtomValue(model.directorySearchActive);
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
@@ -703,14 +701,30 @@ function DirectoryTable({
     const osRef = useRef<OverlayScrollbarsComponentRef>(null);
     const bodyRef = useRef<HTMLDivElement>(null);
     const [scrollHeight, setScrollHeight] = useState(0);
+    const scrollRestoredRef = useRef(false);
+
+    useEffect(() => {
+        if (scrollRestoredRef.current || savedListScrollPosition <= 0 || !osRef.current) return;
+        const osInstance = osRef.current.osInstance();
+        if (!osInstance) return;
+        const viewport = osInstance.elements().viewport;
+        console.log("[FileBrowserState] DirectoryTable: restoring scroll position=", savedListScrollPosition, "currentScrollTop=", viewport.scrollTop, "dataLength=", data.length);
+        requestAnimationFrame(() => {
+            viewport.scrollTop = savedListScrollPosition;
+            scrollRestoredRef.current = true;
+            console.log("[FileBrowserState] DirectoryTable: scroll restored, newScrollTop=", viewport.scrollTop);
+        });
+    }, [savedListScrollPosition, data]);
 
     const onScroll = useCallback(
         debounce(2, () => {
             if (osRef.current) {
-                setScrollHeight(osRef.current.osInstance().elements().viewport.scrollTop);
+                const scrollTop = osRef.current.osInstance().elements().viewport.scrollTop;
+                setScrollHeight(scrollTop);
+                onListScrollPositionChange(scrollTop);
             }
         }),
-        []
+        [onListScrollPositionChange]
     );
 
     const TableComponent = table.getState().columnSizingInfo.isResizingColumn ? MemoizedTableBody : TableBody;
@@ -1011,6 +1025,8 @@ interface DirectoryTreeProps {
     newFile: (basePath?: string) => void;
     newDirectory: (basePath?: string) => void;
     openUploadFilePicker: (targetDir: string) => void;
+    savedExpandedPaths: string[];
+    onExpandedChange: (expandedIds: Set<string>) => void;
 }
 
 function DirectoryTree({
@@ -1028,11 +1044,31 @@ function DirectoryTree({
     newFile,
     newDirectory,
     openUploadFilePicker,
+    savedExpandedPaths,
+    onExpandedChange,
 }: DirectoryTreeProps) {
     const ensuredExpandedIds = useMemo(() => {
         const targetPath = selectedPath || dirPath || rootPath;
         return getAncestorPaths(rootPath, targetPath);
     }, [dirPath, rootPath, selectedPath]);
+
+    const defaultExpandedIds = useMemo(() => {
+        console.log("[FileBrowserState] DirectoryTree: computing defaultExpandedIds, savedExpandedPaths=", savedExpandedPaths, "rootPath=", rootPath);
+        if (savedExpandedPaths.length > 0) {
+            const validPaths = savedExpandedPaths.filter((p) => {
+                if (p === rootPath) return true;
+                if (rootPath === "/") return p.startsWith("/");
+                if (rootPath === "~") return p === "~" || p.startsWith("~/");
+                return p.startsWith(`${rootPath}/`);
+            });
+            if (validPaths.length > 0) {
+                console.log("[FileBrowserState] DirectoryTree: using saved expanded paths, validPaths=", validPaths);
+                return validPaths;
+            }
+        }
+        console.log("[FileBrowserState] DirectoryTree: no valid saved expanded paths, using rootPath=", [rootPath]);
+        return [rootPath];
+    }, [rootPath, savedExpandedPaths]);
 
     const initialNodes = useMemo(
         () => ({
@@ -1112,8 +1148,9 @@ function DirectoryTree({
             initialNodes={initialNodes}
             fetchDir={fetchDir}
             selectedId={selectedPath || dirPath || rootPath}
-            defaultExpandedIds={[rootPath]}
+            defaultExpandedIds={defaultExpandedIds}
             ensureExpandedIds={ensuredExpandedIds}
+            onExpandedChange={onExpandedChange}
             width="100%"
             height="100%"
             minWidth={0}
@@ -1150,6 +1187,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const [selectedPath, setSelectedPath] = useState("");
     const [refreshVersion, setRefreshVersion] = useAtom(model.refreshVersion);
     const conn = useAtomValue(model.connection);
+    const connImmediate = useAtomValue(model.connectionImmediate);
     const connStatus = useAtomValue(model.connStatus);
     const blockData = useAtomValue(model.blockAtom);
     const finfo = useAtomValue(model.statFile);
@@ -1158,6 +1196,60 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const setErrorMsg = useSetAtom(model.errorMsgAtom);
     const fileUploadInputRef = useRef<HTMLInputElement>(null);
     const pendingUploadTargetDirRef = useRef<string>("");
+    const [savedExpandedPaths, setSavedExpandedPaths] = useState<string[]>([]);
+    const [listScrollPosition, setListScrollPosition] = useState(0);
+    const stateInitializedRef = useRef(false);
+
+    const stateStorageKey = useMemo(() => connImmediate || "local", [connImmediate]);
+
+    useEffect(() => {
+        if (stateInitializedRef.current) return;
+        console.log("[FileBrowserState] DirectoryPreview: initializing state, stateStorageKey=", stateStorageKey);
+        const saved = loadFileBrowserState(window.localStorage, stateStorageKey);
+        if (saved) {
+            console.log("[FileBrowserState] DirectoryPreview: restoring saved state=", saved);
+            globalStore.set(model.directoryViewMode, saved.viewMode);
+            if (saved.selectedPath) {
+                setSelectedPath(saved.selectedPath);
+            }
+            if (saved.expandedPaths) {
+                setSavedExpandedPaths(saved.expandedPaths);
+            }
+            if (saved.listScrollPosition) {
+                setListScrollPosition(saved.listScrollPosition);
+            }
+        } else {
+            console.log("[FileBrowserState] DirectoryPreview: no saved state found, using defaults");
+        }
+        stateInitializedRef.current = true;
+    }, [stateStorageKey, model]);
+
+    const debouncedSaveState = useMemo(
+        () =>
+            debounce(500, (state: FileBrowserState) => {
+                saveFileBrowserState(window.localStorage, stateStorageKey, state);
+            }),
+        [stateStorageKey]
+    );
+
+    useEffect(() => {
+        if (!stateInitializedRef.current) return;
+        const currentState: FileBrowserState = {
+            viewMode: directoryViewMode,
+            expandedPaths: savedExpandedPaths,
+            selectedPath: selectedPath,
+            dirPath: dirPath ?? "",
+            listScrollPosition: listScrollPosition,
+        };
+        console.log("[FileBrowserState] DirectoryPreview: auto-saving state=", currentState);
+        debouncedSaveState(currentState);
+    }, [directoryViewMode, savedExpandedPaths, selectedPath, dirPath, listScrollPosition, debouncedSaveState]);
+
+    useEffect(() => {
+        return () => {
+            debouncedSaveState.cancel();
+        };
+    }, [debouncedSaveState]);
 
     useEffect(() => {
         model.refreshCallback = () => {
@@ -1217,7 +1309,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const selectedFileInfo = filteredData.find((fileInfo) => fileInfo.path === selectedPath) ?? null;
 
     useEffect(() => {
-        if (dirPath) {
+        if (dirPath && !selectedPath) {
             setSelectedPath(dirPath);
         }
     }, [dirPath]);
@@ -1597,12 +1689,6 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                     },
                 },
                 {
-                    label: "设置为默认目录 ★",
-                    click: () => {
-                        fireAndForget(() => persistPreviewDefaultDirectorySelection(dirPath ?? rootPath));
-                    },
-                },
-                {
                     type: "separator",
                 },
             ];
@@ -1666,6 +1752,10 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         newFile={newFile}
                         newDirectory={newDirectory}
                         openUploadFilePicker={openUploadFilePicker}
+                        savedExpandedPaths={savedExpandedPaths}
+                        onExpandedChange={(expandedIds) => {
+                            setSavedExpandedPaths(Array.from(expandedIds));
+                        }}
                     />
                 ) : (
                     <DirectoryTable
@@ -1683,6 +1773,8 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         newFile={newFile}
                         newDirectory={newDirectory}
                         openUploadFilePicker={openUploadFilePicker}
+                        savedListScrollPosition={listScrollPosition}
+                        onListScrollPositionChange={setListScrollPosition}
                     />
                 )}
                 {showTransferPanel && (

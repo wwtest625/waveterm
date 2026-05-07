@@ -73,6 +73,7 @@ export interface TreeViewProps {
     onOpenDirectory?: (id: string, node: TreeNodeData) => void;
     onSelectionChange?: (id: string, node: TreeNodeData) => void;
     onContextMenu?: (id: string, node: TreeNodeData, event: MouseEvent<HTMLDivElement>) => void;
+    onExpandedChange?: (expandedIds: Set<string>) => void;
     selectedId?: string;
     defaultExpandedIds?: string[];
     ensureExpandedIds?: string[];
@@ -234,6 +235,7 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
         onOpenDirectory,
         onSelectionChange,
         onContextMenu,
+        onExpandedChange,
         selectedId: controlledSelectedId,
         defaultExpandedIds,
         ensureExpandedIds,
@@ -277,6 +279,10 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
             return next;
         });
     }, [ensureExpandedKey, ensureExpandedIds]);
+
+    useEffect(() => {
+        onExpandedChange?.(expandedIds);
+    }, [expandedIds, onExpandedChange]);
 
     useEffect(() => {
         if (controlledSelectedId == null) {

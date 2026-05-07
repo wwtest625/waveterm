@@ -112,15 +112,4 @@ async function persistWidgetWidthSelection(blockId: string, tabModel: TabModel, 
     }
 }
 
-async function persistPreviewDefaultDirectorySelection(directoryPath: string): Promise<void> {
-    const trimmedPath = directoryPath.trim();
-    try {
-        await RpcApi.SetConfigCommand(TabRpcClient, {
-            "preview:defaultdir": trimmedPath,
-        });
-    } catch (error) {
-        console.warn("Failed to persist preview default directory:", error);
-    }
-}
-
-export { getWidgetWidthMenuItems, persistPreviewDefaultDirectorySelection, persistWidgetWidthSelection };
+export { getWidgetWidthMenuItems, persistWidgetWidthSelection };
