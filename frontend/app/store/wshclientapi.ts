@@ -92,6 +92,11 @@ class RpcApiType {
         return client.wshRpcCall("blockslist", data, opts);
     }
 
+    // command "cancelwaveaibackgroundjobs" [call]
+    CancelWaveAIBackgroundJobsCommand(client: WshClient, data: CommandCancelWaveAIBackgroundJobsData, opts?: RpcOpts): Promise<UIChatBackgroundJobInfo[]> {
+        return client.wshRpcCall("cancelwaveaibackgroundjobs", data, opts);
+    }
+
     // command "captureblockscreenshot" [call]
     CaptureBlockScreenshotCommand(client: WshClient, data: CommandCaptureBlockScreenshotData, opts?: RpcOpts): Promise<string> {
         return client.wshRpcCall("captureblockscreenshot", data, opts);
@@ -100,6 +105,11 @@ class RpcApiType {
     // command "checkgoversion" [call]
     CheckGoVersionCommand(client: WshClient, opts?: RpcOpts): Promise<CommandCheckGoVersionRtnData> {
         return client.wshRpcCall("checkgoversion", null, opts);
+    }
+
+    // command "clearwaveaibackgroundjobs" [call]
+    ClearWaveAIBackgroundJobsCommand(client: WshClient, data: CommandClearWaveAIBackgroundJobsData, opts?: RpcOpts): Promise<UIChatBackgroundJobInfo[]> {
+        return client.wshRpcCall("clearwaveaibackgroundjobs", data, opts);
     }
 
     // command "connconnect" [call]
@@ -472,18 +482,14 @@ class RpcApiType {
         return client.wshRpcCall("getvar", data, opts);
     }
 
+    // command "getwaveaibackgroundjob" [call]
+    GetWaveAIBackgroundJobCommand(client: WshClient, data: CommandGetWaveAIBackgroundJobData, opts?: RpcOpts): Promise<UIChatBackgroundJobInfo> {
+        return client.wshRpcCall("getwaveaibackgroundjob", data, opts);
+    }
+
     // command "getwaveaichat" [call]
     GetWaveAIChatCommand(client: WshClient, data: CommandGetWaveAIChatData, opts?: RpcOpts): Promise<UIChat> {
         return client.wshRpcCall("getwaveaichat", data, opts);
-    }
-
-    // command "getwaveaibackgroundjob" [call]
-    GetWaveAIBackgroundJobCommand(
-        client: WshClient,
-        data: CommandGetWaveAIBackgroundJobData,
-        opts?: RpcOpts
-    ): Promise<UIChatBackgroundJobInfo> {
-        return client.wshRpcCall("getwaveaibackgroundjob", data, opts);
     }
 
     // command "getwaveaimodeconfig" [call]
@@ -591,18 +597,14 @@ class RpcApiType {
         return client.wshRpcCall("listalleditableapps", null, opts);
     }
 
+    // command "listwaveaibackgroundjobs" [call]
+    ListWaveAIBackgroundJobsCommand(client: WshClient, data: CommandListWaveAIBackgroundJobsData, opts?: RpcOpts): Promise<UIChatBackgroundJobInfo[]> {
+        return client.wshRpcCall("listwaveaibackgroundjobs", data, opts);
+    }
+
     // command "listwaveaisessions" [call]
     ListWaveAISessionsCommand(client: WshClient, data: CommandListWaveAISessionsData, opts?: RpcOpts): Promise<UIChatSessionMeta[]> {
         return client.wshRpcCall("listwaveaisessions", data, opts);
-    }
-
-    // command "listwaveaibackgroundjobs" [call]
-    ListWaveAIBackgroundJobsCommand(
-        client: WshClient,
-        data: CommandListWaveAIBackgroundJobsData,
-        opts?: RpcOpts
-    ): Promise<UIChatBackgroundJobInfo[]> {
-        return client.wshRpcCall("listwaveaibackgroundjobs", data, opts);
     }
 
     // command "makedraftfromlocal" [call]
@@ -678,6 +680,11 @@ class RpcApiType {
     // command "reloadskills" [call]
     ReloadSkillsCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("reloadskills", null, opts);
+    }
+
+    // command "remotedeletetempfile" [call]
+    RemoteDeleteTempFileCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("remotedeletetempfile", data, opts);
     }
 
     // command "remotedisconnectfromjobmanager" [call]
@@ -768,6 +775,11 @@ class RpcApiType {
     // command "remotewritefile" [call]
     RemoteWriteFileCommand(client: WshClient, data: FileData, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("remotewritefile", data, opts);
+    }
+
+    // command "remotezipdirectory" [call]
+    RemoteZipDirectoryCommand(client: WshClient, data: CommandRemoteZipDirectoryData, opts?: RpcOpts): Promise<CommandRemoteZipDirectoryRtnData> {
+        return client.wshRpcCall("remotezipdirectory", data, opts);
     }
 
     // command "renameappfile" [call]
@@ -933,24 +945,6 @@ class RpcApiType {
     // command "updatewaveaisession" [call]
     UpdateWaveAISessionCommand(client: WshClient, data: CommandUpdateWaveAISessionData, opts?: RpcOpts): Promise<UIChatSessionMeta> {
         return client.wshRpcCall("updatewaveaisession", data, opts);
-    }
-
-    // command "cancelwaveaibackgroundjobs" [call]
-    CancelWaveAIBackgroundJobsCommand(
-        client: WshClient,
-        data: CommandCancelWaveAIBackgroundJobsData,
-        opts?: RpcOpts
-    ): Promise<UIChatBackgroundJobInfo[]> {
-        return client.wshRpcCall("cancelwaveaibackgroundjobs", data, opts);
-    }
-
-    // command "clearwaveaibackgroundjobs" [call]
-    ClearWaveAIBackgroundJobsCommand(
-        client: WshClient,
-        data: CommandClearWaveAIBackgroundJobsData,
-        opts?: RpcOpts
-    ): Promise<UIChatBackgroundJobInfo[]> {
-        return client.wshRpcCall("clearwaveaibackgroundjobs", data, opts);
     }
 
     // command "vdomasyncinitiation" [call]

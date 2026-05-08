@@ -347,10 +347,15 @@ export function initIpcHandlers() {
     });
 
     electron.ipcMain.on("download", (event, payload) => {
-        const baseName = encodeURIComponent(path.basename(payload.filePath));
+        const isDirectory = payload.isDirectory ?? false;
+        let baseName = encodeURIComponent(path.basename(payload.filePath));
+        if (isDirectory) {
+            baseName = baseName + ".zip";
+        }
+        const streamPath = isDirectory ? "/wave/stream-directory/" : "/wave/stream-file/";
         const streamingUrl =
             getWebServerEndpoint() +
-            "/wave/stream-file/" +
+            streamPath +
             baseName +
             "?path=" +
             encodeURIComponent(payload.filePath) +

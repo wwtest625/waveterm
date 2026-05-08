@@ -6,7 +6,6 @@ package aiusechat
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 )
@@ -82,39 +81,41 @@ func readTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse) 
 		return nil, err
 	}
 
-	limitCmd := fmt.Sprintf("wc -l < %s", quoteForSingleQuotedShell(params.Filename))
-	totalResult, err := runRemoteCommand(remoteTarget, limitCmd, 30*time.Second, 1024)
-	if err != nil {
-		return nil, err
-	}
-	totalLines := 0
-	if totalResult.Output != "" {
-		fmt.Sscanf(strings.TrimSpace(totalResult.Output), "%d", &totalLines)
-	}
-
-	var readCmd string
-	if params.Limit > 0 {
-		readCmd = fmt.Sprintf("sed -n '%d,%dp' %s", params.Offset+1, params.Offset+params.Limit, quoteForSingleQuotedShell(params.Filename))
-	} else {
-		readCmd = fmt.Sprintf("tail -n +%d %s", params.Offset+1, quoteForSingleQuotedShell(params.Filename))
-	}
-
-	content, err := runRemoteShellCommandForText(remoteTarget, readCmd, 30*time.Second, 512*1024)
+	content, err := rpcRemoteReadFile(remoteTarget, params.Filename)
 	if err != nil {
 		return nil, err
 	}
 
-	truncated := false
-	if totalLines > params.Offset+strings.Count(content, "\n")+1 {
-		truncated = true
+	if len(content) > MaxReadFileSize {
+		return nil, fmt.Errorf("file %q is too large to read (%d bytes, max %d)", params.Filename, len(content), MaxReadFileSize)
 	}
 
-	if content == "" {
-		content = "(empty file)"
+	lines := strings.Split(content, "\n")
+	if content != "" && strings.HasSuffix(content, "\n") {
+		lines = lines[:len(lines)-1]
+	}
+	totalLines := len(lines)
+
+	start := params.Offset
+	if start > totalLines {
+		start = totalLines
+	}
+	end := start + params.Limit
+	if end > totalLines {
+		end = totalLines
+	}
+
+	selectedLines := lines[start:end]
+	resultContent := strings.Join(selectedLines, "\n")
+
+	truncated := end < totalLines
+
+	if resultContent == "" {
+		resultContent = "(empty file)"
 	}
 
 	return map[string]any{
-		"content":     content,
+		"content":     resultContent,
 		"total_lines": totalLines,
 		"offset":      params.Offset,
 		"truncated":   truncated,
@@ -159,7 +160,7 @@ func GetReadTextFileToolDefinition() uctypes.ToolDefinition {
 			return desc
 		},
 		ToolAnyCallback: readTextFileCallback,
-		ToolApproval: func(input any) string {
+		ToolApproval: func(input any, _ uctypes.ApprovalContext) string {
 			return uctypes.ApprovalAutoApproved
 		},
 		ToolVerifyInput: verifyReadTextFileInput,

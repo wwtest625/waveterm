@@ -5,6 +5,7 @@ import { getWebServerEndpoint } from "@/util/endpoints";
 import { fetch } from "@/util/fetchutil";
 import { cn } from "@/util/util";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { t } from "./aipanel-i18n";
 
 interface ModelInfo {
     id: string;
@@ -86,8 +87,8 @@ export const ModelSelector = memo(({ provider, endpoint, secretName, modeKey, se
             <div className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700">
                     <div>
-                        <h3 className="text-lg font-semibold text-zinc-100">选择模型</h3>
-                        <p className="text-sm text-zinc-400">{provider} - 共 {models.length} 个模型</p>
+                        <h3 className="text-lg font-semibold text-zinc-100">{t.modelSelector.selectModel}</h3>
+                        <p className="text-sm text-zinc-400">{provider} - {t.modelSelector.modelCount(models.length)}</p>
                     </div>
                     <button onClick={onClose} className="text-zinc-400 hover:text-zinc-200">
                         <i className="fa-solid fa-times text-lg" />
@@ -100,7 +101,7 @@ export const ModelSelector = memo(({ provider, endpoint, secretName, modeKey, se
                             <i className="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
                             <input
                                 type="text"
-                                placeholder="搜索模型名称..."
+                                placeholder={t.modelSelector.searchPlaceholder}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="w-full pl-9 pr-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-accent-500"
@@ -109,14 +110,14 @@ export const ModelSelector = memo(({ provider, endpoint, secretName, modeKey, se
                         <button
                             onClick={fetchModels}
                             className="px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
-                            title="刷新模型列表"
+                            title={t.modelSelector.refreshModelList}
                         >
                             <i className="fa-solid fa-refresh" />
                         </button>
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-2" style={{ maxHeight: "400px" }}>
+                <div className="flex-1 overflow-y-auto p-2 max-h-[400px]">
                     {loading && (
                         <div className="flex items-center justify-center py-8">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-500" />
@@ -131,7 +132,7 @@ export const ModelSelector = memo(({ provider, endpoint, secretName, modeKey, se
                                 onClick={fetchModels}
                                 className="mt-2 px-3 py-1.5 bg-zinc-800 border border-zinc-600 rounded text-sm text-zinc-300 hover:bg-zinc-700"
                             >
-                                重试
+                                {t.modelSelector.retry}
                             </button>
                         </div>
                     )}
@@ -139,7 +140,7 @@ export const ModelSelector = memo(({ provider, endpoint, secretName, modeKey, se
                     {!loading && !error && filteredModels.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
                             <i className="fa-solid fa-robot text-2xl mb-2" />
-                            <p className="text-sm">没有找到匹配的模型</p>
+                            <p className="text-sm">{t.modelSelector.noMatchingModels}</p>
                         </div>
                     )}
 
@@ -172,13 +173,13 @@ export const ModelSelector = memo(({ provider, endpoint, secretName, modeKey, se
 
                 <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-700">
                     <div className="text-sm text-zinc-400">
-                        {selectedModel && <span className="text-zinc-200">已选择: {selectedModel}</span>}
+                        {selectedModel && <span className="text-zinc-200">{t.modelSelector.selected(selectedModel)}</span>}
                     </div>
                     <button
                         onClick={onClose}
                         className="px-4 py-2 bg-zinc-800 border border-zinc-600 rounded text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
                     >
-                        关闭
+                        {t.modelSelector.close}
                     </button>
                 </div>
             </div>

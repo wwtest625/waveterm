@@ -4,13 +4,19 @@
 package aiusechat
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
+	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/fsutil"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 	"github.com/wavetermdev/waveterm/pkg/util/fileutil"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 )
@@ -28,6 +34,9 @@ func requireRemoteFileTarget(filename string, toolUseData *uctypes.UIMessageData
 			"file tools only support Linux absolute paths on the current remote terminal connection; got %q",
 			filename,
 		)
+	}
+	if err := validateFilename(filename); err != nil {
+		return nil, fmt.Errorf("invalid filename: %w", err)
 	}
 	resolved, _, err := resolveWaveRunCommandTarget(&WaveRunCommandToolInput{Command: "true"}, toolUseData)
 	if err != nil || resolved == nil {
@@ -48,142 +57,65 @@ func resolveRemoteWriteTarget(filename string, toolUseData *uctypes.UIMessageDat
 	return resolveRemoteFileTarget(filename, toolUseData)
 }
 
-func quoteForSingleQuotedShell(value string) string {
-	return strings.ReplaceAll(value, `'`, `'"'"'`)
-}
-
-func buildRemoteWriteCommand(filename string, contents string) string {
-	marker := fmt.Sprintf("WAVE_WRITE_EOF_%d", time.Now().UnixNano())
-	for strings.Contains(contents, "\n"+marker+"\n") || strings.HasSuffix(contents, "\n"+marker) {
-		marker = fmt.Sprintf("WAVE_WRITE_EOF_%d", time.Now().UnixNano())
-	}
-	return fmt.Sprintf("cat > '%s' <<'%s'\n%s\n%s", quoteForSingleQuotedShell(filename), marker, contents, marker)
-}
-
-func runRemoteWriteCommand(target *WaveRunCommandToolInput, command string) error {
-	if target == nil {
-		return fmt.Errorf("remote target is required")
-	}
-	result, err := runRemoteCommand(target, command, 30*time.Second, 32768)
-	if err != nil {
-		return err
-	}
-	if result.Status == "error" {
-		return fmt.Errorf("remote write command failed: %s", strings.TrimSpace(result.Error))
-	}
-	if result.ExitCode != nil && *result.ExitCode != 0 {
-		errText := strings.TrimSpace(result.Error)
-		if errText == "" {
-			errText = strings.TrimSpace(result.Output)
+func validateFilename(filename string) error {
+	for _, r := range filename {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("filename contains control characters (0x%02x), which are not allowed", r)
 		}
-		if errText == "" {
-			errText = fmt.Sprintf("exit code %d", *result.ExitCode)
-		}
-		return fmt.Errorf("remote write command failed: %s", errText)
 	}
 	return nil
 }
 
-func runRemoteReadFileCommand(target *WaveRunCommandToolInput, filename string) (string, error) {
-	if target == nil {
-		return "", fmt.Errorf("remote target is required")
+func makeRemoteRpcOpts(target *WaveRunCommandToolInput, timeout int64) *wshrpc.RpcOpts {
+	return &wshrpc.RpcOpts{
+		Route:   wshutil.MakeConnectionRouteId(target.Connection),
+		Timeout: timeout,
 	}
-	readCmd := fmt.Sprintf("cat -- '%s'", quoteForSingleQuotedShell(filename))
-	return runRemoteShellCommandForText(target, readCmd, 30*time.Second, 512*1024)
 }
 
-func runRemoteShellCommandForText(
-	target *WaveRunCommandToolInput,
-	command string,
-	timeout time.Duration,
-	tailBytes int64,
-) (string, error) {
-	if target == nil {
-		return "", fmt.Errorf("remote target is required")
-	}
-	if strings.TrimSpace(command) == "" {
-		return "", fmt.Errorf("remote command is required")
-	}
-	result, err := runRemoteCommand(target, command, timeout, tailBytes)
-	if err != nil {
-		return "", err
-	}
-	if result.Status == "error" {
-		return "", fmt.Errorf("remote command failed: %s", strings.TrimSpace(result.Error))
-	}
-	if result.ExitCode != nil && *result.ExitCode != 0 {
-		errText := strings.TrimSpace(result.Error)
-		if errText == "" {
-			errText = strings.TrimSpace(result.Output)
-		}
-		if errText == "" {
-			errText = fmt.Sprintf("exit code %d", *result.ExitCode)
-		}
-		return "", fmt.Errorf("remote command failed: %s", errText)
-	}
-	return result.Output, nil
-}
-
-func runRemoteDeleteFileCommand(target *WaveRunCommandToolInput, filename string) error {
+func rpcRemoteWriteFile(target *WaveRunCommandToolInput, filename string, contents []byte) error {
 	if target == nil {
 		return fmt.Errorf("remote target is required")
 	}
-	deleteCmd := fmt.Sprintf("rm -- '%s'", quoteForSingleQuotedShell(filename))
-	result, err := runRemoteCommand(target, deleteCmd, 30*time.Second, 512*1024)
-	if err != nil {
-		return err
-	}
-	if result.Status == "error" {
-		return fmt.Errorf("remote delete command failed: %s", strings.TrimSpace(result.Error))
-	}
-	if result.ExitCode != nil && *result.ExitCode != 0 {
-		errText := strings.TrimSpace(result.Error)
-		if errText == "" {
-			errText = strings.TrimSpace(result.Output)
-		}
-		if errText == "" {
-			errText = fmt.Sprintf("exit code %d", *result.ExitCode)
-		}
-		return fmt.Errorf("remote delete command failed: %s", errText)
-	}
-	return nil
-}
-
-func runRemoteCommand(
-	target *WaveRunCommandToolInput,
-	command string,
-	timeout time.Duration,
-	tailBytes int64,
-) (*wshrpc.CommandAgentGetCommandResultRtnData, error) {
 	rpcClient := wshclient.GetBareRpcClient()
-	started, err := wshclient.AgentRunCommandCommand(rpcClient, wshrpc.CommandAgentRunCommandData{
-		ConnName:    target.Connection,
-		Cwd:         target.Cwd,
-		Cmd:         "sh",
-		Args:        []string{"-lc", command},
-		Interactive: false,
-	}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start remote command: %w", err)
+	data := wshrpc.FileData{
+		Info: &wshrpc.FileInfo{
+			Path: filename,
+			Opts: &wshrpc.FileOpts{Truncate: true},
+		},
+		Data64: base64.StdEncoding.EncodeToString(contents),
 	}
-	deadline := time.Now().Add(timeout)
-	for {
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("timed out waiting for remote command result")
-		}
-		result, err := wshclient.AgentGetCommandResultCommand(rpcClient, wshrpc.CommandAgentGetCommandResultData{
-			JobId:     started.JobId,
-			TailBytes: tailBytes,
-		}, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read remote command result: %w", err)
-		}
-		if result.Status == "running" {
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-		return result, nil
+	opts := makeRemoteRpcOpts(target, 30000)
+	return wshclient.RemoteWriteFileCommand(rpcClient, data, opts)
+}
+
+func rpcRemoteReadFile(target *WaveRunCommandToolInput, filename string) (string, error) {
+	if target == nil {
+		return "", fmt.Errorf("remote target is required")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	rpcClient := wshclient.GetBareRpcClient()
+	opts := makeRemoteRpcOpts(target, 30000)
+	streamCh := wshclient.RemoteStreamFileCommand(rpcClient, wshrpc.CommandRemoteStreamFileData{
+		Path: filename,
+	}, opts)
+	var buf bytes.Buffer
+	if err := fsutil.ReadFileStreamToWriter(ctx, streamCh, &buf); err != nil {
+		return "", fmt.Errorf("failed to read remote file %q: %w", filename, err)
+	}
+	return buf.String(), nil
+}
+
+func rpcRemoteDeleteFile(target *WaveRunCommandToolInput, filename string) error {
+	if target == nil {
+		return fmt.Errorf("remote target is required")
+	}
+	rpcClient := wshclient.GetBareRpcClient()
+	opts := makeRemoteRpcOpts(target, 30000)
+	return wshclient.RemoteFileDeleteCommand(rpcClient, wshrpc.CommandDeleteFileData{
+		Path: filename,
+	}, opts)
 }
 
 type writeTextFileParams struct {
@@ -247,7 +179,7 @@ func writeTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse)
 	if utilfn.HasBinaryData(contentsBytes) {
 		return nil, fmt.Errorf("contents appear to contain binary data")
 	}
-	if err := runRemoteWriteCommand(remoteTarget, buildRemoteWriteCommand(params.Filename, params.Contents)); err != nil {
+	if err := rpcRemoteWriteFile(remoteTarget, params.Filename, contentsBytes); err != nil {
 		return nil, err
 	}
 
@@ -287,7 +219,7 @@ func GetWriteTextFileToolDefinition() uctypes.ToolDefinition {
 			return fmt.Sprintf("writing %q", params.Filename)
 		},
 		ToolAnyCallback: writeTextFileCallback,
-		ToolApproval: func(input any) string {
+		ToolApproval: func(input any, _ uctypes.ApprovalContext) string {
 			return uctypes.ApprovalAutoApproved
 		},
 		ToolVerifyInput: verifyWriteTextFileInput,
@@ -366,6 +298,10 @@ func applyEditBatch(originalContent []byte, edits []fileutil.EditSpec) ([]byte, 
 	return modifiedContent, results, nil
 }
 
+func fileChecksum(data []byte) [sha256.Size]byte {
+	return sha256.Sum256(data)
+}
+
 func editTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse) (any, error) {
 	params, err := parseEditTextFileInput(input)
 	if err != nil {
@@ -376,15 +312,25 @@ func editTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse) 
 	if err != nil {
 		return nil, err
 	}
-	remoteContent, err := runRemoteReadFileCommand(remoteTarget, params.Filename)
+	remoteContent, err := rpcRemoteReadFile(remoteTarget, params.Filename)
 	if err != nil {
 		return nil, err
 	}
-	modifiedContent, _, err := applyEditBatch([]byte(remoteContent), params.Edits)
+	originalBytes := []byte(remoteContent)
+	originalChecksum := fileChecksum(originalBytes)
+	modifiedContent, _, err := applyEditBatch(originalBytes, params.Edits)
 	if err != nil {
 		return nil, err
 	}
-	if err := runRemoteWriteCommand(remoteTarget, buildRemoteWriteCommand(params.Filename, string(modifiedContent))); err != nil {
+	preWriteContent, err := rpcRemoteReadFile(remoteTarget, params.Filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to re-read file before writing (TOCTOU check): %w", err)
+	}
+	preWriteChecksum := fileChecksum([]byte(preWriteContent))
+	if preWriteChecksum != originalChecksum {
+		return nil, fmt.Errorf("file %q was modified by another process after reading; please re-read the file and retry the edit", params.Filename)
+	}
+	if err := rpcRemoteWriteFile(remoteTarget, params.Filename, modifiedContent); err != nil {
 		return nil, err
 	}
 
@@ -451,7 +397,7 @@ func GetEditTextFileToolDefinition() uctypes.ToolDefinition {
 			return fmt.Sprintf("editing %q (%d %s)", params.Filename, editCount, editWord)
 		},
 		ToolAnyCallback: editTextFileCallback,
-		ToolApproval: func(input any) string {
+		ToolApproval: func(input any, _ uctypes.ApprovalContext) string {
 			return uctypes.ApprovalAutoApproved
 		},
 		ToolVerifyInput: verifyEditTextFileInput,
@@ -503,7 +449,7 @@ func deleteTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse
 	if err != nil {
 		return nil, err
 	}
-	if err := runRemoteDeleteFileCommand(remoteTarget, params.Filename); err != nil {
+	if err := rpcRemoteDeleteFile(remoteTarget, params.Filename); err != nil {
 		return nil, err
 	}
 
@@ -539,7 +485,7 @@ func GetDeleteTextFileToolDefinition() uctypes.ToolDefinition {
 			return fmt.Sprintf("deleting %q", params.Filename)
 		},
 		ToolAnyCallback: deleteTextFileCallback,
-		ToolApproval: func(input any) string {
+		ToolApproval: func(input any, _ uctypes.ApprovalContext) string {
 			return uctypes.ApprovalNeedsApproval
 		},
 		ToolVerifyInput: verifyDeleteTextFileInput,

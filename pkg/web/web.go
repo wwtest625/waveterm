@@ -14,9 +14,11 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -351,6 +353,53 @@ func handleStreamFile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleStreamDirectory(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+
+	zipResult, err := wshfs.ZipDirectory(r.Context(), path)
+	if err != nil {
+		log.Printf("error zipping directory %q: %v\n", path, err)
+		http.Error(w, fmt.Sprintf("error zipping directory: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	dirName := "directory"
+	if parsedUrl, parseErr := url.Parse(path); parseErr == nil {
+		urlPath := parsedUrl.Path
+		if urlPath != "" {
+			parts := strings.Split(strings.TrimRight(urlPath, "/"), "/")
+			if len(parts) > 0 && parts[len(parts)-1] != "" {
+				dirName = parts[len(parts)-1]
+			}
+		}
+	}
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, dirName))
+
+	zipRemoteUri := wshfs.MakeZipStreamUri(r.Context(), path, zipResult.ZipPath)
+	rtnCh := wshfs.ReadStream(r.Context(), wshrpc.FileData{
+		Info: &wshrpc.FileInfo{
+			Path: zipRemoteUri,
+		},
+	})
+
+	err = handleRemoteStreamFileFromCh(w, r, zipRemoteUri, rtnCh, nil, false)
+	if err != nil {
+		log.Printf("error streaming zip file %q: %v\n", zipRemoteUri, err)
+		http.Error(w, fmt.Sprintf("error streaming zip file: %v", err), http.StatusInternalServerError)
+	}
+
+	go func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		wshfs.DeleteTempFile(cleanupCtx, path, zipResult.ZipPath)
+	}()
+}
+
 func WriteJsonError(w http.ResponseWriter, errVal error) {
 	w.Header().Set(ContentTypeHeaderKey, ContentTypeJson)
 	w.WriteHeader(http.StatusOK)
@@ -456,6 +505,8 @@ func RunWebServer(listener net.Listener) {
 	waveRouter.HandleFunc("/wave/stream-local-file", WebFnWrap(WebFnOpts{AllowCaching: true}, handleStreamLocalFile))
 	waveRouter.HandleFunc("/wave/stream-file", WebFnWrap(WebFnOpts{AllowCaching: true}, handleStreamFile))
 	waveRouter.PathPrefix("/wave/stream-file/").HandlerFunc(WebFnWrap(WebFnOpts{AllowCaching: true}, handleStreamFile))
+	waveRouter.HandleFunc("/wave/stream-directory", WebFnWrap(WebFnOpts{AllowCaching: false}, handleStreamDirectory))
+	waveRouter.PathPrefix("/wave/stream-directory/").HandlerFunc(WebFnWrap(WebFnOpts{AllowCaching: false}, handleStreamDirectory))
 	waveRouter.HandleFunc("/wave/file", WebFnWrap(WebFnOpts{AllowCaching: false}, handleWaveFile))
 	waveRouter.HandleFunc("/wave/service", WebFnWrap(WebFnOpts{JsonErrors: true}, handleService))
 	waveRouter.HandleFunc("/wave/aichat", WebFnWrap(WebFnOpts{JsonErrors: true, AllowCaching: false}, aiusechat.WaveAIGetChatHandler))

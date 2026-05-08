@@ -488,6 +488,7 @@ type DockerContainerSummary struct {
 	Id         string `json:"id"`
 	Name       string `json:"name"`
 	Image      string `json:"image"`
+	ImageId    string `json:"imageId"`
 	State      string `json:"state"`
 	StatusText string `json:"statusText"`
 	PortsText  string `json:"portsText"`

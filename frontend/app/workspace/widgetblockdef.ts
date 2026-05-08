@@ -1,5 +1,4 @@
-// Copyright 2026, Command Line Inc.
-// SPDX-License-Identifier: Apache-2.0
+import { isDev } from "@/util/isdev";
 
 type FocusedBlockContext = {
     view?: string;
@@ -13,20 +12,19 @@ export function buildWidgetBlockDef(widget: WidgetConfigType, focusedBlock?: Foc
     const meta = { ...(source.meta ?? {}) };
 
     if (meta.view === "preview") {
-        console.log("[FileBrowserState] buildWidgetBlockDef: preview widget, focusedBlock=", focusedBlock, "original meta.file=", meta.file);
         if (focusedBlock?.savedDirPath != null && focusedBlock.savedDirPath !== "") {
-            console.log("[FileBrowserState] buildWidgetBlockDef: using savedDirPath=", focusedBlock.savedDirPath);
+            if (isDev()) {
+                console.log("[FileBrowserState] buildWidgetBlockDef: using savedDirPath=%s", focusedBlock.savedDirPath);
+            }
             meta.file = focusedBlock.savedDirPath;
         } else if (focusedBlock?.view === "term") {
             if (focusedBlock.connection != null && focusedBlock.connection !== "") {
                 meta.connection = focusedBlock.connection;
             }
             if (focusedBlock.cwd != null && focusedBlock.cwd !== "") {
-                console.log("[FileBrowserState] buildWidgetBlockDef: using terminal cwd=", focusedBlock.cwd);
                 meta.file = focusedBlock.cwd;
             }
         }
-        console.log("[FileBrowserState] buildWidgetBlockDef: final meta.file=", meta.file, "meta.connection=", meta.connection);
     }
 
     if (meta.view === "docker" && focusedBlock?.view === "term") {

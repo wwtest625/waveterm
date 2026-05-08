@@ -39,6 +39,7 @@ var WaveEventDataTypes = map[string]reflect.Type{
 	wps.Event_AIModeConfig:        reflect.TypeOf(wconfig.AIModeConfigUpdate{}),
 	wps.Event_TabIndicator:        reflect.TypeOf(wshrpc.TabIndicatorEventData{}),
 	wps.Event_BlockJobStatus:      reflect.TypeOf(wshrpc.BlockJobStatusData{}),
+	wps.Event_WaveAIBgJob:         reflect.TypeOf(uctypes.UIChatBackgroundJobInfo{}),
 }
 
 func getWaveEventDataTSType(eventName string, tsTypesMap map[reflect.Type]string) string {

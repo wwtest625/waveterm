@@ -296,6 +296,12 @@ declare global {
         termsize?: TermSize;
     };
 
+    // wshrpc.CommandCancelWaveAIBackgroundJobsData
+    type CommandCancelWaveAIBackgroundJobsData = {
+        chatid: string;
+        jobids: string[];
+    };
+
     // wshrpc.CommandCaptureBlockScreenshotData
     type CommandCaptureBlockScreenshotData = {
         blockid: string;
@@ -307,6 +313,11 @@ declare global {
         gopath: string;
         goversion: string;
         errorstring?: string;
+    };
+
+    // wshrpc.CommandClearWaveAIBackgroundJobsData
+    type CommandClearWaveAIBackgroundJobsData = {
+        chatid: string;
     };
 
     // wshrpc.CommandConnServerInitData
@@ -454,11 +465,6 @@ declare global {
         filename?: string;
     };
 
-    // wshrpc.CommandGetWaveAIChatData
-    type CommandGetWaveAIChatData = {
-        chatid: string;
-    };
-
     // wshrpc.CommandGetWaveAIBackgroundJobData
     type CommandGetWaveAIBackgroundJobData = {
         chatid: string;
@@ -466,15 +472,15 @@ declare global {
         toolcallid?: string;
     };
 
+    // wshrpc.CommandGetWaveAIChatData
+    type CommandGetWaveAIChatData = {
+        chatid: string;
+    };
+
     // wshrpc.CommandImportSkillZipData
     type CommandImportSkillZipData = {
         zippath: string;
         overwrite?: boolean;
-    };
-
-    // wshrpc.CommandListWaveAIBackgroundJobsData
-    type CommandListWaveAIBackgroundJobsData = {
-        chatid: string;
     };
 
     // wshrpc.CommandJobCmdExitedData
@@ -547,6 +553,11 @@ declare global {
         entrycount: number;
         totalentries: number;
         truncated?: boolean;
+    };
+
+    // wshrpc.CommandListWaveAIBackgroundJobsData
+    type CommandListWaveAIBackgroundJobsData = {
+        chatid: string;
     };
 
     // wshrpc.CommandListWaveAISessionsData
@@ -662,6 +673,17 @@ declare global {
         jobid: string;
         jobmanagerpid: number;
         jobmanagerstartts: number;
+    };
+
+    // wshrpc.CommandRemoteZipDirectoryData
+    type CommandRemoteZipDirectoryData = {
+        path: string;
+    };
+
+    // wshrpc.CommandRemoteZipDirectoryRtnData
+    type CommandRemoteZipDirectoryRtnData = {
+        zippath: string;
+        size: number;
     };
 
     // wshrpc.CommandRenameAppFileData
@@ -781,17 +803,6 @@ declare global {
         archived?: boolean;
         deleted?: boolean;
         lasttaskstate?: string;
-    };
-
-    // wshrpc.CommandCancelWaveAIBackgroundJobsData
-    type CommandCancelWaveAIBackgroundJobsData = {
-        chatid: string;
-        jobids: string[];
-    };
-
-    // wshrpc.CommandClearWaveAIBackgroundJobsData
-    type CommandClearWaveAIBackgroundJobsData = {
-        chatid: string;
     };
 
     // wshrpc.CommandVarData
@@ -1006,6 +1017,7 @@ declare global {
         id: string;
         name: string;
         image: string;
+        imageId: string;
         state: string;
         statusText: string;
         portsText: string;
@@ -1870,6 +1882,30 @@ declare global {
         "waveai:islocal"?: boolean;
         "waveai:feedback"?: "good" | "bad";
         "waveai:action"?: string;
+        "waveai:traceid"?: string;
+        "waveai:agentmode"?: string;
+        "waveai:ttfbms"?: number;
+        "waveai:totalms"?: number;
+        "waveai:streamms"?: number;
+        "waveai:hadfirsttoken"?: boolean;
+        "waveai:tool"?: string;
+        "waveai:requestid"?: string;
+        "waveai:taskid"?: string;
+        "waveai:capability"?: string;
+        "waveai:ok"?: boolean;
+        "waveai:durationms"?: number;
+        "waveai:jobid"?: string;
+        "waveai:error"?: string;
+        "waveai:exitcode"?: number;
+        "waveai:scope"?: string;
+        "waveai:retrycount"?: number;
+        "waveai:maxretries"?: number;
+        "waveai:lasterror"?: string;
+        "waveai:endstate"?: string;
+        "waveai:state"?: string;
+        "waveai:waitms"?: number;
+        "action:source"?: string;
+        "action:blockid"?: string;
         "job:donereason"?: string;
         "job:kind"?: string;
         $set?: TEventUserProps;
@@ -2138,23 +2174,6 @@ declare global {
         messages: UIMessage[];
     };
 
-    // uctypes.UIChatSessionMeta
-    type UIChatSessionMeta = {
-        chatid: string;
-        tabid?: string;
-        title?: string;
-        summary?: string;
-        cheatsheet?: SessionCheatsheet;
-        taskstate?: UITaskProgressState;
-        backgroundjobs?: UIChatBackgroundJobInfo[];
-        createdts?: number;
-        updatedts?: number;
-        favorite?: boolean;
-        lasttaskstate?: string;
-        archived?: boolean;
-        deleted?: boolean;
-    };
-
     // uctypes.UIChatBackgroundJobInfo
     type UIChatBackgroundJobInfo = {
         jobid: string;
@@ -2174,6 +2193,23 @@ declare global {
         error?: string;
         outputpreview?: string;
         turnid?: string;
+    };
+
+    // uctypes.UIChatSessionMeta
+    type UIChatSessionMeta = {
+        chatid: string;
+        tabid?: string;
+        title?: string;
+        summary?: string;
+        cheatsheet?: SessionCheatsheet;
+        taskstate?: UITaskProgressState;
+        backgroundjobs?: UIChatBackgroundJobInfo[];
+        createdts?: number;
+        updatedts?: number;
+        favorite?: boolean;
+        lasttaskstate?: string;
+        archived?: boolean;
+        deleted?: boolean;
     };
 
     // waveobj.UIContext

@@ -6,6 +6,7 @@ package aiusechat
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/web/sse"
@@ -50,6 +51,29 @@ type PendingActionRegistry struct {
 
 var globalPendingActionRegistry = &PendingActionRegistry{
 	requests: make(map[string]*PendingActionRequest),
+}
+
+func init() {
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			globalPendingActionRegistry.cleanupCompleted()
+		}
+	}()
+}
+
+func (r *PendingActionRegistry) cleanupCompleted() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, req := range r.requests {
+		req.mu.Lock()
+		done := req.done
+		req.mu.Unlock()
+		if done {
+			delete(r.requests, id)
+		}
+	}
 }
 
 func (r *PendingActionRegistry) Register(actionId string, req PendingActionRequest) {

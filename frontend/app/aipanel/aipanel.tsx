@@ -1,1004 +1,43 @@
-// Copyright 2025, Command Line Inc.
-// SPDX-License-Identifier: Apache-2.0
-
 import { handleWaveAIContextMenu } from "@/app/aipanel/aipanel-contextmenu";
 import { waveAIHasSelection } from "@/app/aipanel/waveai-focus-utils";
 import { ErrorBoundary } from "@/app/element/errorboundary";
-import { atoms, getFocusedBlockId, getSettingsKeyAtom, recordTEvent } from "@/app/store/global";
+import { Modal } from "@/app/modals/modal";
+import { atoms, getSettingsKeyAtom } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { maybeUseTabModel } from "@/app/store/tab-model";
 import { checkKeyPressed, keydownWrapper } from "@/util/keyutil";
 import { cn } from "@/util/util";
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
 import * as jotai from "jotai";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useDrop } from "react-dnd";
-import { Popover, PopoverButton, PopoverContent } from "../element/popover";
-import { deriveAgentRuntimeStatus } from "./agentstatus";
-import { formatFileSizeError, isAcceptableFile, validateFileSize } from "./ai-utils";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AIDroppedFiles } from "./aidroppedfiles";
-import { AIModeDropdown } from "./aimode";
+import { BackgroundJobsPanel } from "./aibgjobspanel";
+import { CommandInteractionInput } from "./aicommandinteraction";
+import { AIBlockMask, AIDragOverlay, AIErrorMessage, AIWelcomeMessage, ConfigChangeModeFixer } from "./aiminorcomponents";
+import { AISessionToolbar } from "./aisessiontoolbar";
+import { t } from "./aipanel-i18n";
+import { useBackgroundJobsRefresh, useChatSetup, useFileDragDrop, useMessageAnalysis, usePerformanceTracking } from "./aipanel-hooks";
 import { loadInitialChatForPanel } from "./aipanel-loadutil";
 import { AIPanelInput } from "./aipanelinput";
 import { AIPanelMessages } from "./aipanelmessages";
-import { shouldHideProgressStatusLines } from "./aitooluse";
-import {
-    AgentTaskState,
-    AskUserData,
-    ChatBackgroundJobDetail,
-    WaveChatSessionMeta,
-    WaveUIMessage,
-    coalesceMessageParts,
-    getLatestAskPart,
-    getLatestTaskStatePart,
-    getLatestVisibleToolProgressPart,
-    getLatestVisibleToolUsePart,
-    isInternalAssistantToolName,
-    isTerminalRuntimeState,
-    toolCallFromPart,
-    toolResultFromPart,
-} from "./aitypes";
+import { QueuedMessageCard } from "./aipanel-queued-messages";
+import { AIPanelChatContext } from "./aipanel-chat-context";
 import { TaskProgressPanel } from "./taskprogresspanel";
 import { WaveAIModel } from "./waveai-model";
 
-const AIBlockMask = memo(() => {
-    return (
-        <div
-            key="block-mask"
-            className="absolute top-0 left-0 right-0 bottom-0 border-1 border-transparent pointer-events-auto select-none p-0.5"
-            style={{
-                borderRadius: "var(--block-border-radius)",
-                zIndex: "var(--zindex-block-mask-inner)",
-            }}
-        >
-            <div
-                className="w-full mt-[44px] h-[calc(100%-44px)] flex items-center justify-center"
-                style={{
-                    backgroundColor: "rgb(from var(--block-bg-color) r g b / 50%)",
-                }}
-            >
-                <div className="font-bold opacity-70 mt-[-25%] text-[60px]">0</div>
-            </div>
-        </div>
-    );
-});
-
-AIBlockMask.displayName = "AIBlockMask";
-
-const AIDragOverlay = memo(() => {
-    return (
-        <div
-            key="drag-overlay"
-            className="absolute inset-0 bg-accent/20 border-2 border-dashed border-accent rounded-lg flex items-center justify-center z-10 p-4"
-        >
-            <div className="text-accent text-center">
-                <i className="fa fa-upload text-3xl mb-2"></i>
-                <div className="text-lg font-semibold">Drop files here</div>
-                <div className="text-sm">Images, PDFs, and text/code files supported</div>
-            </div>
-        </div>
-    );
-});
-
-AIDragOverlay.displayName = "AIDragOverlay";
-
-const AIWelcomeMessage = memo(() => {
-    return (
-        <div className="flex flex-col items-center justify-center py-16 text-zinc-400">
-            <p className="text-sm font-medium text-zinc-200">欢迎使用 Wiz AI</p>
-        </div>
-    );
-});
-
-AIWelcomeMessage.displayName = "AIWelcomeMessage";
-
-type ContextUsageStats = {
-    usedTokens: number;
-    totalTokens: number;
-    usedPercent: number;
-};
-
-const MODEL_CONTEXT_TOKEN_LIMITS: Array<{ pattern: RegExp; limit: number }> = [
-    { pattern: /gpt-5|gpt-4\.1|o1|o3|o4/i, limit: 256000 },
-    { pattern: /claude-4|claude-sonnet|claude-opus|claude-haiku/i, limit: 200000 },
-    { pattern: /gemini-2\.5|gemini-2\.0/i, limit: 1000000 },
-    { pattern: /gemini-1\.5/i, limit: 1000000 },
-    { pattern: /qwen|deepseek|llama|mixtral|mistral|yi|phi/i, limit: 128000 },
-];
-
-function resolveModelContextLimit(modelName: string | undefined): number {
-    const normalized = (modelName ?? "").trim();
-    if (!normalized) {
-        return 128000;
-    }
-    for (const item of MODEL_CONTEXT_TOKEN_LIMITS) {
-        if (item.pattern.test(normalized)) {
-            return item.limit;
-        }
-    }
-    return 128000;
-}
-
-function estimateTokensFromText(text: string | undefined): number {
-    const normalized = (text ?? "").trim();
-    if (!normalized) {
-        return 0;
-    }
-    // Heuristic only: mixed CJK/Latin conversations are usually between 1 token per 2-4 chars.
-    return Math.ceil(normalized.length / 3);
-}
-
-function estimateMessageTokens(message: WaveUIMessage): number {
-    if (!message?.parts || message.parts.length === 0) {
-        return 0;
-    }
-    let tokens = 0;
-    for (const part of message.parts) {
-        if (part.type === "text" || part.type === "reasoning") {
-            tokens += estimateTokensFromText(part.text);
-            continue;
-        }
-        if (part.type === "data-tooluse") {
-            const toolData = part.data as any;
-            tokens += estimateTokensFromText(toolData?.tooldesc);
-            tokens += estimateTokensFromText(toolData?.outputtext);
-            tokens += estimateTokensFromText(toolData?.errormessage);
-            continue;
-        }
-        if (part.type === "data-toolprogress") {
-            const progressData = part.data as any;
-            const lines = Array.isArray(progressData?.statuslines) ? progressData.statuslines : [];
-            for (const line of lines) {
-                tokens += estimateTokensFromText(line);
-            }
-            continue;
-        }
-        if (part.type === "data-ask") {
-            const askData = part.data as any;
-            tokens += estimateTokensFromText(askData?.prompt);
-            continue;
-        }
-    }
-    return tokens;
-}
-
-const messageTokenEstimateCache = new WeakMap<WaveUIMessage, number>();
-
-function estimateMessageTokensCached(message: WaveUIMessage): number {
-    const cached = messageTokenEstimateCache.get(message);
-    if (cached != null) {
-        return cached;
-    }
-    const estimated = estimateMessageTokens(message);
-    messageTokenEstimateCache.set(message, estimated);
-    return estimated;
-}
-
-function computeContextUsageStats(messages: WaveUIMessage[], modelName: string | undefined): ContextUsageStats {
-    let usedTokens = 0;
-    for (const message of messages) {
-        usedTokens += estimateMessageTokensCached(message);
-    }
-    const totalTokens = resolveModelContextLimit(modelName);
-    const usedPercent = totalTokens > 0 ? Math.min(100, Math.round((usedTokens / totalTokens) * 100)) : 0;
-    return {
-        usedTokens,
-        totalTokens,
-        usedPercent,
-    };
-}
-
-function formatTokensCompact(tokens: number): string {
-    if (tokens >= 1000000) {
-        return `${Math.round(tokens / 10000) / 100}M`;
-    }
-    if (tokens >= 1000) {
-        return `${Math.round(tokens / 10) / 100}K`;
-    }
-    return `${tokens}`;
-}
-
-const AIErrorMessage = memo(() => {
-    const model = WaveAIModel.getInstance();
-    const errorMessage = jotai.useAtomValue(model.errorMessage);
-
-    if (!errorMessage) {
-        return null;
-    }
-
-    return (
-        <div className="mx-3 mb-2 rounded-xl border border-red-500/15 bg-red-500/[0.04] px-3 py-2 relative">
-            <button
-                onClick={() => model.clearError()}
-                className="absolute top-2 right-2 text-red-400/60 hover:text-red-300 cursor-pointer z-10"
-                aria-label="Close error"
-            >
-                <i className="fa fa-times text-xs"></i>
-            </button>
-            <div className="text-xs pr-6 max-h-[80px] overflow-y-auto text-red-200/80">
-                {errorMessage}
-                <button
-                    onClick={() => model.clearChat()}
-                    className="ml-2 text-[10px] text-red-300/50 hover:text-red-200 cursor-pointer underline"
-                >
-                    New Chat
-                </button>
-            </div>
-        </div>
-    );
-});
-
-AIErrorMessage.displayName = "AIErrorMessage";
-
-const ConfigChangeModeFixer = memo(() => {
-    const model = WaveAIModel.getInstance();
-    const aiModeConfigs = jotai.useAtomValue(model.aiModeConfigs);
-
-    useEffect(() => {
-        model.fixModeAfterConfigChange();
-    }, [aiModeConfigs, model]);
-
-    return null;
-});
-
-ConfigChangeModeFixer.displayName = "ConfigChangeModeFixer";
-
-export function getHorizontalSessionTabs(
-    sessions: WaveChatSessionMeta[],
-    hiddenSessionIds: string[],
-    activeChatId: string | null | undefined,
-    maxTabs = 3
-): WaveChatSessionMeta[] {
-    const visibleSessions = sessions.filter((session) => !hiddenSessionIds.includes(session.chatid));
-    const normalizedMaxTabs = Math.max(1, maxTabs);
-    const defaultTabs = visibleSessions.slice(0, normalizedMaxTabs);
-    if (!activeChatId) {
-        return defaultTabs;
-    }
-    if (defaultTabs.some((session) => session.chatid === activeChatId)) {
-        return defaultTabs;
-    }
-    const activeSession = visibleSessions.find((session) => session.chatid === activeChatId);
-    if (!activeSession) {
-        return defaultTabs;
-    }
-    const tabsWithActive = [...defaultTabs.slice(0, normalizedMaxTabs - 1), activeSession];
-    const visibleIndexByChatId = new Map(visibleSessions.map((session, index) => [session.chatid, index]));
-    return tabsWithActive.sort((left, right) => {
-        const leftIndex = visibleIndexByChatId.get(left.chatid) ?? Number.MAX_SAFE_INTEGER;
-        const rightIndex = visibleIndexByChatId.get(right.chatid) ?? Number.MAX_SAFE_INTEGER;
-        return leftIndex - rightIndex;
-    });
-}
-
-type SessionHistoryGroup = {
-    label: string;
-    sessions: WaveChatSessionMeta[];
-};
-
-function normalizeSessionTs(ts: number | undefined): number {
-    if (!ts || ts <= 0) {
-        return 0;
-    }
-    return ts < 1_000_000_000_000 ? ts * 1000 : ts;
-}
-
-function getSessionSortTs(session: WaveChatSessionMeta): number {
-    return normalizeSessionTs(session.updatedts ?? session.createdts);
-}
-
-function formatHistoryGroupLabel(dayStartTs: number, todayStartTs: number): string {
-    if (dayStartTs === todayStartTs) {
-        return "今天";
-    }
-    if (dayStartTs === todayStartTs - 24 * 60 * 60 * 1000) {
-        return "昨天";
-    }
-    const date = new Date(dayStartTs);
-    const year = date.getFullYear();
-    const month = `${date.getMonth() + 1}`.padStart(2, "0");
-    const day = `${date.getDate()}`.padStart(2, "0");
-    return `${year}.${month}.${day}`;
-}
-
-const AISessionToolbar = memo(({ messages }: { messages: WaveUIMessage[] }) => {
-    const model = WaveAIModel.getInstance();
-    const sessions = jotai.useAtomValue(model.sessionsAtom);
-    const hiddenSessionIds = jotai.useAtomValue(model.hiddenSessionIdsAtom);
-    const activeChatId = jotai.useAtomValue(model.chatId);
-    const [query, setQuery] = useState("");
-    const [cheatsheetDraft, setCheatsheetDraft] = useState({
-        currentwork: "",
-        completed: "",
-        blockedby: "",
-        nextstep: "",
-    });
-    const currentMode = jotai.useAtomValue(model.currentAIMode);
-    const aiModeConfigs = jotai.useAtomValue(model.aiModeConfigs);
-    const currentModelName = aiModeConfigs?.[currentMode]?.["ai:model"];
-    const activeSession = useMemo(
-        () => sessions.find((session) => session.chatid === activeChatId) ?? null,
-        [activeChatId, sessions]
-    );
-    const contextUsage = useMemo(
-        () => computeContextUsageStats(messages, currentModelName),
-        [messages, currentModelName]
-    );
-
-    useEffect(() => {
-        const cheatsheet = activeSession?.cheatsheet;
-        setCheatsheetDraft({
-            currentwork: cheatsheet?.currentwork ?? "",
-            completed: cheatsheet?.completed ?? "",
-            blockedby: cheatsheet?.blockedby ?? "",
-            nextstep: cheatsheet?.nextstep ?? "",
-        });
-    }, [
-        activeSession?.chatid,
-        activeSession?.cheatsheet?.blockedby,
-        activeSession?.cheatsheet?.completed,
-        activeSession?.cheatsheet?.currentwork,
-        activeSession?.cheatsheet?.nextstep,
-    ]);
-
-    const filteredSessions = sessions.filter((session) => {
-        if (hiddenSessionIds.includes(session.chatid)) {
-            return false;
-        }
-        const needle = query.trim().toLowerCase();
-        if (!needle) {
-            return true;
-        }
-        const haystack = `${session.title ?? ""} ${session.summary ?? ""}`.toLowerCase();
-        return haystack.includes(needle);
-    });
-    const displaySessions = useMemo(() => {
-        let seenDraftSession = false;
-        return filteredSessions.filter((session) => {
-            const isReusableDraftSession = (session.title ?? "") === "New Chat" && !(session.summary ?? "").trim();
-            if (!isReusableDraftSession) {
-                return true;
-            }
-            if (seenDraftSession) {
-                return false;
-            }
-            seenDraftSession = true;
-            return true;
-        });
-    }, [filteredSessions]);
-    const groupedHistorySessions = useMemo<SessionHistoryGroup[]>(() => {
-        if (displaySessions.length === 0) {
-            return [];
-        }
-        const groups = new Map<number, WaveChatSessionMeta[]>();
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayStartTs = today.getTime();
-        for (const session of displaySessions) {
-            const sessionTs = getSessionSortTs(session);
-            const bucketTs =
-                sessionTs > 0
-                    ? (() => {
-                          const bucketDate = new Date(sessionTs);
-                          bucketDate.setHours(0, 0, 0, 0);
-                          return bucketDate.getTime();
-                      })()
-                    : 0;
-            const bucket = groups.get(bucketTs);
-            if (bucket) {
-                bucket.push(session);
-            } else {
-                groups.set(bucketTs, [session]);
-            }
-        }
-        const orderedBuckets = [...groups.entries()].sort((left, right) => right[0] - left[0]);
-        return orderedBuckets.map(([bucketTs, bucketSessions]) => ({
-            label: bucketTs > 0 ? formatHistoryGroupLabel(bucketTs, todayStartTs) : "更早",
-            sessions: bucketSessions,
-        }));
-    }, [displaySessions]);
-
-    const exportChat = useCallback(() => {
-        if (!messages || messages.length === 0) {
-            return;
-        }
-        const title = activeSession?.title || "New Chat";
-        const safeTitle = title
-            .slice(0, 30)
-            .replace(/[/\\?%*:|"<>]/g, "-")
-            .trim();
-        const header = `# ${title}\n\n> ${new Date().toLocaleString()} from Wave AI\n\n---\n\n`;
-        const body = messages
-            .map((msg) => {
-                const roleLabel = msg.role === "user" ? "User" : "Wave AI";
-                const textParts: string[] = [];
-                const toolParts: string[] = [];
-                for (const part of msg.parts ?? []) {
-                    if (part.type === "text" && typeof part.text === "string" && part.text.trim()) {
-                        textParts.push(part.text);
-                    }
-                    if (part.type === "data-tooluse" && !isInternalAssistantToolName(part.data?.toolname)) {
-                        const toolName = part.data?.toolname ?? "unknown";
-                        const status = part.data?.status ?? "";
-                        const output = part.data?.outputtext ?? "";
-                        const error = part.data?.errormessage ?? "";
-                        let toolLine = `**[${toolName}]** ${status}`;
-                        if (output) {
-                            toolLine += `\n\`\`\`\n${output}\n\`\`\``;
-                        }
-                        if (error) {
-                            toolLine += `\n\`\`\`\n${error}\n\`\`\``;
-                        }
-                        toolParts.push(toolLine);
-                    }
-                }
-                const sections: string[] = [];
-                if (textParts.length > 0) {
-                    sections.push(`**${roleLabel}:**\n\n${textParts.join("\n\n")}`);
-                }
-                if (toolParts.length > 0) {
-                    sections.push(toolParts.join("\n\n"));
-                }
-                return sections.length > 0 ? sections.join("\n\n") : "";
-            })
-            .filter(Boolean)
-            .join("\n\n---\n\n");
-        const markdown = header + body;
-        const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${safeTitle}.md`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }, [messages, activeSession?.title]);
-
-    return (
-        <div className="border-b border-white/[0.06] bg-black/10 px-3 py-2">
-            <div className="flex items-center gap-2">
-                <AIModeDropdown />
-                <div className="ml-auto flex items-center gap-0.5" style={{ color: "#71717a" }}>
-                    <span className="text-[10px]">{contextUsage.usedPercent}%</span>
-                    <button
-                        type="button"
-                        onClick={exportChat}
-                        disabled={!messages || messages.length === 0}
-                        className="flex items-center justify-center transition-colors hover:opacity-80 cursor-pointer"
-                        style={{
-                            width: 20,
-                            height: 20,
-                            borderRadius: 4,
-                            color: "#71717a",
-                            backgroundColor: "transparent",
-                            border: "none",
-                            opacity: !messages || messages.length === 0 ? 0.3 : 1,
-                        }}
-                        aria-label="导出会话"
-                    >
-                        <i className="fa-solid fa-download" style={{ fontSize: 10 }} />
-                    </button>
-                    <Popover placement="bottom-end">
-                        <PopoverButton
-                            className="ghost grey flex items-center justify-center cursor-pointer transition-opacity hover:opacity-80"
-                            as="div"
-                            style={{ width: 20, height: 20, borderRadius: 4, color: "#71717a", border: "none" }}
-                            aria-label="会话小抄"
-                        >
-                            <i className="fa-solid fa-note-sticky" style={{ fontSize: 10 }} />
-                        </PopoverButton>
-                        <PopoverContent className="flex min-h-0 w-[360px] max-w-[calc(100vw-24px)] flex-col gap-0 rounded-xl border border-white/10 bg-zinc-900/96 p-3 shadow-2xl backdrop-blur">
-                            <div className="mb-3">
-                                <div className="text-sm font-medium text-white">会话小抄</div>
-                                <div className="mt-1 text-[11px] text-zinc-400">
-                                    这四项会重新注入模型请求，用户可以手动修正。
-                                </div>
-                            </div>
-                            <div className="space-y-3">
-                                <label className="block">
-                                    <div className="mb-1 text-[11px] text-zinc-400">现在在做什么</div>
-                                    <input
-                                        value={cheatsheetDraft.currentwork}
-                                        onChange={(e) =>
-                                            setCheatsheetDraft((prev) => ({ ...prev, currentwork: e.target.value }))
-                                        }
-                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                        placeholder="当前任务"
-                                    />
-                                </label>
-                                <label className="block">
-                                    <div className="mb-1 text-[11px] text-zinc-400">已经完成什么</div>
-                                    <input
-                                        value={cheatsheetDraft.completed}
-                                        onChange={(e) =>
-                                            setCheatsheetDraft((prev) => ({ ...prev, completed: e.target.value }))
-                                        }
-                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                        placeholder="已完成项"
-                                    />
-                                </label>
-                                <label className="block">
-                                    <div className="mb-1 text-[11px] text-zinc-400">当前卡点</div>
-                                    <input
-                                        value={cheatsheetDraft.blockedby}
-                                        onChange={(e) =>
-                                            setCheatsheetDraft((prev) => ({ ...prev, blockedby: e.target.value }))
-                                        }
-                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                        placeholder="阻塞点"
-                                    />
-                                </label>
-                                <label className="block">
-                                    <div className="mb-1 text-[11px] text-zinc-400">下一步</div>
-                                    <input
-                                        value={cheatsheetDraft.nextstep}
-                                        onChange={(e) =>
-                                            setCheatsheetDraft((prev) => ({ ...prev, nextstep: e.target.value }))
-                                        }
-                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                        placeholder="下一步动作"
-                                    />
-                                </label>
-                            </div>
-                            <div className="mt-3 flex w-full shrink-0 justify-end gap-2 border-t border-white/8 pt-3">
-                                <button
-                                    type="button"
-                                    onClick={() =>
-                                        setCheatsheetDraft({
-                                            currentwork: activeSession?.cheatsheet?.currentwork ?? "",
-                                            completed: activeSession?.cheatsheet?.completed ?? "",
-                                            blockedby: activeSession?.cheatsheet?.blockedby ?? "",
-                                            nextstep: activeSession?.cheatsheet?.nextstep ?? "",
-                                        })
-                                    }
-                                    className="inline-flex h-9 min-w-16 items-center justify-center rounded-lg border border-white/8 bg-white/5 px-3 py-1.5 text-xs text-zinc-300 whitespace-nowrap hover:bg-white/8"
-                                >
-                                    重置
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={!activeSession?.chatid}
-                                    onClick={() =>
-                                        void model.updateSessionCheatsheet(activeSession?.chatid ?? "", cheatsheetDraft)
-                                    }
-                                    className={cn(
-                                        "inline-flex h-9 min-w-16 items-center justify-center rounded-lg px-3 py-1.5 text-xs whitespace-nowrap",
-                                        activeSession?.chatid
-                                            ? "bg-cyan-300/15 text-cyan-100 hover:bg-cyan-300/20"
-                                            : "bg-white/5 text-zinc-500"
-                                    )}
-                                >
-                                    保存
-                                </button>
-                            </div>
-                        </PopoverContent>
-                    </Popover>
-                    <Popover className="min-w-0" placement="bottom-end" onDismiss={() => setQuery("")}>
-                        <PopoverButton
-                            className="ghost grey flex items-center justify-center cursor-pointer transition-opacity hover:opacity-80"
-                            as="div"
-                            style={{ width: 20, height: 20, borderRadius: 4, color: "#71717a", border: "none" }}
-                            aria-label="历史记录"
-                        >
-                            <i className="fa-solid fa-clock-rotate-left" style={{ fontSize: 10 }} />
-                        </PopoverButton>
-                        <PopoverContent className="flex w-[320px] max-w-[calc(100vw-24px)] flex-col rounded-xl border border-white/10 bg-zinc-900/96 p-2 shadow-2xl backdrop-blur">
-                            <div className="flex w-full items-center rounded-md border border-white/8 bg-white/5 px-2 text-zinc-400 focus-within:border-lime-300/35 focus-within:text-zinc-300">
-                                <i className="fa-solid fa-magnifying-glass text-[11px]" />
-                                <input
-                                    value={query}
-                                    onChange={(e) => setQuery(e.target.value)}
-                                    placeholder="请输入"
-                                    className="w-full bg-transparent px-2 py-1.5 text-xs text-white outline-none placeholder:text-zinc-500"
-                                />
-                            </div>
-                            <div className="mt-2 w-full max-h-[420px] overflow-y-auto pr-1">
-                                {groupedHistorySessions.map((group) => (
-                                    <div
-                                        key={group.label}
-                                        className="border-b border-white/8 py-2 last:border-b-0 last:pb-0"
-                                    >
-                                        <div className="mb-2 px-1 text-[11px] text-zinc-500">{group.label}</div>
-                                        <div className="flex flex-col">
-                                            {group.sessions.map((session) => (
-                                                <div
-                                                    key={session.chatid}
-                                                    className={cn(
-                                                        "group flex items-center gap-2 rounded-md px-2 py-1 transition-colors",
-                                                        session.chatid === activeChatId
-                                                            ? "bg-white/8"
-                                                            : "hover:bg-white/6"
-                                                    )}
-                                                >
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => void model.switchSession(session.chatid)}
-                                                        className={cn(
-                                                            "min-w-0 flex-1 truncate text-left text-[13px] font-medium transition-colors",
-                                                            session.chatid === activeChatId
-                                                                ? "text-white"
-                                                                : "text-zinc-200 hover:text-white"
-                                                        )}
-                                                        title={session.summary || session.title || "New Chat"}
-                                                    >
-                                                        {session.title || "New Chat"}
-                                                    </button>
-                                                    <div
-                                                        className={cn(
-                                                            "flex items-center gap-0.5 transition-opacity",
-                                                            session.chatid === activeChatId
-                                                                ? "opacity-100"
-                                                                : "opacity-0 group-hover:opacity-100"
-                                                        )}
-                                                    >
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                const nextTitle = window.prompt(
-                                                                    "Rename this session",
-                                                                    session.title ?? "New Chat"
-                                                                );
-                                                                if (nextTitle && nextTitle.trim()) {
-                                                                    void model.renameSession(session.chatid, nextTitle);
-                                                                }
-                                                            }}
-                                                            className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-500 hover:bg-white/10 hover:text-white"
-                                                            title="Rename"
-                                                            aria-label="Rename session"
-                                                        >
-                                                            <i className="fa-regular fa-pen-to-square" />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                if (
-                                                                    window.confirm(
-                                                                        `Delete "${session.title || "New Chat"}" permanently?`
-                                                                    )
-                                                                ) {
-                                                                    void model.deleteSession(session.chatid);
-                                                                }
-                                                            }}
-                                                            className="flex h-6 w-6 items-center justify-center rounded-md text-xs text-zinc-500 hover:bg-red-400/10 hover:text-red-300"
-                                                            title="Delete"
-                                                            aria-label="Delete session"
-                                                        >
-                                                            <i className="fa-regular fa-trash-can" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
-                                {groupedHistorySessions.length === 0 && (
-                                    <div className="px-2 py-3 text-xs text-zinc-500">No matching history</div>
-                                )}
-                            </div>
-                        </PopoverContent>
-                    </Popover>
-                    <button
-                        type="button"
-                        onClick={() => model.clearChat()}
-                        className="flex items-center justify-center transition-colors hover:opacity-80 cursor-pointer"
-                        style={{
-                            width: 20,
-                            height: 20,
-                            borderRadius: 4,
-                            color: "#71717a",
-                            backgroundColor: "transparent",
-                            border: "none",
-                        }}
-                        aria-label="新建会话"
-                    >
-                        <i className="fa-solid fa-plus" style={{ fontSize: 10 }} />
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-});
-
-AISessionToolbar.displayName = "AISessionToolbar";
-
-const CommandInteractionInput = memo(() => {
-    const model = WaveAIModel.getInstance();
-    const interaction = jotai.useAtomValue(model.commandInteractionAtom);
-    const [input, setInput] = useState("");
-    const inputRef = useRef<HTMLInputElement | null>(null);
-
-    useEffect(() => {
-        setInput("");
-    }, [interaction?.jobId, interaction?.promptHint]);
-
-    useEffect(() => {
-        if (!interaction || interaction.tuiSuppressed) {
-            return;
-        }
-        const timer = window.setTimeout(() => {
-            inputRef.current?.focus();
-        }, 0);
-        return () => window.clearTimeout(timer);
-    }, [interaction]);
-
-    if (!interaction) {
-        return null;
-    }
-    const allowEmptyInput = Boolean(interaction.inputOptions?.some((option) => option === ""));
-    const canSend = input.trim().length > 0 || allowEmptyInput;
-
-    return (
-        <div className="mx-3 mb-2 rounded-xl border border-amber-300/12 bg-amber-300/[0.04] px-3 py-3 text-sm text-zinc-200">
-            <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                    <div className="font-medium text-amber-100/80 text-xs">
-                        {interaction.tuiDetected
-                            ? "Interactive TUI detected"
-                            : interaction.promptHint || "Command is waiting for input"}
-                    </div>
-                    <div className="mt-1 text-[11px] text-zinc-400">
-                        {interaction.tuiSuppressed
-                            ? "Wave suppressed the TUI so the session stays usable. Continue it in a terminal if you need the full screen app."
-                            : "Submit input below to continue the running command."}
-                    </div>
-                </div>
-                <button
-                    type="button"
-                    onClick={() => void model.cancelExecution()}
-                    className="rounded-lg border border-red-300/12 bg-red-300/[0.06] px-2.5 py-1 text-[11px] text-red-200/70"
-                >
-                    Cancel
-                </button>
-            </div>
-            {interaction.outputPreview && (
-                <pre className="mt-2 max-h-28 overflow-auto rounded-lg bg-black/20 p-2 text-[11px] text-zinc-300">
-                    {interaction.outputPreview}
-                </pre>
-            )}
-            {!interaction.tuiSuppressed && (
-                <>
-                    {interaction.inputOptions && interaction.inputOptions.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                            {interaction.inputOptions.map((option) => (
-                                <button
-                                    key={option === "" ? "__enter__" : option}
-                                    type="button"
-                                    onClick={() => void model.submitCommandInteraction(option)}
-                                    className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[11px] text-zinc-300 hover:bg-white/[0.06]"
-                                >
-                                    {option === "" ? "Enter" : option}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                    <div className="mt-2 flex gap-2">
-                        <input
-                            ref={inputRef}
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            placeholder={interaction.promptHint || "Type command input"}
-                            className="min-w-0 flex-1 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-1.5 text-sm text-white outline-none placeholder:text-zinc-500"
-                        />
-                        <button
-                            type="button"
-                            onClick={() => void model.submitCommandInteraction(input)}
-                            disabled={!canSend}
-                            className={cn(
-                                "rounded-lg px-3 py-1.5 text-sm",
-                                canSend
-                                    ? "bg-amber-300/[0.08] text-amber-100 hover:bg-amber-300/12"
-                                    : "bg-white/[0.02] text-zinc-600"
-                            )}
-                        >
-                            Send
-                        </button>
-                    </div>
-                </>
-            )}
-        </div>
-    );
-});
-
-CommandInteractionInput.displayName = "CommandInteractionInput";
-
-function isTerminalBackgroundJobStatus(status: string | undefined): boolean {
-    return status === "completed" || status === "error" || status === "gone" || status === "cancelled";
-}
-
-function formatBackgroundJobStatusLabel(job: ChatBackgroundJobDetail): string {
-    if (job.approvalstate === "needs-approval") {
-        return "Awaiting Approval";
-    }
-    if (job.interactionstate === "awaiting-input") {
-        return "Awaiting Input";
-    }
-    if (job.interactionstate === "tui-detected") {
-        return "Interactive UI Detected";
-    }
-    switch (job.status) {
-        case "running":
-            return "Running";
-        case "completed":
-            return "Completed";
-        case "error":
-            return "Failed";
-        case "gone":
-            return "Gone";
-        case "cancelled":
-            return "Cancelled";
-        default:
-            return "Unknown";
-    }
-}
-
-function formatBackgroundJobDuration(durationMs: number | undefined): string {
-    if (!durationMs || durationMs <= 0) {
-        return "";
-    }
-    if (durationMs < 1000) {
-        return `${durationMs}ms`;
-    }
-    if (durationMs < 60_000) {
-        return `${(durationMs / 1000).toFixed(durationMs < 10_000 ? 1 : 0)}s`;
-    }
-    const totalSeconds = Math.floor(durationMs / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes}m ${seconds}s`;
-}
-
-const BackgroundJobsPanel = memo(() => {
-    const model = WaveAIModel.getInstance();
-    const backgroundJobs = jotai.useAtomValue(model.backgroundJobsAtom);
-    const [expandedJobIds, setExpandedJobIds] = useState<Record<string, boolean>>({});
-
-    useEffect(() => {
-        setExpandedJobIds((prev) => {
-            const next: Record<string, boolean> = {};
-            for (const job of backgroundJobs) {
-                if (prev[job.jobid]) {
-                    next[job.jobid] = true;
-                }
-            }
-            return next;
-        });
-    }, [backgroundJobs]);
-
-    if (backgroundJobs.length === 0) {
-        return null;
-    }
-
-    const runningCount = backgroundJobs.filter((job) => !isTerminalBackgroundJobStatus(job.status)).length;
-    const finishedCount = backgroundJobs.length - runningCount;
-
-    return (
-        <div className="mx-3 mt-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
-            <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                    <div className="text-sm font-medium text-zinc-100">Background Jobs</div>
-                    <div className="mt-1 text-[11px] text-zinc-400">
-                        {backgroundJobs.length} job{backgroundJobs.length !== 1 ? "s" : ""} in this session
-                        {runningCount > 0 ? `, ${runningCount} running` : ""}
-                        {finishedCount > 0 ? `, ${finishedCount} finished` : ""}
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        disabled={runningCount === 0}
-                        onClick={() => void model.cancelAllRunningBackgroundJobs()}
-                        className={cn(
-                            "rounded-lg px-2.5 py-1 text-[11px]",
-                            runningCount > 0
-                                ? "border border-red-300/15 bg-red-300/[0.06] text-red-100 hover:bg-red-300/[0.1]"
-                                : "border border-white/[0.05] bg-white/[0.03] text-zinc-500"
-                        )}
-                    >
-                        Cancel All Running
-                    </button>
-                    <button
-                        type="button"
-                        disabled={finishedCount === 0}
-                        onClick={() => void model.clearFinishedBackgroundJobs()}
-                        className={cn(
-                            "rounded-lg px-2.5 py-1 text-[11px]",
-                            finishedCount > 0
-                                ? "border border-white/[0.08] bg-white/[0.04] text-zinc-200 hover:bg-white/[0.08]"
-                                : "border border-white/[0.05] bg-white/[0.03] text-zinc-500"
-                        )}
-                    >
-                        Clear Finished
-                    </button>
-                </div>
-            </div>
-            <div className="mt-3 space-y-2">
-                {backgroundJobs.map((job) => {
-                    const expanded = expandedJobIds[job.jobid] === true;
-                    const preview = job.outputpreview?.trim() ?? "";
-                    return (
-                        <div
-                            key={job.jobid}
-                            className="rounded-xl border border-white/[0.05] bg-black/15 px-3 py-2.5"
-                        >
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <div className="truncate text-[13px] font-medium text-zinc-100">
-                                        {job.commandsummary || job.jobid}
-                                    </div>
-                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
-                                        <span>{formatBackgroundJobStatusLabel(job)}</span>
-                                        {job.targetlabel && <span>{job.targetlabel}</span>}
-                                        {job.durationms ? <span>{formatBackgroundJobDuration(job.durationms)}</span> : null}
-                                        {job.exitcode != null && (
-                                            <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
-                                                Exit {job.exitcode}
-                                            </span>
-                                        )}
-                                    </div>
-                                    {job.error && (
-                                        <div className="mt-1 text-[11px] text-red-200/70">{job.error}</div>
-                                    )}
-                                </div>
-                                <div className="flex shrink-0 items-center gap-2">
-                                    {preview && (
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                setExpandedJobIds((prev) => ({
-                                                    ...prev,
-                                                    [job.jobid]: !prev[job.jobid],
-                                                }))
-                                            }
-                                            className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/[0.06]"
-                                        >
-                                            {expanded ? "Hide Output" : "Show Output"}
-                                        </button>
-                                    )}
-                                    <button
-                                        type="button"
-                                        onClick={() => model.scrollToBackgroundJob(job)}
-                                        className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/[0.06]"
-                                    >
-                                        Jump
-                                    </button>
-                                    {!isTerminalBackgroundJobStatus(job.status) && (
-                                        <button
-                                            type="button"
-                                            onClick={() => void model.cancelBackgroundJobs([job.jobid])}
-                                            className="rounded-lg border border-red-300/15 bg-red-300/[0.06] px-2 py-1 text-[11px] text-red-100 hover:bg-red-300/[0.1]"
-                                        >
-                                            Cancel
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                            {expanded && preview && (
-                                <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-black/30 px-3 py-2 text-[12px] text-zinc-200">
-                                    {preview}
-                                </pre>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
-        </div>
-    );
-});
-
-BackgroundJobsPanel.displayName = "BackgroundJobsPanel";
-
-const STREAM_UPDATE_THROTTLE_MS = 34;
-
 const AIPanelComponentInner = memo(() => {
-    const [isDragOver, setIsDragOver] = useState(false);
-    const [isReactDndDragOver, setIsReactDndDragOver] = useState(false);
     const [initialLoadDone, setInitialLoadDone] = useState(false);
+    const [renameDialog, setRenameDialog] = useState<{ chatid: string; title: string; value: string } | null>(null);
+    const [deleteDialog, setDeleteDialog] = useState<{ chatid: string; title: string } | null>(null);
     const model = WaveAIModel.getInstance();
     const containerRef = useRef<HTMLDivElement>(null);
+    const {
+        isDragOver,
+        isReactDndDragOver,
+        handleDragOver,
+        handleDragEnter,
+        handleDragLeave,
+        handleDrop,
+    } = useFileDragDrop(model, containerRef);
     const isLayoutMode = jotai.useAtomValue(atoms.controlShiftDelayAtom);
     const showOverlayBlockNums = jotai.useAtomValue(getSettingsKeyAtom("app:showoverlayblocknums")) ?? true;
     const isFocused = jotai.useAtomValue(model.isWaveAIFocusedAtom);
@@ -1012,95 +51,18 @@ const AIPanelComponentInner = memo(() => {
     const chatIdValue = jotai.useAtomValue(model.chatId);
     const agentMode = jotai.useAtomValue(model.agentModeAtom);
     const tabModel = maybeUseTabModel();
-    const defaultMode = jotai.useAtomValue(getSettingsKeyAtom("waveai:defaultmode")) ?? "waveai@balanced";
-    const aiModeConfigs = jotai.useAtomValue(model.aiModeConfigs);
-    const runtimePerfRef = useRef<{
-        traceId: string;
-        submitAt: number;
-        firstTokenAt: number;
-        active: boolean;
-    }>({
-        traceId: "",
-        submitAt: 0,
-        firstTokenAt: 0,
-        active: false,
-    });
-    const approvalWaitRef = useRef<{ startedAt: number; traceId: string } | null>(null);
 
-    const { messages, sendMessage, status, setMessages, error, stop } = useChat<WaveUIMessage>({
-        experimental_throttle: STREAM_UPDATE_THROTTLE_MS,
-        transport: new DefaultChatTransport({
-            api: model.getUseChatEndpointUrl(),
-            prepareSendMessagesRequest: (opts) => {
-                const msg = model.getAndClearMessage();
-                const body: any = {
-                    msg,
-                    chatid: globalStore.get(model.chatId),
-                    widgetaccess: globalStore.get(model.widgetAccessAtom),
-                    aimode: globalStore.get(model.currentAIMode),
-                    agentmode: globalStore.get(model.agentModeAtom),
-                };
-                body.tabid = tabModel.tabId;
-                const focusedBlockId = getFocusedBlockId();
-                if (focusedBlockId) {
-                    body.blockid = focusedBlockId;
-                }
-                return { body };
-            },
-        }),
-        onError: (error) => {
-            console.error("AI Chat error:", error);
-            model.dispatchAgentEvent({
-                type: "TOOL_CALL_FAILED",
-                result: {
-                    requestId: crypto.randomUUID(),
-                    taskId: globalStore.get(model.chatId) || crypto.randomUUID(),
-                    toolName: "chat-stream",
-                    ok: false,
-                    exitCode: 1,
-                    stderr: error.message || "An error occurred",
-                    durationMs: 0,
-                    errorCode: "CHAT_STREAM_ERROR",
-                },
-                retryable: true,
-            });
-            model.setError(error.message || "An error occurred");
-        },
-    });
+    const { status, chatContextValue, coalescedMessages } = useChatSetup(model, tabModel.tabId);
 
-    model.registerUseChatData(sendMessage, setMessages, status, stop);
-
-    const coalescedMessages = useMemo(
-        () => messages.map((msg) => ({ ...msg, parts: coalesceMessageParts(msg.parts) })),
-        [messages]
-    );
-
-    const derivedAgentStatusSnapshot = deriveAgentRuntimeStatus({
-        provider: "Wave AI",
-        mode: agentMode,
-        chatStatus: status,
-        messages: coalescedMessages,
-        errorMessage,
-    });
-
-    useEffect(() => {
-        if (commandInteraction || (agentRuntimeSnapshot.activeJobIds?.length ?? 0) > 0) {
-            return;
-        }
-        if (
-            isTerminalRuntimeState(agentRuntimeSnapshot.state) &&
-            !isTerminalRuntimeState(derivedAgentStatusSnapshot.state)
-        ) {
-            return;
-        }
-        model.mergeAgentRuntimeSnapshot(derivedAgentStatusSnapshot);
-    }, [
-        agentRuntimeSnapshot.activeJobIds,
-        agentRuntimeSnapshot.state,
-        commandInteraction,
-        derivedAgentStatusSnapshot,
+    useMessageAnalysis(
+        coalescedMessages,
         model,
-    ]);
+        status,
+        errorMessage,
+        commandInteraction,
+        agentMode,
+        agentRuntimeSnapshot
+    );
 
     useEffect(() => {
         const currentChatId = globalStore.get(model.chatId);
@@ -1110,296 +72,9 @@ const AIPanelComponentInner = memo(() => {
         void model.loadSessions();
     }, [status, model]);
 
-    useEffect(() => {
-        if (!chatIdValue || !isPanelVisible) {
-            return;
-        }
-        void model.refreshBackgroundJobs(chatIdValue);
-    }, [chatIdValue, isPanelVisible, model]);
+    useBackgroundJobsRefresh(chatIdValue, isPanelVisible, backgroundJobs, model);
 
-    useEffect(() => {
-        if (!chatIdValue || !isPanelVisible || backgroundJobs.length === 0) {
-            return;
-        }
-        const timer = window.setInterval(() => {
-            void model.refreshBackgroundJobs(chatIdValue);
-        }, backgroundJobs.some((job) => !isTerminalBackgroundJobStatus(job.status)) ? 1500 : 4000);
-        return () => window.clearInterval(timer);
-    }, [backgroundJobs, chatIdValue, isPanelVisible, model]);
-
-    useEffect(() => {
-        const taskId = globalStore.get(model.chatId) || "waveai";
-        const lastAssistantMessage = [...coalescedMessages].reverse().find((message) => message.role === "assistant");
-        const latestTaskStateMessage = [...coalescedMessages]
-            .reverse()
-            .find((message) => message.role === "assistant" && getLatestTaskStatePart(message));
-        const latestTaskState = getLatestTaskStatePart(latestTaskStateMessage);
-        const visibleToolUses =
-            [...(lastAssistantMessage?.parts ?? [])]
-                .filter(
-                    (part): part is WaveUIMessage["parts"][number] & { type: "data-tooluse" } =>
-                        part.type === "data-tooluse" && !isInternalAssistantToolName(part.data?.toolname)
-                ) ?? [];
-        const latestToolUse = visibleToolUses.at(-1) ?? getLatestVisibleToolUsePart(lastAssistantMessage);
-        const latestCompletedToolUse = [...visibleToolUses]
-            .reverse()
-            .find((part) => part.data.status !== "pending" && part.data.partial !== true);
-        const runningToolUses = visibleToolUses.filter(
-            (part) => (part.data.status === "running" || part.data.partial === true) && Boolean(part.data.jobid)
-        );
-        const pendingApprovalToolUse = visibleToolUses.find((part) => part.data.approval === "needs-approval");
-        const latestToolProgress = getLatestVisibleToolProgressPart(lastAssistantMessage);
-        if (latestTaskState?.data) {
-            const taskStateData = latestTaskState.data as AgentTaskState;
-            globalStore.set(model.taskStateAtom, taskStateData);
-            if (taskStateData.focuschain) {
-                globalStore.set(model.focusChainAtom, taskStateData.focuschain);
-            }
-            if (taskStateData.focuschain?.currentcontextusage != null) {
-                globalStore.set(model.contextUsageAtom, taskStateData.focuschain.currentcontextusage);
-            }
-            if (taskStateData.securityblocked) {
-                globalStore.set(model.securityBlockedAtom, true);
-            }
-            if (taskStateData.status === "completed" && status !== "streaming" && !commandInteraction) {
-                const currentRuntime = globalStore.get(model.agentRuntimeAtom);
-                if (!isTerminalRuntimeState(currentRuntime.state)) {
-                    model.dispatchAgentEvent({ type: "VERIFY_FINISHED", ok: true });
-                }
-            }
-        }
-        const currentInteraction = globalStore.get(model.commandInteractionAtom);
-        const latestInteractiveToolUse = [...visibleToolUses]
-            .reverse()
-            .find(
-                (part) =>
-                    part.data.toolname === "wave_run_command" &&
-                    part.data.status === "running" &&
-                    part.data.jobid &&
-                    (part.data.awaitinginput || part.data.tuidetected)
-            );
-        if (latestInteractiveToolUse?.data?.jobid) {
-            // The backend detector is the single source of truth for interaction state.
-            // The frontend only maps structured RPC fields into UI state.
-            const nextInteraction = {
-                jobId: latestInteractiveToolUse.data.jobid,
-                awaitingInput: Boolean(latestInteractiveToolUse.data.awaitinginput),
-                promptHint: latestInteractiveToolUse.data.prompthint || "Command is waiting for terminal input",
-                inputOptions: latestInteractiveToolUse.data.inputoptions,
-                tuiDetected: latestInteractiveToolUse.data.tuidetected,
-                tuiSuppressed: latestInteractiveToolUse.data.tuisuppressed,
-                outputPreview: latestInteractiveToolUse.data.outputtext,
-            };
-            const changed =
-                currentInteraction?.jobId !== nextInteraction.jobId ||
-                currentInteraction?.awaitingInput !== nextInteraction.awaitingInput ||
-                currentInteraction?.promptHint !== nextInteraction.promptHint ||
-                currentInteraction?.tuiDetected !== nextInteraction.tuiDetected ||
-                currentInteraction?.tuiSuppressed !== nextInteraction.tuiSuppressed ||
-                JSON.stringify(currentInteraction?.inputOptions ?? []) !==
-                    JSON.stringify(nextInteraction.inputOptions ?? []) ||
-                currentInteraction?.outputPreview !== nextInteraction.outputPreview;
-            if (changed) {
-                globalStore.set(model.commandInteractionAtom, nextInteraction);
-                model.dispatchAgentEvent({
-                    type: "INTERACTION_REQUIRED",
-                    reason: nextInteraction.promptHint,
-                });
-            }
-        } else if (
-            currentInteraction?.jobId &&
-            !visibleToolUses.some(
-                (part) =>
-                    part.data.toolname === "wave_run_command" &&
-                    part.data.jobid === currentInteraction.jobId &&
-                    part.data.status === "running" &&
-                    (part.data.awaitinginput || part.data.tuidetected)
-            )
-        ) {
-            globalStore.set(model.commandInteractionAtom, null);
-        }
-
-        const latestAsk = getLatestAskPart(lastAssistantMessage);
-        if (latestAsk?.data) {
-            const askData = latestAsk.data as AskUserData;
-            if (askData.status === "pending") {
-                const currentAsk = globalStore.get(model.askUserAtom);
-                if (currentAsk?.actionid !== askData.actionid) {
-                    globalStore.set(model.askUserAtom, askData);
-                    model.dispatchAgentEvent({ type: "ASK_USER", reason: askData.prompt });
-                }
-            } else if (askData.status === "answered" || askData.status === "canceled") {
-                globalStore.set(model.askUserAtom, null);
-            }
-        }
-
-        if (latestToolUse) {
-            const lastToolCall = toolCallFromPart(latestToolUse, taskId);
-            const lastToolResult = toolResultFromPart(latestCompletedToolUse ?? latestToolUse, taskId) ?? undefined;
-            const activeToolCalls = Object.fromEntries(
-                runningToolUses.map((part) => [part.data.toolcallid, toolCallFromPart(part, taskId)])
-            );
-            const activeJobIds = runningToolUses
-                .map((part) => part.data.jobid)
-                .filter((jobId): jobId is string => Boolean(jobId));
-            const progressBlockedReason =
-                !shouldHideProgressStatusLines(latestToolProgress?.data?.toolname) &&
-                latestToolProgress?.data?.statuslines?.find((line) => Boolean(line?.trim()));
-            model.mergeAgentRuntimeSnapshot({
-                lastToolCall,
-                lastToolResult,
-                blockedReason: latestToolUse.data.errormessage ?? latestToolUse.data.tooldesc ?? progressBlockedReason,
-                activeToolCalls,
-                activeJobIds,
-                ...(activeJobIds.length > 0
-                    ? {
-                          state: "executing" as const,
-                          phaseLabel: activeJobIds.length > 1 ? "Executing Commands" : "Executing Command",
-                          activeTool: activeJobIds.length > 1 ? `${activeJobIds.length} commands` : latestToolUse.data.toolname,
-                          activeJobId: activeJobIds.at(-1),
-                      }
-                    : {
-                          activeTool: undefined,
-                          activeJobId: undefined,
-                      }),
-            });
-            if (pendingApprovalToolUse) {
-                model.dispatchAgentEvent({
-                    type: "APPROVAL_REQUIRED",
-                    reason: pendingApprovalToolUse.data.tooldesc || "Waiting for tool approval",
-                });
-            }
-            if (
-                latestToolUse.data.errormessage &&
-                (latestToolUse.data.errormessage.includes("命令被安全机制阻止") ||
-                    latestToolUse.data.errormessage.includes("command_blocked"))
-            ) {
-                globalStore.set(model.securityBlockedAtom, true);
-            }
-            return;
-        }
-
-        if (latestToolProgress) {
-            model.mergeAgentRuntimeSnapshot({
-                activeTool: latestToolProgress.data.toolname,
-                blockedReason: shouldHideProgressStatusLines(latestToolProgress.data.toolname)
-                    ? undefined
-                    : latestToolProgress.data.statuslines?.find((line) => Boolean(line?.trim())),
-            });
-        }
-    }, [coalescedMessages, model]);
-
-    useEffect(() => {
-        if (status === "streaming") {
-            return;
-        }
-        if (errorMessage) {
-            return;
-        }
-        if (commandInteraction) {
-            return;
-        }
-        if (coalescedMessages.length > 0) {
-            model.dispatchAgentEvent({ type: "VERIFY_FINISHED", ok: true });
-        }
-    }, [status, errorMessage, coalescedMessages.length, commandInteraction, model]);
-
-    useEffect(() => {
-        if (agentRuntimeSnapshot.state !== "submitting") {
-            return;
-        }
-        const traceId = crypto.randomUUID();
-        const submitAt = Date.now();
-        runtimePerfRef.current = {
-            traceId,
-            submitAt,
-            firstTokenAt: 0,
-            active: true,
-        };
-        recordTEvent("waveai:perf:submit", {
-            "waveai:traceid": traceId,
-            "waveai:chatid": globalStore.get(model.chatId) || "",
-            "waveai:agentmode": globalStore.get(model.agentModeAtom),
-        } as any);
-    }, [agentRuntimeSnapshot.state, model]);
-
-    useEffect(() => {
-        const perf = runtimePerfRef.current;
-        if (!perf.active || perf.firstTokenAt > 0 || status !== "streaming") {
-            return;
-        }
-        const lastAssistantMessage = [...coalescedMessages].reverse().find((message) => message.role === "assistant");
-        const hasAssistantPayload =
-            (lastAssistantMessage?.parts?.some(
-                (part) =>
-                    (part.type === "text" && Boolean(part.text?.trim())) ||
-                    part.type === "data-tooluse" ||
-                    part.type === "data-toolprogress"
-            ) ??
-                false) ||
-            Boolean(lastAssistantMessage);
-        if (!hasAssistantPayload) {
-            return;
-        }
-        const firstTokenAt = Date.now();
-        perf.firstTokenAt = firstTokenAt;
-        recordTEvent("waveai:perf:firsttoken", {
-            "waveai:traceid": perf.traceId,
-            "waveai:ttfbms": firstTokenAt - perf.submitAt,
-        } as any);
-    }, [coalescedMessages, status]);
-
-    useEffect(() => {
-        const perf = runtimePerfRef.current;
-        if (!perf.active || status === "streaming") {
-            return;
-        }
-        const terminalStates = new Set([
-            "completed",
-            "success",
-            "failed_retryable",
-            "failed_fatal",
-            "cancelled",
-            "unavailable",
-        ]);
-        if (!terminalStates.has(agentRuntimeSnapshot.state)) {
-            return;
-        }
-        const doneAt = Date.now();
-        recordTEvent("waveai:perf:done", {
-            "waveai:traceid": perf.traceId,
-            "waveai:state": agentRuntimeSnapshot.state,
-            "waveai:totalms": doneAt - perf.submitAt,
-            "waveai:streamms": perf.firstTokenAt > 0 ? doneAt - perf.firstTokenAt : 0,
-            "waveai:hadfirsttoken": perf.firstTokenAt > 0,
-        } as any);
-        runtimePerfRef.current = {
-            traceId: "",
-            submitAt: 0,
-            firstTokenAt: 0,
-            active: false,
-        };
-    }, [agentRuntimeSnapshot.state, status]);
-
-    useEffect(() => {
-        if (agentRuntimeSnapshot.state === "awaiting_approval") {
-            if (approvalWaitRef.current == null) {
-                approvalWaitRef.current = {
-                    startedAt: Date.now(),
-                    traceId: runtimePerfRef.current.traceId,
-                };
-            }
-            return;
-        }
-        if (approvalWaitRef.current != null) {
-            recordTEvent("waveai:perf:approvalwait", {
-                "waveai:traceid": approvalWaitRef.current.traceId,
-                "waveai:waitms": Date.now() - approvalWaitRef.current.startedAt,
-                "waveai:endstate": agentRuntimeSnapshot.state,
-            } as any);
-            approvalWaitRef.current = null;
-        }
-    }, [agentRuntimeSnapshot.state]);
+    usePerformanceTracking(agentRuntimeSnapshot, coalescedMessages, status, model);
 
     const handleKeyDown = (waveEvent: WaveKeyboardEvent): boolean => {
         if (checkKeyPressed(waveEvent, "Cmd:k")) {
@@ -1410,7 +85,7 @@ const AIPanelComponentInner = memo(() => {
     };
 
     useEffect(() => {
-        globalStore.set(model.isAIStreaming, status == "streaming");
+        model.dispatch({ type: "SET_IS_AI_STREAMING", value: status == "streaming" });
     }, [status]);
 
     useEffect(() => {
@@ -1419,8 +94,11 @@ const AIPanelComponentInner = memo(() => {
         }
     }, [status, model]);
 
+    const handleKeyDownRef = useRef(handleKeyDown);
+    handleKeyDownRef.current = handleKeyDown;
+
     useEffect(() => {
-        const keyHandler = keydownWrapper(handleKeyDown);
+        const keyHandler = (e: KeyboardEvent) => keydownWrapper(handleKeyDownRef.current)(e);
         document.addEventListener("keydown", keyHandler);
         return () => {
             document.removeEventListener("keydown", keyHandler);
@@ -1434,7 +112,7 @@ const AIPanelComponentInner = memo(() => {
     useEffect(() => {
         const updateWidth = () => {
             if (containerRef.current) {
-                globalStore.set(model.containerWidth, containerRef.current.offsetWidth);
+                model.dispatch({ type: "SET_CONTAINER_WIDTH", width: containerRef.current.offsetWidth });
             }
         };
 
@@ -1454,7 +132,7 @@ const AIPanelComponentInner = memo(() => {
         model.ensureRateLimitSet();
     }, [model]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.SyntheticEvent) => {
         e.preventDefault();
         await model.handleSubmit();
         setTimeout(() => {
@@ -1462,131 +140,8 @@ const AIPanelComponentInner = memo(() => {
         }, 100);
     };
 
-    const hasFilesDragged = (dataTransfer: DataTransfer): boolean => {
-        // Check if the drag operation contains files by looking at the types
-        return dataTransfer.types.includes("Files");
-    };
-
-    const handleDragOver = (e: React.DragEvent) => {
-        const hasFiles = hasFilesDragged(e.dataTransfer);
-
-        // Only handle native file drags here, let react-dnd handle FILE_ITEM drags
-        if (!hasFiles) {
-            return;
-        }
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        if (!isDragOver) {
-            setIsDragOver(true);
-        }
-    };
-
-    const handleDragEnter = (e: React.DragEvent) => {
-        const hasFiles = hasFilesDragged(e.dataTransfer);
-
-        // Only handle native file drags here, let react-dnd handle FILE_ITEM drags
-        if (!hasFiles) {
-            return;
-        }
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        setIsDragOver(true);
-    };
-
-    const handleDragLeave = (e: React.DragEvent) => {
-        const hasFiles = hasFilesDragged(e.dataTransfer);
-
-        // Only handle native file drags here, let react-dnd handle FILE_ITEM drags
-        if (!hasFiles) {
-            return;
-        }
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        // Only set drag over to false if we're actually leaving the drop zone
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const x = e.clientX;
-        const y = e.clientY;
-
-        if (x <= rect.left || x >= rect.right || y <= rect.top || y >= rect.bottom) {
-            setIsDragOver(false);
-        }
-    };
-
-    const handleDrop = async (e: React.DragEvent) => {
-        if (!e.dataTransfer.files.length) {
-            return; // Let react-dnd handle FILE_ITEM drags
-        }
-
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragOver(false);
-
-        const files = Array.from(e.dataTransfer.files);
-        const acceptableFiles = files.filter(isAcceptableFile);
-
-        for (const file of acceptableFiles) {
-            const sizeError = validateFileSize(file);
-            if (sizeError) {
-                model.setError(formatFileSizeError(sizeError));
-                return;
-            }
-            await model.addFile(file);
-        }
-
-        if (acceptableFiles.length < files.length) {
-            const rejectedCount = files.length - acceptableFiles.length;
-            const rejectedFiles = files.filter((f) => !isAcceptableFile(f));
-            const fileNames = rejectedFiles.map((f) => f.name).join(", ");
-            model.setError(
-                `${rejectedCount} file${rejectedCount > 1 ? "s" : ""} rejected (unsupported type): ${fileNames}. Supported: images, PDFs, and text/code files.`
-            );
-        }
-    };
-
-    const handleFileItemDrop = useCallback(
-        (draggedFile: DraggedFile) => {
-            model.addFileFromRemoteUri(draggedFile);
-        },
-        [model]
-    );
-
-    const [{ isOver, canDrop }, drop] = useDrop(
-        () => ({
-            accept: "FILE_ITEM",
-            drop: handleFileItemDrop,
-            collect: (monitor) => ({
-                isOver: monitor.isOver(),
-                canDrop: monitor.canDrop(),
-            }),
-        }),
-        [handleFileItemDrop]
-    );
-
-    // Update drag over state for FILE_ITEM drags
-    useEffect(() => {
-        if (isOver && canDrop) {
-            setIsReactDndDragOver(true);
-        } else {
-            setIsReactDndDragOver(false);
-        }
-    }, [isOver, canDrop]);
-
-    // Attach the drop ref to the container
-    useEffect(() => {
-        if (containerRef.current) {
-            drop(containerRef.current);
-        }
-    }, [drop]);
-
     const handleFocusCapture = useCallback(
         (event: React.FocusEvent) => {
-            // console.log("Wave AI focus capture", getElemAsStr(event.target));
             model.requestWaveAIFocus();
         },
         [model]
@@ -1626,20 +181,18 @@ const AIPanelComponentInner = memo(() => {
     const showBlockMask = isLayoutMode && showOverlayBlockNums;
 
     return (
+        <>
+        <AIPanelChatContext.Provider value={chatContextValue}>
         <div
             ref={containerRef}
             data-waveai-panel="true"
             className={cn(
                 "@container bg-zinc-900/80 flex flex-col relative",
                 "mt-1 h-[calc(100%-4px)]",
+                "rounded-tr-[12px] rounded-br-[12px] rounded-bl-[12px]",
                 (isDragOver || isReactDndDragOver) && "bg-zinc-800 border-accent",
                 isFocused ? "border border-white/[0.08]" : "border border-transparent"
             )}
-            style={{
-                borderTopRightRadius: 12,
-                borderBottomRightRadius: 12,
-                borderBottomLeftRadius: 12,
-            }}
             onFocusCapture={handleFocusCapture}
             onPointerEnter={handlePointerEnter}
             onDragOver={handleDragOver}
@@ -1653,7 +206,11 @@ const AIPanelComponentInner = memo(() => {
             {(isDragOver || isReactDndDragOver) && <AIDragOverlay />}
             {showBlockMask && <AIBlockMask />}
             <div key="main-content" className="flex-1 flex flex-col min-h-0">
-                <AISessionToolbar messages={coalescedMessages} />
+                <AISessionToolbar
+                    messages={coalescedMessages}
+                    onRename={(chatid, title) => setRenameDialog({ chatid, title, value: title })}
+                    onDelete={(chatid, title) => setDeleteDialog({ chatid, title })}
+                />
                 <TaskProgressPanel taskState={taskState} compact={true} />
                 <BackgroundJobsPanel />
                 {coalescedMessages.length === 0 && initialLoadDone ? (
@@ -1673,9 +230,67 @@ const AIPanelComponentInner = memo(() => {
                 <AIErrorMessage />
                 <AIDroppedFiles model={model} />
                 <CommandInteractionInput />
+                <QueuedMessageCard model={model} />
                 <AIPanelInput onSubmit={handleSubmit} status={status} model={model} />
             </div>
         </div>
+        </AIPanelChatContext.Provider>
+        {renameDialog && (
+            <Modal
+                className="rename-session-modal"
+                onOk={() => {
+                    const trimmed = renameDialog.value.trim();
+                    if (trimmed) {
+                        void model.renameSession(renameDialog.chatid, trimmed);
+                    }
+                    setRenameDialog(null);
+                }}
+                onCancel={() => setRenameDialog(null)}
+                onClose={() => setRenameDialog(null)}
+                okLabel={t.aipanel.rename}
+                cancelLabel={t.aipanel.cancel}
+            >
+                <div className="flex flex-col gap-3 pt-4 pb-2 max-w-md">
+                    <div className="font-semibold text-base text-zinc-100">{t.aipanel.renameSessionTitle}</div>
+                    <input
+                        type="text"
+                        className="w-full rounded-md border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-400"
+                        value={renameDialog.value}
+                        onChange={(e) => setRenameDialog({ ...renameDialog, value: e.target.value })}
+                        placeholder={t.aipanel.renameSessionPlaceholder}
+                        autoFocus
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                const trimmed = renameDialog.value.trim();
+                                if (trimmed) {
+                                    void model.renameSession(renameDialog.chatid, trimmed);
+                                }
+                                setRenameDialog(null);
+                            }
+                        }}
+                    />
+                </div>
+            </Modal>
+        )}
+        {deleteDialog && (
+            <Modal
+                className="delete-session-modal"
+                onOk={() => {
+                    void model.deleteSession(deleteDialog.chatid);
+                    setDeleteDialog(null);
+                }}
+                onCancel={() => setDeleteDialog(null)}
+                onClose={() => setDeleteDialog(null)}
+                okLabel={t.aipanel.delete}
+                cancelLabel={t.aipanel.cancel}
+            >
+                <div className="flex flex-col gap-3 pt-4 pb-2 max-w-md">
+                    <div className="font-semibold text-base text-zinc-100">{t.aipanel.deleteSessionTitle(deleteDialog.title)}</div>
+                    <div className="text-sm text-zinc-400">{t.aipanel.deleteSessionHint}</div>
+                </div>
+            </Modal>
+        )}
+        </>
     );
 });
 
@@ -1692,4 +307,5 @@ const AIPanelComponent = () => {
 AIPanelComponent.displayName = "AIPanel";
 
 export { loadInitialChatForPanel } from "./aipanel-loadutil";
+export { getHorizontalSessionTabs } from "./ai-session-utils";
 export { AIPanelComponent as AIPanel };

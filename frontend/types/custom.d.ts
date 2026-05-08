@@ -87,7 +87,7 @@ declare global {
         onNavigate: (callback: (url: string) => void) => void;
         onIframeNavigate: (callback: (url: string) => void) => void;
         pickUploadFiles: () => Promise<string[]>; // pick-upload-files
-        downloadFile: (path: string, taskId?: string) => void; // download
+        downloadFile: (path: string, taskId?: string, isDirectory?: boolean) => void; // download
         onDownloadTransferEvent: (callback: (event: DownloadTransferEvent) => void) => void; // download-transfer-event
         openExternal: (url: string) => void; // open-external
         onFullScreenChange: (callback: (isFullScreen: boolean) => void) => void; // fullscreen-change

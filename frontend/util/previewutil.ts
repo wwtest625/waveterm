@@ -351,18 +351,34 @@ export function addOpenMenuItems(
             });
         }
     } else {
-        menu.push({
-            label: "\u4e0b\u8f7d\u6587\u4ef6",
-            click: () => {
-                const remoteUri = formatRemoteUri(finfo.path, conn);
-                startDownloadTransfer({
-                    remoteUri,
-                    connection: conn,
-                    name: finfo.name ?? finfo.path.split("/").at(-1) ?? finfo.path,
-                    sourcePath: finfo.path,
-                });
-            },
-        });
+        if (finfo.isdir) {
+            menu.push({
+                label: "\u4e0b\u8f7d\u6587\u4ef6\u5939",
+                click: () => {
+                    const remoteUri = formatRemoteUri(finfo.path, conn);
+                    startDownloadTransfer({
+                        remoteUri,
+                        connection: conn,
+                        name: (finfo.name ?? finfo.path.split("/").at(-1) ?? finfo.path) + ".zip",
+                        sourcePath: finfo.path,
+                        isDirectory: true,
+                    });
+                },
+            });
+        } else {
+            menu.push({
+                label: "\u4e0b\u8f7d\u6587\u4ef6",
+                click: () => {
+                    const remoteUri = formatRemoteUri(finfo.path, conn);
+                    startDownloadTransfer({
+                        remoteUri,
+                        connection: conn,
+                        name: finfo.name ?? finfo.path.split("/").at(-1) ?? finfo.path,
+                        sourcePath: finfo.path,
+                    });
+                },
+            });
+        }
     }
 
     menu.push({

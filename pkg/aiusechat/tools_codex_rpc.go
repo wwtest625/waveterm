@@ -606,7 +606,7 @@ func GetWaveRunCommandToolDefinition() uctypes.ToolDefinition {
 			}
 			return resultPayload, nil
 		},
-		ToolApproval: func(input any) string {
+		ToolApproval: func(input any, _ uctypes.ApprovalContext) string {
 			if isCriticalDangerousCommandInput(input) {
 				return uctypes.ApprovalBlocked
 			}

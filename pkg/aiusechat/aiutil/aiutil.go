@@ -406,7 +406,11 @@ func CreateToolUseData(toolCallID, toolName string, arguments string, chatOpts u
 	}
 
 	if toolDef.ToolApproval != nil {
-		toolUseData.Approval = toolDef.ToolApproval(parsedArgs)
+		approvalCtx := uctypes.ApprovalContext{
+			AgentMode: chatOpts.AgentMode,
+			TabId:     chatOpts.TabId,
+		}
+		toolUseData.Approval = toolDef.ToolApproval(parsedArgs, approvalCtx)
 	}
 
 	if chatOpts.TabId != "" {

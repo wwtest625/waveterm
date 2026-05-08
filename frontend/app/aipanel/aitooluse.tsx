@@ -7,9 +7,10 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { base64ToString, cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { WaveUIMessagePart } from "./aitypes";
 import { coalesceToolDetailParts } from "./aitypes";
+import { t } from "./aipanel-i18n";
 import { formatCommandDuration } from "./command-duration";
 import { RestoreBackupModal } from "./restorebackupmodal";
 import { WaveAIModel } from "./waveai-model";
@@ -18,17 +19,17 @@ import { WaveAIModel } from "./waveai-model";
 const BackupRetentionDays = 5;
 
 const ToolDisplayNames: Record<string, string> = {
-    wave_run_command: "执行命令",
-    read_dir: "读取目录",
-    write_text_file: "写入文件",
-    edit_text_file: "精准编辑",
-    command_output: "命令输出",
-    term_command_output: "读取终端输出",
+    wave_run_command: t.tool.waveRunCommand,
+    read_dir: t.tool.readDir,
+    write_text_file: t.tool.writeTextFile,
+    edit_text_file: t.tool.editTextFile,
+    command_output: t.tool.commandOutput,
+    term_command_output: t.tool.termCommandOutput,
 };
 
 export function getToolDisplayName(toolName?: string): string {
     if (!toolName) {
-        return "执行步骤";
+        return t.tool.executionStep;
     }
     return ToolDisplayNames[toolName] ?? toolName.replace(/_/g, " ");
 }
@@ -63,9 +64,9 @@ function getRunningSummaryDescription(
 ): string {
     const baseDescription = normalizeSummaryDescription(lastProgressLine) ?? primaryDescription;
     if (baseDescription) {
-        return `${baseDescription}，后台继续刷新`;
+        return `${baseDescription}${t.tool.backgroundRefreshSuffix}`;
     }
-    return "已返回最新快照，后台继续刷新";
+    return t.tool.snapshotReturned;
 }
 
 function summarizeErrorMessage(toolName: string | undefined, message?: string | null): string | undefined {
@@ -74,16 +75,16 @@ function summarizeErrorMessage(toolName: string | undefined, message?: string | 
         return undefined;
     }
     if (toolName === "wave_run_command" && text.includes("failed to start remote job")) {
-        return "远端命令启动失败";
+        return t.tool.remoteCommandFailed;
     }
     if (toolName === "wave_run_command" && text.includes("job result is unavailable")) {
-        return "执行结果不存在或已失效";
+        return t.tool.resultNotFound;
     }
     if (toolName === "wave_run_command" && text.includes("command result polling timed out")) {
-        return "后台轮询超时";
+        return t.tool.pollTimeout;
     }
     if (toolName === "wave_run_command" && text.includes("command result polling canceled")) {
-        return "后台轮询已取消";
+        return t.tool.pollCancelled;
     }
     if (text.length > 120) {
         return `${text.slice(0, 120)}...`;
@@ -120,16 +121,16 @@ export function summarizeToolGroup(
         .find((line) => typeof line === "string" && line.trim().length > 0);
     const leadToolName = (() => {
         if (toolNames.some((toolName) => toolName === "wave_run_command")) {
-            return "命令执行";
+            return t.tool.commandExecution;
         }
         if (toolNames.some((toolName) => toolName === "edit_text_file")) {
-            return "精准编辑";
+            return t.tool.preciseEdit;
         }
         if (toolNames.some((toolName) => toolName === "write_text_file")) {
-            return "文件写入";
+            return t.tool.fileWrite;
         }
         if (toolNames.some((toolName) => toolName === "read_dir")) {
-            return "文件读取";
+            return t.tool.fileRead;
         }
         return getToolDisplayName(lastToolUse?.data.toolname ?? firstToolUse?.data.toolname);
     })();
@@ -140,11 +141,11 @@ export function summarizeToolGroup(
 
     if (failedToolUse) {
         return {
-            title: `${leadToolName}失败`,
+            title: t.tool.failed(leadToolName),
             description:
                 summarizeErrorMessage(failedToolUse.data.toolname, failedToolUse.data.errormessage) ??
                 primaryDescription ??
-                "执行出错",
+                t.message.executionError,
             toneClassName: "border-red-500/20 bg-red-500/[0.04] text-red-100",
             iconClassName: "text-red-400",
             icon: "fa-circle-xmark",
@@ -158,15 +159,15 @@ export function summarizeToolGroup(
     const cancelledToolUse = tooluseParts.find((part) => part.data.status === "cancelled");
     if (cancelledToolUse) {
         const cancelMessages: Record<string, string> = {
-            manual: "用户手动取消",
-            follow_up: "用户提交了新的问题",
-            user_command: "用户执行了终端命令",
-            timeout: "响应超时",
-            error: "发生错误",
+            manual: t.message.cancelReasonManual,
+            follow_up: t.message.cancelReasonFollowUp,
+            user_command: t.message.cancelReasonUserCommand,
+            timeout: t.message.cancelReasonTimeout,
+            error: t.message.cancelReasonError,
         };
-        const cancelDesc = cancelMessages[cancelledToolUse.data.cancellationreason ?? ""] ?? "用户取消执行";
+        const cancelDesc = cancelMessages[cancelledToolUse.data.cancellationreason ?? ""] ?? t.tool.userCancelled;
         return {
-            title: `${leadToolName}已取消`,
+            title: t.tool.cancelled(leadToolName),
             description:
                 summarizeErrorMessage(cancelledToolUse.data.toolname, cancelledToolUse.data.errormessage) ??
                 primaryDescription ??
@@ -183,8 +184,8 @@ export function summarizeToolGroup(
 
     if (approvalToolUse) {
         return {
-            title: `${getToolDisplayName(approvalToolUse.data.toolname)}待确认`,
-            description: normalizeSummaryDescription(approvalToolUse.data.tooldesc) ?? "等待批准后继续执行",
+            title: t.tool.pendingConfirm(getToolDisplayName(approvalToolUse.data.toolname)),
+            description: normalizeSummaryDescription(approvalToolUse.data.tooldesc) ?? t.tool.waitingApproval,
             toneClassName: "border-yellow-800/60 bg-yellow-950/20 text-yellow-100",
             iconClassName: "text-yellow-400",
             icon: "fa-clock",
@@ -202,10 +203,10 @@ export function summarizeToolGroup(
     ) {
         const isLiveResult = tooluseParts.some((part) => part.data.status === "running");
         return {
-            title: `${leadToolName}处理中`,
+            title: t.tool.processing(leadToolName),
             description: isLiveResult
                 ? getRunningSummaryDescription(lastProgressLine, primaryDescription)
-                : (normalizeSummaryDescription(lastProgressLine) ?? primaryDescription ?? "正在执行"),
+                : (normalizeSummaryDescription(lastProgressLine) ?? primaryDescription ?? t.tool.executing),
             toneClassName: "border-zinc-700 bg-zinc-900/60 text-zinc-100",
             iconClassName: isLiveResult ? "text-yellow-400" : "text-zinc-400",
             icon: isLiveResult ? "fa-bolt" : "fa-spinner fa-spin",
@@ -217,8 +218,8 @@ export function summarizeToolGroup(
     }
 
     return {
-        title: `${leadToolName}完成`,
-        description: primaryDescription ?? "执行已完成",
+        title: t.tool.completed(leadToolName),
+        description: primaryDescription ?? t.tool.executionCompleted,
         toneClassName: "border-zinc-700 bg-zinc-900/40 text-zinc-100",
         iconClassName: "text-emerald-400",
         icon: "fa-circle-check",
@@ -241,7 +242,7 @@ const ToolDescLine = memo(({ text }: ToolDescLineProps) => {
 
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
-    const regex = /(?<!\w)([+-])(\d+)(?!\w)/g;
+    const regex = /(^|[\s(])([+-])(\d+)(?=[\s,;.)]|$)/gm;
     let match;
 
     while ((match = regex.exec(displayText)) !== null) {
@@ -249,8 +250,12 @@ const ToolDescLine = memo(({ text }: ToolDescLineProps) => {
             parts.push(displayText.slice(lastIndex, match.index));
         }
 
-        const sign = match[1];
-        const number = match[2];
+        if (match[1]) {
+            parts.push(match[1]);
+        }
+
+        const sign = match[2];
+        const number = match[3];
         const colorClass = sign === "+" ? "text-green-600" : "text-red-600";
         parts.push(
             <span key={match.index} className={colorClass}>
@@ -299,6 +304,22 @@ function getEffectiveApprovalStatus(baseApproval: string, isStreaming: boolean):
 export function buildInlineDiffPreview(original: string, modified: string, contextLines = 1, maxLines = 12): string {
     if (original === modified) {
         return "";
+    }
+
+    if (original === "" && modified === "") {
+        return "";
+    }
+
+    if (original === "") {
+        const lines = modified.split(/\r?\n/);
+        const preview = lines.slice(0, maxLines).map((l) => `+ ${l}`);
+        return preview.length <= maxLines ? preview.join("\n") : `${preview.join("\n")}\n...`;
+    }
+
+    if (modified === "") {
+        const lines = original.split(/\r?\n/);
+        const preview = lines.slice(0, maxLines).map((l) => `- ${l}`);
+        return preview.length <= maxLines ? preview.join("\n") : `${preview.join("\n")}\n...`;
     }
 
     const originalLines = original.split(/\r?\n/);
@@ -411,7 +432,7 @@ const AIToolUseBatchItem = memo(({ part, effectiveApproval }: AIToolUseBatchItem
                     <span className="text-gray-400">{part.data.tooldesc}</span>
                     {part.data.durationms != null && part.data.durationms > 0 && (
                         <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] text-zinc-300">
-                            耗时 {formatCommandDuration(part.data.durationms)}
+                            {t.tool.durationFormatted(formatCommandDuration(part.data.durationms))}
                         </span>
                     )}
                 </div>
@@ -426,33 +447,43 @@ AIToolUseBatchItem.displayName = "AIToolUseBatchItem";
 interface AIToolUseBatchProps {
     parts: Array<WaveUIMessagePart & { type: "data-tooluse" }>;
     isStreaming: boolean;
+    onSendApproval: (toolCallId: string, approval: string) => void;
 }
 
-const AIToolUseBatch = memo(({ parts, isStreaming }: AIToolUseBatchProps) => {
+const AIToolUseBatch = memo(({ parts, isStreaming, onSendApproval }: AIToolUseBatchProps) => {
     const [userApprovalOverride, setUserApprovalOverride] = useState<string | null>(null);
 
     const firstTool = parts[0].data;
     const baseApproval = userApprovalOverride || firstTool.approval;
     const effectiveApproval = getEffectiveApprovalStatus(baseApproval, isStreaming);
 
+    const toolNameSet = new Set(parts.map((p) => p.data.toolname));
+    let batchTitle: string;
+    if (toolNameSet.size === 1) {
+        batchTitle = getToolDisplayName(firstTool.toolname);
+    } else {
+        const names = [...toolNameSet].map(getToolDisplayName);
+        batchTitle = names.join(" + ");
+    }
+
     const handleApprove = () => {
         setUserApprovalOverride("user-approved");
         parts.forEach((part) => {
-            WaveAIModel.getInstance().toolUseSendApproval(part.data.toolcallid, "user-approved");
+            onSendApproval(part.data.toolcallid, "user-approved");
         });
     };
 
     const handleDeny = () => {
         setUserApprovalOverride("user-denied");
         parts.forEach((part) => {
-            WaveAIModel.getInstance().toolUseSendApproval(part.data.toolcallid, "user-denied");
+            onSendApproval(part.data.toolcallid, "user-denied");
         });
     };
 
     return (
         <div className="flex items-start gap-2 p-2 rounded bg-zinc-800/60 border border-zinc-700">
             <div className="flex-1">
-                <div className="font-semibold">Reading Files</div>
+                <div className="font-semibold">{batchTitle}</div>
                 <div className="mt-1 space-y-0.5">
                     {parts.map((part, idx) => (
                         <AIToolUseBatchItem key={idx} part={part} effectiveApproval={effectiveApproval} />
@@ -471,9 +502,10 @@ AIToolUseBatch.displayName = "AIToolUseBatch";
 interface AIToolUseProps {
     part: WaveUIMessagePart & { type: "data-tooluse" };
     isStreaming: boolean;
+    onSendApproval: (toolCallId: string, approval: string) => void;
 }
 
-const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
+const AIToolUse = memo(({ part, isStreaming, onSendApproval }: AIToolUseProps) => {
     const toolData = part.data;
     const [userApprovalOverride, setUserApprovalOverride] = useState<string | null>(null);
     const model = WaveAIModel.getInstance();
@@ -535,12 +567,12 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
 
     const handleApprove = () => {
         setUserApprovalOverride("user-approved");
-        WaveAIModel.getInstance().toolUseSendApproval(toolData.toolcallid, "user-approved");
+        onSendApproval(toolData.toolcallid, "user-approved");
     };
 
     const handleDeny = () => {
         setUserApprovalOverride("user-denied");
-        WaveAIModel.getInstance().toolUseSendApproval(toolData.toolcallid, "user-denied");
+        onSendApproval(toolData.toolcallid, "user-denied");
     };
 
     const handleMouseEnter = () => {
@@ -589,7 +621,7 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
         }
         const chatId = model.getChatId();
         if (!chatId) {
-            setInlineDiffError("当前会话不存在，无法读取改动详情");
+            setInlineDiffError(t.tool.sessionNotFound);
             setInlineDiffOpen(true);
             return;
         }
@@ -606,7 +638,7 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
                     base64ToString(result.originalcontents64),
                     base64ToString(result.modifiedcontents64)
                 );
-                setInlineDiffPreview(preview || "没有可展示的文本差异");
+                setInlineDiffPreview(preview || t.tool.noDiffToShow);
             } catch (error) {
                 setInlineDiffError(error instanceof Error ? error.message : String(error));
             } finally {
@@ -626,7 +658,7 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
                 <div className="font-semibold">{toolData.toolname}</div>
                 {toolData.durationms != null && toolData.durationms > 0 && (
                     <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] text-zinc-300">
-                        耗时 {formatCommandDuration(toolData.durationms)}
+                        {t.tool.durationFormatted(formatCommandDuration(toolData.durationms))}
                     </span>
                 )}
                 <div className="flex-1" />
@@ -663,9 +695,9 @@ const AIToolUse = memo(({ part, isStreaming }: AIToolUseProps) => {
                 <div className="pl-6">
                     <div className="mt-1 rounded border border-white/10 bg-black/35">
                         <div className="border-b border-white/8 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                            改动预览
+                            {t.tool.changePreview}
                         </div>
-                        {inlineDiffLoading && <div className="px-2 py-2 text-xs text-zinc-400">正在读取改动...</div>}
+                        {inlineDiffLoading && <div className="px-2 py-2 text-xs text-zinc-400">{t.tool.readingChanges}</div>}
                         {inlineDiffError && <div className="px-2 py-2 text-xs text-red-300">{inlineDiffError}</div>}
                         {!inlineDiffLoading && !inlineDiffError && inlineDiffPreview && (
                             <pre className="overflow-x-auto whitespace-pre-wrap break-all px-2 py-2 text-xs leading-5 text-zinc-100">
@@ -735,6 +767,9 @@ type ToolGroupItem =
 
 export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps) => {
     const model = WaveAIModel.getInstance();
+    const sendApproval = useCallback((toolCallId: string, approval: string) => {
+        model.toolUseSendApproval(toolCallId, approval);
+    }, [model]);
     const displayParts = coalesceToolDetailParts(parts);
     const tooluseParts = displayParts.filter((p) => p.type === "data-tooluse") as Array<
         WaveUIMessagePart & { type: "data-tooluse" }
@@ -756,9 +791,11 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
         })
         .join("||");
 
+    const FILE_READ_TOOLS = new Set(["read_dir", "read_text_file"]);
+
     const isFileOp = (part: WaveUIMessagePart & { type: "data-tooluse" }) => {
         const toolName = part.data?.toolname;
-        return toolName === "read_dir";
+        return FILE_READ_TOOLS.has(toolName ?? "");
     };
 
     const needsApproval = (part: WaveUIMessagePart & { type: "data-tooluse" }) => {
@@ -827,7 +864,7 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
                                 className="shrink-0 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500 cursor-pointer"
                                 onClick={() => setDetailsOpen((open) => !open)}
                             >
-                                {detailsOpen ? "收起详情" : "查看详情"}
+                                {detailsOpen ? t.tool.collapseDetails : t.tool.viewDetails}
                             </button>
                         )}
                     </div>
@@ -848,7 +885,7 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
                                 if (item.type === "batch") {
                                     return (
                                         <div key={idx} className={idx === 0 ? "" : "mt-2"}>
-                                            <AIToolUseBatch parts={item.parts} isStreaming={isStreaming} />
+                                            <AIToolUseBatch parts={item.parts} isStreaming={isStreaming} onSendApproval={sendApproval} />
                                         </div>
                                     );
                                 } else if (item.type === "progress") {
@@ -860,7 +897,7 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
                                 } else {
                                     return (
                                         <div key={idx} className={idx === 0 ? "" : "mt-2"}>
-                                            <AIToolUse part={item.part} isStreaming={isStreaming} />
+                                            <AIToolUse part={item.part} isStreaming={isStreaming} onSendApproval={sendApproval} />
                                         </div>
                                     );
                                 }

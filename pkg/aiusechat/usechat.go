@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/user"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -43,12 +44,130 @@ const DefaultAPI = uctypes.APIType_OpenAIResponses
 const DefaultMaxTokens = 4 * 1024
 const BuilderMaxTokens = 24 * 1024
 
-var (
-	globalRateLimitInfo = &uctypes.RateLimitInfo{Unknown: true}
-	rateLimitLock       sync.Mutex
+const waveCommandJobCleanupInterval = 5 * time.Minute
 
-	activeChats = ds.MakeSyncMap[bool]() // key is chatid
-)
+func init() {
+	go func() {
+		ticker := time.NewTicker(waveCommandJobCleanupInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			defaultChatManager.commandJobMu.Lock()
+			defaultChatManager.cleanupCommandJobsLocked(time.Now())
+			defaultChatManager.commandJobMu.Unlock()
+		}
+	}()
+}
+
+type ChatManager struct {
+	rateLimitInfo  *uctypes.RateLimitInfo
+	rateLimitLock  sync.Mutex
+	activeChats    *ds.SyncMap[bool]
+
+	tuiAutoCancelMu      sync.Mutex
+	tuiAutoCancelledJobs map[string]bool
+
+	commandPollerMu sync.Mutex
+	commandPollers  map[string]struct{}
+
+	commandJobMu sync.Mutex
+	commandJobs  map[string]waveCommandJobEntry
+}
+
+var defaultChatManager = NewChatManager()
+
+func NewChatManager() *ChatManager {
+	return &ChatManager{
+		rateLimitInfo:        &uctypes.RateLimitInfo{Unknown: true},
+		activeChats:          ds.MakeSyncMap[bool](),
+		tuiAutoCancelledJobs: make(map[string]bool),
+		commandPollers:       make(map[string]struct{}),
+		commandJobs:          make(map[string]waveCommandJobEntry),
+	}
+}
+
+func (cm *ChatManager) updateRateLimit(info *uctypes.RateLimitInfo) {
+	if info == nil {
+		return
+	}
+	cm.rateLimitLock.Lock()
+	defer cm.rateLimitLock.Unlock()
+	cm.rateLimitInfo = info
+	go func() {
+		wps.Broker.Publish(wps.WaveEvent{
+			Event: wps.Event_WaveAIRateLimit,
+			Data:  info,
+		})
+	}()
+}
+
+func (cm *ChatManager) getRateLimit() *uctypes.RateLimitInfo {
+	cm.rateLimitLock.Lock()
+	defer cm.rateLimitLock.Unlock()
+	return cm.rateLimitInfo
+}
+
+func (cm *ChatManager) cleanupCommandJobsLocked(now time.Time) {
+	for jobID, entry := range cm.commandJobs {
+		if now.Sub(entry.updatedAt) > waveCommandJobRetention {
+			delete(cm.commandJobs, jobID)
+		}
+	}
+	if len(cm.commandJobs) <= waveCommandJobMaxCount {
+		return
+	}
+	for len(cm.commandJobs) > waveCommandJobMaxCount {
+		oldestJobID := ""
+		var oldestAt time.Time
+		for jobID, entry := range cm.commandJobs {
+			if oldestJobID == "" || entry.updatedAt.Before(oldestAt) {
+				oldestJobID = jobID
+				oldestAt = entry.updatedAt
+			}
+		}
+		if oldestJobID == "" {
+			return
+		}
+		delete(cm.commandJobs, oldestJobID)
+	}
+}
+
+func (cm *ChatManager) rememberCommandJob(jobID string, commandText string) {
+	trimmedJobID := strings.TrimSpace(jobID)
+	if trimmedJobID == "" {
+		return
+	}
+	cm.commandJobMu.Lock()
+	defer cm.commandJobMu.Unlock()
+	now := time.Now()
+	cm.cleanupCommandJobsLocked(now)
+	trimmedCommand := strings.TrimSpace(commandText)
+	if trimmedCommand == "" {
+		delete(cm.commandJobs, trimmedJobID)
+	} else {
+		cm.commandJobs[trimmedJobID] = waveCommandJobEntry{
+			commandText: trimmedCommand,
+			updatedAt:   now,
+		}
+	}
+}
+
+func (cm *ChatManager) lookupCommandJob(jobID string) string {
+	trimmedJobID := strings.TrimSpace(jobID)
+	if trimmedJobID == "" {
+		return ""
+	}
+	cm.commandJobMu.Lock()
+	defer cm.commandJobMu.Unlock()
+	entry, found := cm.commandJobs[trimmedJobID]
+	if !found {
+		return ""
+	}
+	if time.Since(entry.updatedAt) > waveCommandJobRetention {
+		delete(cm.commandJobs, trimmedJobID)
+		return ""
+	}
+	return entry.commandText
+}
 
 func getSystemPrompt(model string, isBuilder bool, agentMode AgentMode) []string {
 	if isBuilder {
@@ -226,24 +345,11 @@ func shouldUsePremium() bool {
 }
 
 func updateRateLimit(info *uctypes.RateLimitInfo) {
-	if info == nil {
-		return
-	}
-	rateLimitLock.Lock()
-	defer rateLimitLock.Unlock()
-	globalRateLimitInfo = info
-	go func() {
-		wps.Broker.Publish(wps.WaveEvent{
-			Event: wps.Event_WaveAIRateLimit,
-			Data:  info,
-		})
-	}()
+	defaultChatManager.updateRateLimit(info)
 }
 
 func GetGlobalRateLimit() *uctypes.RateLimitInfo {
-	rateLimitLock.Lock()
-	defer rateLimitLock.Unlock()
-	return globalRateLimitInfo
+	return defaultChatManager.getRateLimit()
 }
 
 func runAIChatStep(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseChatBackend, chatOpts uctypes.WaveChatOpts, cont *uctypes.WaveContinueResponse) (*uctypes.WaveStopReason, []uctypes.GenAIMessage, error) {
@@ -397,20 +503,17 @@ func applyWaveCommandInteractionState(toolUseData *uctypes.UIMessageDataToolUse,
 	toolUseData.TuiSuppressed = interaction.TuiSuppressed
 }
 
-var tuiAutoCancelMu sync.Mutex
-var tuiAutoCancelledJobs = make(map[string]bool)
-
 func autoCancelTUICommand(rpcClient *wshutil.WshRpc, jobId string) {
 	if strings.TrimSpace(jobId) == "" {
 		return
 	}
-	tuiAutoCancelMu.Lock()
-	if tuiAutoCancelledJobs[jobId] {
-		tuiAutoCancelMu.Unlock()
+	defaultChatManager.tuiAutoCancelMu.Lock()
+	if defaultChatManager.tuiAutoCancelledJobs[jobId] {
+		defaultChatManager.tuiAutoCancelMu.Unlock()
 		return
 	}
-	tuiAutoCancelledJobs[jobId] = true
-	tuiAutoCancelMu.Unlock()
+	defaultChatManager.tuiAutoCancelledJobs[jobId] = true
+	defaultChatManager.tuiAutoCancelMu.Unlock()
 
 	go func() {
 		err := wshclient.AgentCancelCommand(rpcClient, jobId, &wshrpc.RpcOpts{Timeout: 5000})
@@ -420,25 +523,11 @@ func autoCancelTUICommand(rpcClient *wshutil.WshRpc, jobId string) {
 			log.Printf("auto-cancelled TUI command %s", jobId)
 		}
 		time.AfterFunc(30*time.Second, func() {
-			tuiAutoCancelMu.Lock()
-			delete(tuiAutoCancelledJobs, jobId)
-			tuiAutoCancelMu.Unlock()
+			defaultChatManager.tuiAutoCancelMu.Lock()
+			delete(defaultChatManager.tuiAutoCancelledJobs, jobId)
+			defaultChatManager.tuiAutoCancelMu.Unlock()
 		})
 	}()
-}
-
-var waveCommandResultPollers = struct {
-	mu   sync.Mutex
-	jobs map[string]struct{}
-}{
-	jobs: make(map[string]struct{}),
-}
-
-var waveCommandJobContext = struct {
-	mu       sync.Mutex
-	commands map[string]waveCommandJobEntry
-}{
-	commands: make(map[string]waveCommandJobEntry),
 }
 
 type waveCommandJobEntry struct {
@@ -452,66 +541,15 @@ const (
 )
 
 func cleanupWaveCommandJobsLocked(now time.Time) {
-	for jobID, entry := range waveCommandJobContext.commands {
-		if now.Sub(entry.updatedAt) > waveCommandJobRetention {
-			delete(waveCommandJobContext.commands, jobID)
-		}
-	}
-	if len(waveCommandJobContext.commands) <= waveCommandJobMaxCount {
-		return
-	}
-	for len(waveCommandJobContext.commands) > waveCommandJobMaxCount {
-		oldestJobID := ""
-		var oldestAt time.Time
-		for jobID, entry := range waveCommandJobContext.commands {
-			if oldestJobID == "" || entry.updatedAt.Before(oldestAt) {
-				oldestJobID = jobID
-				oldestAt = entry.updatedAt
-			}
-		}
-		if oldestJobID == "" {
-			return
-		}
-		delete(waveCommandJobContext.commands, oldestJobID)
-	}
+	defaultChatManager.cleanupCommandJobsLocked(now)
 }
 
 func rememberWaveCommandJob(jobID string, commandText string) {
-	trimmedJobID := strings.TrimSpace(jobID)
-	if trimmedJobID == "" {
-		return
-	}
-	waveCommandJobContext.mu.Lock()
-	defer waveCommandJobContext.mu.Unlock()
-	now := time.Now()
-	cleanupWaveCommandJobsLocked(now)
-	trimmedCommand := strings.TrimSpace(commandText)
-	if trimmedCommand == "" {
-		delete(waveCommandJobContext.commands, trimmedJobID)
-		return
-	}
-	waveCommandJobContext.commands[trimmedJobID] = waveCommandJobEntry{
-		commandText: trimmedCommand,
-		updatedAt:   now,
-	}
+	defaultChatManager.rememberCommandJob(jobID, commandText)
 }
 
 func lookupWaveCommandJob(jobID string) string {
-	trimmedJobID := strings.TrimSpace(jobID)
-	if trimmedJobID == "" {
-		return ""
-	}
-	waveCommandJobContext.mu.Lock()
-	defer waveCommandJobContext.mu.Unlock()
-	entry, found := waveCommandJobContext.commands[trimmedJobID]
-	if !found {
-		return ""
-	}
-	if time.Since(entry.updatedAt) > waveCommandJobRetention {
-		delete(waveCommandJobContext.commands, trimmedJobID)
-		return ""
-	}
-	return entry.commandText
+	return defaultChatManager.lookupCommandJob(jobID)
 }
 
 const (
@@ -556,13 +594,13 @@ func tryStartWaveCommandResultPoller(
 		return
 	}
 	pollerKey := chatOpts.ChatId + ":" + toolCallID
-	waveCommandResultPollers.mu.Lock()
-	if _, exists := waveCommandResultPollers.jobs[pollerKey]; exists {
-		waveCommandResultPollers.mu.Unlock()
+	defaultChatManager.commandPollerMu.Lock()
+	if _, exists := defaultChatManager.commandPollers[pollerKey]; exists {
+		defaultChatManager.commandPollerMu.Unlock()
 		return
 	}
-	waveCommandResultPollers.jobs[pollerKey] = struct{}{}
-	waveCommandResultPollers.mu.Unlock()
+	defaultChatManager.commandPollers[pollerKey] = struct{}{}
+	defaultChatManager.commandPollerMu.Unlock()
 
 	initialToolUse := makeWaveCommandToolUseData("wave_run_command", toolCallID, snapshot)
 	commandText := lookupWaveCommandJob(snapshot.JobId)
@@ -577,10 +615,10 @@ func tryStartWaveCommandResultPoller(
 
 	go func() {
 		defer func() {
-			waveCommandResultPollers.mu.Lock()
-			delete(waveCommandResultPollers.jobs, pollerKey)
-			waveCommandResultPollers.mu.Unlock()
-			rememberWaveCommandJob(snapshot.JobId, "")
+			defaultChatManager.commandPollerMu.Lock()
+			delete(defaultChatManager.commandPollers, pollerKey)
+			defaultChatManager.commandPollerMu.Unlock()
+			defaultChatManager.rememberCommandJob(snapshot.JobId, "")
 		}()
 
 		current := initialToolUse
@@ -1057,6 +1095,7 @@ func buildToolExecutionPlan(toolCalls []uctypes.WaveToolCall) []toolExecutionGro
 }
 
 func processToolCallBatch(
+	ctx context.Context,
 	backend UseChatBackend,
 	toolCalls []uctypes.WaveToolCall,
 	chatOpts uctypes.WaveChatOpts,
@@ -1079,6 +1118,15 @@ func processToolCallBatch(
 		wg.Add(1)
 		go func(index int, call uctypes.WaveToolCall, def *uctypes.ToolDefinition) {
 			defer wg.Done()
+			if ctx.Err() != nil {
+				resultCh <- batchResult{
+					index:    index,
+					result:   uctypes.AIToolResult{ToolName: call.Name, ToolUseID: call.ID, ErrorText: "cancelled"},
+					toolCall: call,
+					toolDef:  def,
+				}
+				return
+			}
 			inputJSON, _ := json.Marshal(call.Input)
 			logutil.DevPrintf("TOOLUSE(P) name=%s id=%s input=%s approval=%q\n", call.Name, call.ID, utilfn.TruncateString(string(inputJSON), 40), call.ToolUseData.Approval)
 			resultCh <- batchResult{
@@ -1090,21 +1138,19 @@ func processToolCallBatch(
 		}(idx, toolCall, toolDef)
 	}
 
-	wg.Wait()
-	close(resultCh)
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
 
-	finalized := make([]batchResult, len(toolCalls))
 	for item := range resultCh {
-		finalized[item.index] = item
-	}
-	for idx, item := range finalized {
-		results[idx] = item.result
+		results[item.index] = item.result
 		finalizeToolCallProcessing(backend, chatOpts, sseHandler, item.toolCall, item.toolDef, item.result, metrics)
 	}
 	return results
 }
 
-func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopReason, chatOpts uctypes.WaveChatOpts, sseHandler *sse.SSEHandlerCh, metrics *uctypes.AIMetrics) {
+func processAllToolCalls(ctx context.Context, backend UseChatBackend, stopReason *uctypes.WaveStopReason, chatOpts uctypes.WaveChatOpts, sseHandler *sse.SSEHandlerCh, metrics *uctypes.AIMetrics) {
 	existingTaskState := chatstore.DefaultChatStore.GetSession(chatOpts.ChatId)
 	var currentTaskState *uctypes.UITaskProgressState
 	if existingTaskState != nil {
@@ -1155,6 +1201,10 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 	dedupKeys := buildToolCallDedupKeys(stopReason.ToolCalls)
 	seenResultsByKey := make(map[string]uctypes.AIToolResult)
 	for _, group := range buildToolExecutionPlan(stopReason.ToolCalls) {
+		if ctx.Err() != nil {
+			log.Printf("AI tool processing stopped (context cancelled): %v\n", ctx.Err())
+			break
+		}
 		if sseHandler.Err() != nil {
 			log.Printf("AI tool processing stopped: %v\n", sseHandler.Err())
 			break
@@ -1182,7 +1232,7 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 				uniqueToolCalls = append(uniqueToolCalls, stopReason.ToolCalls[idx])
 				uniqueIndices = append(uniqueIndices, idx)
 			}
-			results := processToolCallBatch(backend, uniqueToolCalls, chatOpts, sseHandler, metrics)
+			results := processToolCallBatch(ctx, backend, uniqueToolCalls, chatOpts, sseHandler, metrics)
 			for idx, result := range results {
 				origIndex := uniqueIndices[idx]
 				key := dedupKeys[origIndex]
@@ -1267,10 +1317,10 @@ func processAllToolCalls(backend UseChatBackend, stopReason *uctypes.WaveStopRea
 }
 
 func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseChatBackend, chatOpts uctypes.WaveChatOpts) (*uctypes.AIMetrics, error) {
-	if !activeChats.SetUnless(chatOpts.ChatId, true) {
+	if !defaultChatManager.activeChats.SetUnless(chatOpts.ChatId, true) {
 		return nil, fmt.Errorf("chat %s is already running", chatOpts.ChatId)
 	}
-	defer activeChats.Delete(chatOpts.ChatId)
+	defer defaultChatManager.activeChats.Delete(chatOpts.ChatId)
 
 	stepNum := chatstore.DefaultChatStore.CountUserMessages(chatOpts.ChatId)
 	aiProvider := chatOpts.Config.Provider
@@ -1389,7 +1439,7 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 		}
 		if stopReason != nil && stopReason.Kind == uctypes.StopKindToolUse {
 			metrics.ToolUseCount += len(stopReason.ToolCalls)
-			processAllToolCalls(backend, stopReason, chatOpts, sseHandler, metrics)
+			processAllToolCalls(ctx, backend, stopReason, chatOpts, sseHandler, metrics)
 			tabStateDirty = true
 			cont = &uctypes.WaveContinueResponse{
 				Model:            chatOpts.Config.Model,
@@ -1410,7 +1460,11 @@ func ResolveToolCall(toolDef *uctypes.ToolDefinition, toolCall uctypes.WaveToolC
 
 	defer func() {
 		if r := recover(); r != nil {
-			result.ErrorText = fmt.Sprintf("panic in tool execution: %v", r)
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			stackTrace := string(buf[:n])
+			log.Printf("PANIC in tool execution: %v\nStack:\n%s", r, stackTrace)
+			result.ErrorText = fmt.Sprintf("Internal error (panic: %v). This is a bug, please report it.", r)
 			result.Text = ""
 		}
 	}()
@@ -1606,7 +1660,7 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Validate the message
 	if err := req.Msg.Validate(); err != nil {
-		http.Error(w, fmt.Sprintf("Message validation failed: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Message validation failed: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -1772,7 +1826,7 @@ func CreateWriteTextFileDiff(ctx context.Context, chatId string, toolCallId stri
 			if targetErr != nil {
 				return nil, nil, fmt.Errorf("failed to resolve remote file target: %w", targetErr)
 			}
-			originalText, readErr := runRemoteReadFileCommand(remoteTarget, params.Filename)
+			originalText, readErr := rpcRemoteReadFile(remoteTarget, params.Filename)
 			if readErr != nil {
 				return nil, nil, fmt.Errorf("failed to read original remote file: %w", readErr)
 			}
@@ -1797,7 +1851,7 @@ func CreateWriteTextFileDiff(ctx context.Context, chatId string, toolCallId stri
 	}
 
 	var originalContent []byte
-	originalText, err := runRemoteReadFileCommand(remoteTarget, params.Filename)
+	originalText, err := rpcRemoteReadFile(remoteTarget, params.Filename)
 	if err != nil {
 		if !strings.Contains(strings.ToLower(err.Error()), "no such file") {
 			return nil, nil, fmt.Errorf("failed to read original remote file: %w", err)

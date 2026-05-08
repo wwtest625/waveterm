@@ -221,6 +221,7 @@ export type UIChatSessionMeta = {
     lasttaskstate?: string;
     archived?: boolean;
     deleted?: boolean;
+    isempty?: boolean;
     cheatsheet?: {
         currentwork?: string;
         completed?: string;
@@ -1009,6 +1010,7 @@ export function coalesceToolDetailParts(
 }
 
 export function coalesceMessageParts(parts: WaveUIMessagePart[]): WaveUIMessagePart[] {
+    let hasCoalesced = false;
     const result: WaveUIMessagePart[] = [];
     const toolDetailIndexByKey = new Map<string, number>();
 
@@ -1018,6 +1020,7 @@ export function coalesceMessageParts(parts: WaveUIMessagePart[]): WaveUIMessageP
             const existingIndex = toolDetailIndexByKey.get(key);
             if (existingIndex != null) {
                 result[existingIndex] = part;
+                hasCoalesced = true;
             } else {
                 toolDetailIndexByKey.set(key, result.length);
                 result.push(part);
@@ -1027,7 +1030,7 @@ export function coalesceMessageParts(parts: WaveUIMessagePart[]): WaveUIMessageP
         }
     }
 
-    return result;
+    return hasCoalesced ? result : parts;
 }
 
 export function isTextPart(part: WaveUIMessagePart): part is WaveUIMessagePart & { type: "text"; text: string } {

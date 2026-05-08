@@ -48,6 +48,7 @@ type DownloadTransferInput = {
     name: string;
     sourcePath?: string;
     targetPath?: string;
+    isDirectory?: boolean;
 };
 
 type UploadTransferInput = {
@@ -335,7 +336,7 @@ export function startDownloadTransfer(input: DownloadTransferInput): string {
         status: "pending",
     });
     try {
-        getApi().downloadFile(input.remoteUri, transferId);
+        getApi().downloadFile(input.remoteUri, transferId, input.isDirectory ?? false);
     } catch (error) {
         failTransferTask(transferId, error instanceof Error ? error.message : String(error));
     }

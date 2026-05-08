@@ -7,6 +7,7 @@ import {
     getContextLevelColor,
     getContextLevelLabel,
 } from "./aitypes";
+import { t } from "./aipanel-i18n";
 import { TaskProgressItemViewModel, deriveTaskProgressViewModel } from "./taskprogress";
 
 function getTaskTone(status: string, isCurrent: boolean, isFocused: boolean): string {
@@ -104,7 +105,7 @@ function TaskItemRow({
                     </span>
                 )}
                 {item.isFocused && item.status !== "completed" && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent">聚焦</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent">{t.taskProgress.focused}</span>
                 )}
                 {hasSubtasks && (
                     <button onClick={onToggle} className="text-zinc-500 hover:text-zinc-300 transition-colors ml-1">
@@ -185,7 +186,7 @@ export function TaskProgressPanel({
         <div className={cn(className ?? "mx-3 mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3")}>
             <div className="flex items-center justify-between gap-3">
                 <div>
-                    <div className="text-xs text-zinc-400">{compact ? "当前任务" : "任务计划"}</div>
+                    <div className="text-xs text-zinc-400">{compact ? t.taskProgress.currentTask : t.taskProgress.taskPlan}</div>
                     <div className="mt-1 text-sm font-medium text-zinc-100">
                         {viewModel.completedLabel}
                         <span className="ml-2 text-zinc-400">({viewModel.percent}%)</span>
@@ -194,7 +195,7 @@ export function TaskProgressPanel({
                 <div className="text-right">
                     {viewModel.currentTaskTitle && (
                         <div className="truncate text-xs text-zinc-100 font-medium" title={viewModel.currentTaskTitle}>
-                            当前：{viewModel.currentTaskTitle}
+                            {t.taskProgress.current(viewModel.currentTaskTitle)}
                         </div>
                     )}
                     {viewModel.currentTaskDescription && (
@@ -224,14 +225,14 @@ export function TaskProgressPanel({
 
             {compact && viewModel.blockedReason && !viewModel.securityBlocked && (
                 <div className="mt-2 truncate text-xs text-amber-300" title={viewModel.blockedReason}>
-                    阻塞：{viewModel.blockedReason}
+                    {t.taskProgress.blocked(viewModel.blockedReason)}
                 </div>
             )}
 
             {compact && viewModel.securityBlocked && (
                 <div className="mt-2 text-xs text-red-300/70">
                     <i className="fa-solid fa-shield-halved mr-1.5" />
-                    命令被安全机制阻止
+                    {t.taskProgress.commandBlockedBySecurity}
                 </div>
             )}
 
@@ -240,7 +241,7 @@ export function TaskProgressPanel({
                     {viewModel.contextUsagePercent > 0 && (
                         <div className="mt-2">
                             <div className="flex items-center justify-between mb-1">
-                                <span className="text-[10px] text-zinc-500">上下文用量</span>
+                                <span className="text-[10px] text-zinc-500">{t.taskProgress.contextUsage}</span>
                             </div>
                             <ContextUsageIndicator
                                 percent={viewModel.contextUsagePercent}
@@ -251,7 +252,7 @@ export function TaskProgressPanel({
 
                     {viewModel.chainProgress > 0 && viewModel.focusedTaskId && (
                         <div className="mt-2 flex items-center gap-2 text-[10px] text-zinc-500">
-                            <span>聚焦链进度</span>
+                            <span>{t.taskProgress.focusChainProgress}</span>
                             <div className="flex-1 h-0.5 overflow-hidden rounded-full bg-white/[0.04]">
                                 <div
                                     className="h-full bg-blue-400 transition-all"
@@ -276,13 +277,13 @@ export function TaskProgressPanel({
                     {viewModel.securityBlocked && (
                         <div className="mt-3 rounded-lg border border-red-500/12 bg-red-500/[0.04] px-3 py-2 text-xs text-red-300/70">
                             <i className="fa-solid fa-shield-halved mr-1.5" />
-                            命令被安全机制阻止，已停止所有处理
+                            {t.taskProgress.commandBlockedBySecurity}
                         </div>
                     )}
 
                     {viewModel.blockedReason && !viewModel.securityBlocked && (
                         <div className="mt-3 truncate text-xs text-amber-300" title={viewModel.blockedReason}>
-                            阻塞：{viewModel.blockedReason}
+                            {t.taskProgress.blocked(viewModel.blockedReason)}
                         </div>
                     )}
                 </>

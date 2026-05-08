@@ -377,22 +377,25 @@ type UIChatSessionListOpts struct {
 	IncludeDeleted  bool `json:"includedeleted,omitempty"`
 }
 
-// ToolDefinition represents a tool that can be used by the AI model
+// ToolDefinition represents a tool that can be used by the AI model.
+// Serializable fields (Name, Description, InputSchema, etc.) are sent to the AI API.
+// Callback fields (ToolAnyCallback, ToolApproval, etc.) are internal and excluded from JSON via `json:"-"`.
+// Use ToSpec() to get a clean serializable copy with all internal fields stripped.
 type ToolDefinition struct {
 	Name                 string         `json:"name"`
-	DisplayName          string         `json:"displayname,omitempty"` // internal field (cannot marshal to API, must be stripped)
+	DisplayName          string         `json:"displayname,omitempty"`
 	Description          string         `json:"description"`
-	ShortDescription     string         `json:"shortdescription,omitempty"` // internal field (cannot marshal to API, must be stripped)
-	ToolLogName          string         `json:"-"`                          // short name for telemetry (e.g., "term:getscrollback")
+	ShortDescription     string         `json:"shortdescription,omitempty"`
+	ToolLogName          string         `json:"-"`
 	InputSchema          map[string]any `json:"input_schema"`
 	Strict               bool           `json:"strict,omitempty"`
 	RequiredCapabilities []string       `json:"requiredcapabilities,omitempty"`
 
 	ToolTextCallback func(any) (string, error)                     `json:"-"`
-	ToolAnyCallback  func(any, *UIMessageDataToolUse) (any, error) `json:"-"` // *UIMessageDataToolUse will NOT be nil
-	ToolCallDesc     func(any, any, *UIMessageDataToolUse) string  `json:"-"` // passed input, output (may be nil), *UIMessageDataToolUse (may be nil)
-	ToolApproval     func(any) string                              `json:"-"`
-	ToolVerifyInput  func(any, *UIMessageDataToolUse) error        `json:"-"` // *UIMessageDataToolUse will NOT be nil
+	ToolAnyCallback  func(any, *UIMessageDataToolUse) (any, error) `json:"-"`
+	ToolCallDesc     func(any, any, *UIMessageDataToolUse) string  `json:"-"`
+	ToolApproval     func(any, ApprovalContext) string              `json:"-"`
+	ToolVerifyInput  func(any, *UIMessageDataToolUse) error        `json:"-"`
 	ToolProgressDesc func(any) ([]string, error)                   `json:"-"`
 }
 
@@ -403,7 +406,17 @@ func (td *ToolDefinition) Clean() *ToolDefinition {
 	rtn := *td
 	rtn.DisplayName = ""
 	rtn.ShortDescription = ""
+	rtn.ToolTextCallback = nil
+	rtn.ToolAnyCallback = nil
+	rtn.ToolCallDesc = nil
+	rtn.ToolApproval = nil
+	rtn.ToolVerifyInput = nil
+	rtn.ToolProgressDesc = nil
 	return &rtn
+}
+
+func (td *ToolDefinition) ToSpec() *ToolDefinition {
+	return td.Clean()
 }
 
 func (td *ToolDefinition) Desc() string {
@@ -470,6 +483,11 @@ const (
 	ApprovalCanceled      = "canceled"
 	ApprovalBlocked       = "blocked"
 )
+
+type ApprovalContext struct {
+	AgentMode string `json:"agentmode,omitempty"`
+	TabId     string `json:"tabid,omitempty"`
+}
 
 const (
 	CancelReasonManual      = "manual"

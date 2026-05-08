@@ -73,9 +73,9 @@ test("docker star helpers persist and sort starred containers first", () => {
     assert.deepEqual(toggleDockerStarredContainerId(["beta", "alpha"], "alpha"), ["beta"]);
 
     const containers = [
-        { id: "1", name: "zeta", image: "nginx:latest", state: "running", statusText: "", portsText: "" },
-        { id: "2", name: "alpha", image: "redis:latest", state: "exited", statusText: "", portsText: "" },
-        { id: "3", name: "beta", image: "postgres:latest", state: "running", statusText: "", portsText: "" },
+        { id: "1", name: "zeta", image: "nginx:latest", imageId: "sha256:abc123", state: "running", statusText: "", portsText: "" },
+        { id: "2", name: "alpha", image: "redis:latest", imageId: "sha256:def456", state: "exited", statusText: "", portsText: "" },
+        { id: "3", name: "beta", image: "postgres:latest", imageId: "sha256:ghi789", state: "running", statusText: "", portsText: "" },
     ] as DockerContainerSummary[];
 
     const sorted = sortDockerContainersForDisplay(containers, ["3", "2"]);
@@ -85,17 +85,18 @@ test("docker star helpers persist and sort starred containers first", () => {
     );
 });
 
-test("docker container search supports separate name and image filters", () => {
+test("docker container search supports separate name and image ID filters", () => {
     const container = {
         id: "1",
         name: "web-api",
         image: "ghcr.io/acme/web:latest",
+        imageId: "sha256:abc123def",
         state: "running",
         statusText: "Up",
         portsText: "8080/tcp",
     } as DockerContainerSummary;
 
     assert.equal(dockerContainerMatchesSearch(container, "web", ""), true);
-    assert.equal(dockerContainerMatchesSearch(container, "", "ghcr.io/acme/web"), true);
-    assert.equal(dockerContainerMatchesSearch(container, "web", "redis"), false);
+    assert.equal(dockerContainerMatchesSearch(container, "", "sha256:abc123def"), true);
+    assert.equal(dockerContainerMatchesSearch(container, "web", "sha256:xyz"), false);
 });

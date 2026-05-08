@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld("api", {
     onContextMenuClick: (callback: (id: string | null) => void) =>
         ipcRenderer.on("contextmenu-click", (_event, id: string | null) => callback(id)),
     pickUploadFiles: () => ipcRenderer.invoke("pick-upload-files"),
-    downloadFile: (filePath, taskId) => ipcRenderer.send("download", { filePath, taskId }),
+    downloadFile: (filePath, taskId, isDirectory = false) => ipcRenderer.send("download", { filePath, taskId, isDirectory }),
     onDownloadTransferEvent: (callback) =>
         ipcRenderer.on("download-transfer-event", (_event, payload) => callback(payload)),
     openExternal: (url) => {

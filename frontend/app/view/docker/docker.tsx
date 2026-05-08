@@ -443,7 +443,7 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                         <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <div>
                                 <div className="text-base font-semibold text-zinc-100">容器列表</div>
-                                <div className="text-sm text-zinc-500">按容器名和镜像名分别筛选</div>
+                                <div className="text-sm text-zinc-500">按容器名和镜像ID分别筛选</div>
                             </div>
                             <div className="flex w-full max-w-xl flex-col gap-2 sm:flex-row">
                                 <input
@@ -454,7 +454,7 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                 />
                                 <input
                                     className={`${searchFieldClass} sm:flex-1`}
-                                    placeholder="搜索镜像名"
+                                    placeholder="搜索镜像ID"
                                     value={containerImageSearch}
                                     onChange={(e) => setContainerImageSearch(e.target.value)}
                                 />

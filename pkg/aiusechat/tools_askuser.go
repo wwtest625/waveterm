@@ -21,7 +21,7 @@ func GetAskUserToolDefinition() uctypes.ToolDefinition {
 			"properties": map[string]any{
 				"kind": map[string]any{
 					"type":        "string",
-					"enum":        []string{"freeform", "select", "multiselect", "confirm"},
+					"enum":        []string{string(uctypes.AskUserFreeform), string(uctypes.AskUserSelect), string(uctypes.AskUserMultiSelect), string(uctypes.AskUserConfirm)},
 					"description": "The type of question to ask: freeform for text input, select for single choice, multiselect for multiple choices, confirm for yes/no confirmation",
 				},
 				"prompt": map[string]any{
@@ -58,7 +58,7 @@ func GetAskUserToolDefinition() uctypes.ToolDefinition {
 		ToolAnyCallback: func(input any, toolUseData *uctypes.UIMessageDataToolUse) (any, error) {
 			return map[string]any{"status": "pending"}, nil
 		},
-		ToolApproval: func(input any) string { return uctypes.ApprovalAutoApproved },
+		ToolApproval: func(input any, _ uctypes.ApprovalContext) string { return uctypes.ApprovalAutoApproved },
 	}
 }
 
@@ -85,9 +85,14 @@ func parseAskUserInput(m map[string]any) (askUserInput, error) {
 	if input.Prompt == "" {
 		return input, fmt.Errorf("prompt must not be empty")
 	}
-	validKinds := map[string]bool{"freeform": true, "select": true, "multiselect": true, "confirm": true}
+	validKinds := map[string]bool{
+		string(uctypes.AskUserFreeform):    true,
+		string(uctypes.AskUserSelect):      true,
+		string(uctypes.AskUserMultiSelect): true,
+		string(uctypes.AskUserConfirm):     true,
+	}
 	if !validKinds[input.Kind] {
-		return input, fmt.Errorf("invalid kind: %s (must be freeform/select/multiselect/confirm)", input.Kind)
+		return input, fmt.Errorf("invalid kind: %s (must be %s/%s/%s/%s)", input.Kind, uctypes.AskUserFreeform, uctypes.AskUserSelect, uctypes.AskUserMultiSelect, uctypes.AskUserConfirm)
 	}
 	if rawOptions, ok := m["options"].([]any); ok {
 		for _, rawOpt := range rawOptions {
@@ -109,7 +114,7 @@ func parseAskUserInput(m map[string]any) (askUserInput, error) {
 			}
 		}
 	}
-	if (input.Kind == "select" || input.Kind == "multiselect") && len(input.Options) == 0 {
+	if (input.Kind == string(uctypes.AskUserSelect) || input.Kind == string(uctypes.AskUserMultiSelect)) && len(input.Options) == 0 {
 		return input, fmt.Errorf("options are required for select/multiselect questions")
 	}
 	if def, ok := m["default"].(string); ok {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { getHorizontalSessionTabs, loadInitialChatForPanel } from "../aipanel";
+import { getHorizontalSessionTabs } from "../ai-session-utils";
+import { loadInitialChatForPanel } from "../aipanel-loadutil";
 
 describe("loadInitialChatForPanel", () => {
     it("marks the panel ready after a successful initial chat load", async () => {

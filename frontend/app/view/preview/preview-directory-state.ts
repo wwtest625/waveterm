@@ -1,3 +1,5 @@
+import { isDev } from "@/util/isdev";
+
 const storagePrefix = "waveterm:filebrowser-state:";
 
 export type FileBrowserState = {
@@ -15,15 +17,12 @@ export function getFileBrowserStateKey(connection: string): string {
 export function loadFileBrowserState(storage: Pick<Storage, "getItem">, connection: string): FileBrowserState | null {
     const key = getFileBrowserStateKey(connection);
     const raw = storage.getItem(key);
-    console.log("[FileBrowserState] loadFileBrowserState called, connection=", connection, "key=", key, "raw=", raw);
     if (raw == null || raw.trim() === "") {
-        console.log("[FileBrowserState] loadFileBrowserState: no saved state found");
         return null;
     }
     try {
         const parsed = JSON.parse(raw);
         if (typeof parsed !== "object" || parsed === null) {
-            console.log("[FileBrowserState] loadFileBrowserState: parsed value is not an object");
             return null;
         }
         const result: FileBrowserState = {
@@ -33,17 +32,22 @@ export function loadFileBrowserState(storage: Pick<Storage, "getItem">, connecti
             dirPath: typeof parsed.dirPath === "string" ? parsed.dirPath : "",
             listScrollPosition: typeof parsed.listScrollPosition === "number" ? parsed.listScrollPosition : 0,
         };
-        console.log("[FileBrowserState] loadFileBrowserState: loaded state=", result);
+        if (isDev()) {
+            console.log("[FileBrowserState] load: connection=%s dirPath=%s viewMode=%s expandedPaths=%d selectedPath=%s", connection, result.dirPath, result.viewMode, result.expandedPaths.length, result.selectedPath);
+        }
         return result;
     } catch (e) {
-        console.log("[FileBrowserState] loadFileBrowserState: parse error=", e);
+        if (isDev()) {
+            console.warn("[FileBrowserState] load parse error:", e);
+        }
         return null;
     }
 }
 
 export function saveFileBrowserState(storage: Pick<Storage, "setItem">, connection: string, state: FileBrowserState): void {
     const key = getFileBrowserStateKey(connection);
-    const json = JSON.stringify(state);
-    console.log("[FileBrowserState] saveFileBrowserState called, connection=", connection, "key=", key, "state=", state);
-    storage.setItem(key, json);
+    storage.setItem(key, JSON.stringify(state));
+    if (isDev()) {
+        console.log("[FileBrowserState] save: connection=%s dirPath=%s viewMode=%s expandedPaths=%d selectedPath=%s", connection, state.dirPath, state.viewMode, state.expandedPaths.length, state.selectedPath);
+    }
 }

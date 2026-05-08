@@ -22,6 +22,8 @@ import {
     mergeAgentRuntimeSnapshot,
     reduceAgentRuntimeSnapshot,
 } from "@/app/aipanel/aitypes";
+import { type AIPanelChatContextValue } from "@/app/aipanel/aipanel-chat-context";
+import { type WaveAIAction, getActionLogEnabled } from "@/app/aipanel/waveai-actions";
 import { FocusManager } from "@/app/store/focusManager";
 import {
     atoms,
@@ -40,7 +42,6 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { getWebServerEndpoint } from "@/util/endpoints";
 import { base64ToArrayBuffer } from "@/util/util";
-import { ChatStatus } from "ai";
 import * as jotai from "jotai";
 import type React from "react";
 import {
@@ -53,6 +54,17 @@ import {
     validateFileSizeFromInfo,
 } from "./ai-utils";
 import type { AIPanelInputRef } from "./aipanelinput";
+import {
+    sortSessions as sortSessionsUtil,
+    sortBackgroundJobs as sortBackgroundJobsUtil,
+    summarizeSessionText as summarizeSessionTextUtil,
+    isReusableNewChatSession as isReusableNewChatSessionUtil,
+    shouldThrottleExecutingRuntimeUpdate as shouldThrottleExecutingRuntimeUpdateUtil,
+    buildRetryMeta as buildRetryMetaUtil,
+    shouldRunInteractively as shouldRunInteractivelyUtil,
+    buildInteractivePromptHint as buildInteractivePromptHintUtil,
+    hasSubmittableContent as hasSubmittableContentUtil,
+} from "./waveai-utils";
 
 export interface DroppedFile {
     id: string;
@@ -65,11 +77,14 @@ export interface DroppedFile {
 
 export type AgentMode = "default" | "planning" | "auto-approve";
 
+export type QueuedSubmissionStatus = "queued" | "sending" | "canceling";
+
 export type QueuedSubmission = {
     id: string;
     text: string;
     files: DroppedFile[];
     createdAt: number;
+    status: QueuedSubmissionStatus;
 };
 
 export type TerminalTargetInfo = {
@@ -80,38 +95,30 @@ export type TerminalTargetInfo = {
 
 export class WaveAIModel {
     private static instance: WaveAIModel | null = null;
+
+    // ─── UI Refs ────────────────────────────────────────────────────────────────
     inputRef: React.RefObject<AIPanelInputRef> | null = null;
     scrollToBottomCallback: (() => void) | null = null;
-    useChatSendMessage: UseChatSendMessageType | null = null;
-    useChatSetMessages: UseChatSetMessagesType | null = null;
-    useChatStatus: ChatStatus = "ready";
-    useChatStop: (() => void) | null = null;
-    // Used for injecting Wave-specific message data into DefaultChatTransport's prepareSendMessagesRequest
-    realMessage: AIMessage | null = null;
-    lastSubmittedMessage: AIMessage | null = null;
     orefContext: ORef;
-    isAIStreaming = jotai.atom(false);
+    private scrollTargetRegistry = new Map<string, HTMLElement>();
 
-    widgetAccessAtom!: jotai.Atom<boolean>;
-    autoExecuteAtom!: jotai.Atom<boolean>;
-    agentModeAtom!: jotai.Atom<AgentMode>;
-    droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
-    queuedSubmissionsAtom: jotai.PrimitiveAtom<QueuedSubmission[]> = jotai.atom([]);
-    terminalTargetAtom: jotai.PrimitiveAtom<TerminalTargetInfo | null> = jotai.atom(
-        null
-    ) as jotai.PrimitiveAtom<TerminalTargetInfo | null>;
+    // ─── Chat Session ──────────────────────────────────────────────────────────
     chatId!: jotai.PrimitiveAtom<string>;
     sessionsAtom: jotai.PrimitiveAtom<WaveChatSessionMeta[]> = jotai.atom([]);
     hiddenSessionIdsAtom: jotai.PrimitiveAtom<string[]> = jotai.atom([]);
-    backgroundJobsAtom: jotai.PrimitiveAtom<ChatBackgroundJobDetail[]> = jotai.atom([]);
-    commandInteractionAtom: jotai.PrimitiveAtom<CommandInteractionState | null> = jotai.atom(
-        null
-    ) as jotai.PrimitiveAtom<CommandInteractionState | null>;
-    currentAIMode!: jotai.PrimitiveAtom<string>;
-    aiModeConfigs!: jotai.Atom<Record<string, AIModeConfigType>>;
-    hasPremiumAtom!: jotai.Atom<boolean>;
-    defaultModeAtom!: jotai.Atom<string>;
+    isLoadingChatAtom: jotai.PrimitiveAtom<boolean> = jotai.atom(false);
+    isChatEmptyAtom: jotai.PrimitiveAtom<boolean> = jotai.atom(true);
+    realMessage: AIMessage | null = null;
+    lastSubmittedMessage: AIMessage | null = null;
+
+    // ─── Message Input & Queue ─────────────────────────────────────────────────
+    inputAtom: jotai.PrimitiveAtom<string> = jotai.atom("");
+    droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
+    queuedSubmissionsAtom: jotai.PrimitiveAtom<QueuedSubmission[]> = jotai.atom([]);
     errorMessage: jotai.PrimitiveAtom<string> = jotai.atom(null) as jotai.PrimitiveAtom<string>;
+
+    // ─── Agent Runtime ─────────────────────────────────────────────────────────
+    isAIStreaming = jotai.atom(false);
     agentRuntimeAtom: jotai.PrimitiveAtom<AgentRuntimeSnapshot> = jotai.atom(getDefaultAgentRuntimeSnapshot());
     taskStateAtom: jotai.PrimitiveAtom<AgentTaskState | null> = jotai.atom(
         null
@@ -122,21 +129,41 @@ export class WaveAIModel {
     contextUsageAtom: jotai.PrimitiveAtom<number> = jotai.atom(0);
     securityBlockedAtom: jotai.PrimitiveAtom<boolean> = jotai.atom(false);
     askUserAtom: jotai.PrimitiveAtom<AskUserData | null> = jotai.atom(null) as jotai.PrimitiveAtom<AskUserData | null>;
+    private lastExecutingRuntimeUpdateAt = 0;
+    private readonly executingRuntimeThrottleMs = 250;
+
+    // ─── Tool Execution & Command Interaction ──────────────────────────────────
+    commandInteractionAtom: jotai.PrimitiveAtom<CommandInteractionState | null> = jotai.atom(
+        null
+    ) as jotai.PrimitiveAtom<CommandInteractionState | null>;
+    backgroundJobsAtom: jotai.PrimitiveAtom<ChatBackgroundJobDetail[]> = jotai.atom([]);
+    terminalTargetAtom: jotai.PrimitiveAtom<TerminalTargetInfo | null> = jotai.atom(
+        null
+    ) as jotai.PrimitiveAtom<TerminalTargetInfo | null>;
+    private activePollJobs = new Set<string>();
+    private isFlushingQueuedSubmission = false;
+
+    // ─── AI Mode & Settings ────────────────────────────────────────────────────
+    currentAIMode!: jotai.PrimitiveAtom<string>;
+    aiModeConfigs!: jotai.Atom<Record<string, AIModeConfigType>>;
+    hasPremiumAtom!: jotai.Atom<boolean>;
+    defaultModeAtom!: jotai.Atom<string>;
+    agentModeAtom!: jotai.Atom<AgentMode>;
+    widgetAccessAtom!: jotai.Atom<boolean>;
+    autoExecuteAtom!: jotai.Atom<boolean>;
+
+    // ─── Layout & Visibility ───────────────────────────────────────────────────
     containerWidth: jotai.PrimitiveAtom<number> = jotai.atom(0);
     codeBlockMaxWidth!: jotai.Atom<number>;
-    inputAtom: jotai.PrimitiveAtom<string> = jotai.atom("");
-    isLoadingChatAtom: jotai.PrimitiveAtom<boolean> = jotai.atom(false);
-    isChatEmptyAtom: jotai.PrimitiveAtom<boolean> = jotai.atom(true);
     isWaveAIFocusedAtom!: jotai.Atom<boolean>;
     panelVisibleAtom!: jotai.Atom<boolean>;
+
+    // ─── Backup & Restore ──────────────────────────────────────────────────────
     restoreBackupModalToolCallId: jotai.PrimitiveAtom<string | null> = jotai.atom(null) as jotai.PrimitiveAtom<
         string | null
     >;
     restoreBackupStatus: jotai.PrimitiveAtom<"idle" | "processing" | "success" | "error"> = jotai.atom("idle");
     restoreBackupError: jotai.PrimitiveAtom<string> = jotai.atom(null) as jotai.PrimitiveAtom<string>;
-    private lastExecutingRuntimeUpdateAt = 0;
-    private readonly executingRuntimeThrottleMs = 250;
-    private isFlushingQueuedSubmission = false;
 
     private constructor(orefContext: ORef) {
         this.orefContext = orefContext;
@@ -205,6 +232,97 @@ export class WaveAIModel {
         this.currentAIMode = jotai.atom(defaultMode);
     }
 
+    dispatch(action: WaveAIAction): void {
+        if (getActionLogEnabled()) {
+            console.log("[WaveAI:dispatch]", action.type, action);
+        }
+        switch (action.type) {
+            case "SET_CHAT_ID":
+                globalStore.set(this.chatId, action.chatId);
+                break;
+            case "SET_SESSIONS":
+                globalStore.set(this.sessionsAtom, action.sessions);
+                break;
+            case "SET_HIDDEN_SESSION_IDS":
+                globalStore.set(this.hiddenSessionIdsAtom, action.ids);
+                break;
+            case "SET_IS_LOADING_CHAT":
+                globalStore.set(this.isLoadingChatAtom, action.value);
+                break;
+            case "SET_IS_CHAT_EMPTY":
+                globalStore.set(this.isChatEmptyAtom, action.value);
+                break;
+            case "SET_INPUT":
+                globalStore.set(this.inputAtom, action.value);
+                break;
+            case "SET_DROPPED_FILES":
+                globalStore.set(this.droppedFiles, action.files);
+                break;
+            case "SET_QUEUED_SUBMISSIONS":
+                globalStore.set(this.queuedSubmissionsAtom, action.submissions);
+                break;
+            case "SET_ERROR_MESSAGE":
+                globalStore.set(this.errorMessage, action.message);
+                break;
+            case "SET_IS_AI_STREAMING":
+                globalStore.set(this.isAIStreaming, action.value);
+                break;
+            case "SET_AGENT_RUNTIME":
+                globalStore.set(this.agentRuntimeAtom, action.snapshot);
+                break;
+            case "SET_TASK_STATE":
+                globalStore.set(this.taskStateAtom, action.taskState);
+                break;
+            case "SET_FOCUS_CHAIN":
+                globalStore.set(this.focusChainAtom, action.focusChain);
+                break;
+            case "SET_CONTEXT_USAGE":
+                globalStore.set(this.contextUsageAtom, action.usage);
+                break;
+            case "SET_SECURITY_BLOCKED":
+                globalStore.set(this.securityBlockedAtom, action.blocked);
+                break;
+            case "SET_ASK_USER":
+                globalStore.set(this.askUserAtom, action.data);
+                break;
+            case "SET_COMMAND_INTERACTION":
+                globalStore.set(this.commandInteractionAtom, action.interaction);
+                break;
+            case "SET_BACKGROUND_JOBS":
+                globalStore.set(this.backgroundJobsAtom, action.jobs);
+                break;
+            case "SET_TERMINAL_TARGET":
+                globalStore.set(this.terminalTargetAtom, action.info);
+                break;
+            case "SET_CURRENT_AI_MODE":
+                globalStore.set(this.currentAIMode, action.mode);
+                break;
+            case "SET_CONTAINER_WIDTH":
+                globalStore.set(this.containerWidth, action.width);
+                break;
+            case "SET_RESTORE_BACKUP_MODAL":
+                globalStore.set(this.restoreBackupModalToolCallId, action.toolCallId);
+                break;
+            case "SET_RESTORE_BACKUP_STATUS":
+                globalStore.set(this.restoreBackupStatus, action.status);
+                break;
+            case "SET_RESTORE_BACKUP_ERROR":
+                globalStore.set(this.restoreBackupError, action.error);
+                break;
+            case "CLEAR_CHAT_STATE":
+                globalStore.set(this.isChatEmptyAtom, true);
+                globalStore.set(this.backgroundJobsAtom, []);
+                globalStore.set(this.agentRuntimeAtom, getDefaultAgentRuntimeSnapshot());
+                globalStore.set(this.taskStateAtom, null);
+                globalStore.set(this.focusChainAtom, null);
+                globalStore.set(this.contextUsageAtom, 0);
+                globalStore.set(this.securityBlockedAtom, false);
+                globalStore.set(this.commandInteractionAtom, null);
+                this.dispatch({ type: "SET_ASK_USER", data: null });
+                break;
+        }
+    }
+
     getPanelVisibleAtom(): jotai.Atom<boolean> {
         return this.panelVisibleAtom;
     }
@@ -233,52 +351,23 @@ export class WaveAIModel {
     }
 
     private sortSessions(sessions: WaveChatSessionMeta[]): WaveChatSessionMeta[] {
-        return [...sessions].sort((left, right) => {
-            if (Boolean(left.favorite) !== Boolean(right.favorite)) {
-                return left.favorite ? -1 : 1;
-            }
-            const leftUpdated = left.updatedts ?? 0;
-            const rightUpdated = right.updatedts ?? 0;
-            if (leftUpdated !== rightUpdated) {
-                return rightUpdated - leftUpdated;
-            }
-            const leftCreated = left.createdts ?? 0;
-            const rightCreated = right.createdts ?? 0;
-            if (leftCreated !== rightCreated) {
-                return rightCreated - leftCreated;
-            }
-            return (left.title ?? "").localeCompare(right.title ?? "");
-        });
+        return sortSessionsUtil(sessions);
     }
 
     private sortBackgroundJobs(jobs: ChatBackgroundJobDetail[]): ChatBackgroundJobDetail[] {
-        return [...jobs].sort((left, right) => {
-            const leftCreated = left.createdts ?? 0;
-            const rightCreated = right.createdts ?? 0;
-            if (leftCreated !== rightCreated) {
-                return rightCreated - leftCreated;
-            }
-            return (right.jobid ?? "").localeCompare(left.jobid ?? "");
-        });
+        return sortBackgroundJobsUtil(jobs);
     }
 
     private setBackgroundJobs(jobs: ChatBackgroundJobDetail[] | null | undefined): void {
-        globalStore.set(this.backgroundJobsAtom, this.sortBackgroundJobs(jobs ?? []));
+        this.dispatch({ type: "SET_BACKGROUND_JOBS", jobs: this.sortBackgroundJobs(jobs ?? []) });
     }
 
     private summarizeSessionText(text: string, limit: number): string {
-        const normalized = text.trim().replace(/\s+/g, " ");
-        if (normalized.length <= limit) {
-            return normalized;
-        }
-        return `${normalized.slice(0, Math.max(0, limit - 3))}...`;
+        return summarizeSessionTextUtil(text, limit);
     }
 
     private isReusableNewChatSession(session: WaveChatSessionMeta | null | undefined): boolean {
-        if (!session) {
-            return false;
-        }
-        return (session.title ?? "") === "New Chat" && !(session.summary ?? "").trim();
+        return isReusableNewChatSessionUtil(session);
     }
 
     private findReusableNewChatSession(): WaveChatSessionMeta | null {
@@ -315,15 +404,15 @@ export class WaveAIModel {
         const current = globalStore.get(this.sessionsAtom);
         const next = current.filter((item) => item.chatid !== session.chatid);
         next.push(session);
-        globalStore.set(this.sessionsAtom, this.sortSessions(next));
+        this.dispatch({ type: "SET_SESSIONS", sessions: this.sortSessions(next) });
     }
 
     private removeLocalSession(chatId: string): void {
         const current = globalStore.get(this.sessionsAtom);
-        globalStore.set(
-            this.sessionsAtom,
-            current.filter((item) => item.chatid !== chatId)
-        );
+        this.dispatch({
+            type: "SET_SESSIONS",
+            sessions: current.filter((item) => item.chatid !== chatId),
+        });
     }
 
     async addFile(file: File): Promise<DroppedFile> {
@@ -347,7 +436,7 @@ export class WaveAIModel {
         }
 
         const currentFiles = globalStore.get(this.droppedFiles);
-        globalStore.set(this.droppedFiles, [...currentFiles, droppedFile]);
+        this.dispatch({ type: "SET_DROPPED_FILES", files: [...currentFiles, droppedFile] });
 
         return droppedFile;
     }
@@ -403,7 +492,7 @@ export class WaveAIModel {
     removeFile(fileId: string) {
         const currentFiles = globalStore.get(this.droppedFiles);
         const updatedFiles = currentFiles.filter((f) => f.id !== fileId);
-        globalStore.set(this.droppedFiles, updatedFiles);
+        this.dispatch({ type: "SET_DROPPED_FILES", files: updatedFiles });
     }
 
     clearFiles() {
@@ -416,7 +505,7 @@ export class WaveAIModel {
             }
         });
 
-        globalStore.set(this.droppedFiles, []);
+        this.dispatch({ type: "SET_DROPPED_FILES", files: [] });
     }
 
     async loadSessions(opts?: { includeArchived?: boolean; includeDeleted?: boolean }): Promise<WaveChatSessionMeta[]> {
@@ -430,7 +519,7 @@ export class WaveAIModel {
             null
         );
         const normalized = this.sortSessions(sessions ?? []);
-        globalStore.set(this.sessionsAtom, normalized);
+        this.dispatch({ type: "SET_SESSIONS", sessions: normalized });
         return normalized;
     }
 
@@ -450,14 +539,14 @@ export class WaveAIModel {
         if (!chatId) {
             return;
         }
-        globalStore.set(this.chatId, chatId);
-        globalStore.set(this.commandInteractionAtom, null);
+        this.dispatch({ type: "SET_CHAT_ID", chatId });
+        this.dispatch({ type: "SET_COMMAND_INTERACTION", interaction: null });
         await RpcApi.SetRTInfoCommand(TabRpcClient, {
             oref: this.orefContext,
             data: { "waveai:chatid": chatId },
         });
         const messages = await this.reloadChatFromBackend(chatId);
-        this.useChatSetMessages?.(messages);
+        this.getChatSetMessages()?.(messages);
         this.scrollToBottom();
     }
 
@@ -530,10 +619,10 @@ export class WaveAIModel {
             );
             const hiddenSessionIds = globalStore.get(this.hiddenSessionIdsAtom);
             if (hiddenSessionIds.includes(chatId)) {
-                globalStore.set(
-                    this.hiddenSessionIdsAtom,
-                    hiddenSessionIds.filter((id) => id !== chatId)
-                );
+                this.dispatch({
+                    type: "SET_HIDDEN_SESSION_IDS",
+                    ids: hiddenSessionIds.filter((id) => id !== chatId),
+                });
             }
             const sessions = await this.loadSessions();
             const remainingSessions = sessions.filter(
@@ -560,7 +649,7 @@ export class WaveAIModel {
         }
         const hiddenSessionIds = globalStore.get(this.hiddenSessionIdsAtom);
         if (!hiddenSessionIds.includes(chatId)) {
-            globalStore.set(this.hiddenSessionIdsAtom, [...hiddenSessionIds, chatId]);
+            this.dispatch({ type: "SET_HIDDEN_SESSION_IDS", ids: [...hiddenSessionIds, chatId] });
         }
         if (globalStore.get(this.chatId) === chatId) {
             const nextSession = globalStore
@@ -590,27 +679,20 @@ export class WaveAIModel {
         void this.cancelGeneration();
         this.clearFiles();
         this.clearError();
-        globalStore.set(this.isChatEmptyAtom, true);
-        globalStore.set(this.backgroundJobsAtom, []);
-        globalStore.set(this.agentRuntimeAtom, getDefaultAgentRuntimeSnapshot());
-        globalStore.set(this.taskStateAtom, null);
-        globalStore.set(this.focusChainAtom, null);
-        globalStore.set(this.contextUsageAtom, 0);
-        globalStore.set(this.securityBlockedAtom, false);
-        globalStore.set(this.commandInteractionAtom, null);
-        globalStore.set(this.askUserAtom, null);
+        this.dispatch({ type: "CLEAR_CHAT_STATE" });
         const currentChatId = globalStore.get(this.chatId);
         const currentSession = globalStore.get(this.sessionsAtom).find((session) => session.chatid === currentChatId);
         const reusableSession = this.isReusableNewChatSession(currentSession)
             ? currentSession
             : this.findReusableNewChatSession();
         const newChatId = reusableSession?.chatid ?? crypto.randomUUID();
-        globalStore.set(this.chatId, newChatId);
+        this.dispatch({ type: "SET_CHAT_ID", chatId: newChatId });
         const newSession: WaveChatSessionMeta = {
             chatid: newChatId,
             tabid: this.getSessionTabId(),
             title: "New Chat",
             updatedts: Date.now(),
+            isempty: !reusableSession,
         };
         this.upsertLocalSession(newSession);
 
@@ -618,22 +700,24 @@ export class WaveAIModel {
             oref: this.orefContext,
             data: { "waveai:chatid": newChatId },
         });
-        void this.persistSessionUpdate({
-            chatid: newChatId,
-            tabid: newSession.tabid,
-            title: newSession.title,
-            lasttaskstate: "idle",
-        });
+        if (reusableSession) {
+            void this.persistSessionUpdate({
+                chatid: newChatId,
+                tabid: newSession.tabid,
+                title: newSession.title,
+                lasttaskstate: "idle",
+            });
+        }
 
-        this.useChatSetMessages?.([]);
+        this.getChatSetMessages()?.([]);
     }
 
     setError(message: string) {
-        globalStore.set(this.errorMessage, message);
+        this.dispatch({ type: "SET_ERROR_MESSAGE", message });
     }
 
     clearError() {
-        globalStore.set(this.errorMessage, null);
+        this.dispatch({ type: "SET_ERROR_MESSAGE", message: null });
     }
 
     setAgentRuntimeSnapshot(snapshot: AgentRuntimeSnapshot) {
@@ -644,42 +728,11 @@ export class WaveAIModel {
         if (snapshot.state === "executing") {
             this.lastExecutingRuntimeUpdateAt = Date.now();
         }
-        globalStore.set(this.agentRuntimeAtom, snapshot);
+        this.dispatch({ type: "SET_AGENT_RUNTIME", snapshot });
     }
 
     private shouldThrottleExecutingRuntimeUpdate(current: AgentRuntimeSnapshot, next: AgentRuntimeSnapshot): boolean {
-        if (current.state !== "executing" || next.state !== "executing") {
-            return false;
-        }
-        if (Date.now() - this.lastExecutingRuntimeUpdateAt >= this.executingRuntimeThrottleMs) {
-            return false;
-        }
-        if (
-            current.activeJobId !== next.activeJobId ||
-            current.activeTool !== next.activeTool ||
-            current.blockedReason !== next.blockedReason ||
-            JSON.stringify(current.activeJobIds ?? []) !== JSON.stringify(next.activeJobIds ?? [])
-        ) {
-            return false;
-        }
-        const currentResult = current.lastToolResult;
-        const nextResult = next.lastToolResult;
-        if (!currentResult || !nextResult) {
-            return false;
-        }
-        return (
-            currentResult.requestId === nextResult.requestId &&
-            currentResult.taskId === nextResult.taskId &&
-            currentResult.toolName === nextResult.toolName &&
-            currentResult.jobId === nextResult.jobId &&
-            currentResult.ok === nextResult.ok &&
-            currentResult.exitCode === nextResult.exitCode &&
-            currentResult.stdout === nextResult.stdout &&
-            currentResult.stderr === nextResult.stderr &&
-            currentResult.errorCode === nextResult.errorCode &&
-            currentResult.artifacts?.diffPath === nextResult.artifacts?.diffPath &&
-            currentResult.artifacts?.logPath === nextResult.artifacts?.logPath
-        );
+        return shouldThrottleExecutingRuntimeUpdateUtil(current, next, this.lastExecutingRuntimeUpdateAt, this.executingRuntimeThrottleMs);
     }
 
     mergeAgentRuntimeSnapshot(patch: AgentRuntimeSnapshotPatch) {
@@ -694,7 +747,7 @@ export class WaveAIModel {
         if (next.state === "executing") {
             this.lastExecutingRuntimeUpdateAt = Date.now();
         }
-        globalStore.set(this.agentRuntimeAtom, next);
+        this.dispatch({ type: "SET_AGENT_RUNTIME", snapshot: next });
     }
 
     dispatchAgentEvent(event: AgentRuntimeEvent) {
@@ -706,7 +759,7 @@ export class WaveAIModel {
         if (next.state === "executing") {
             this.lastExecutingRuntimeUpdateAt = Date.now();
         }
-        globalStore.set(this.agentRuntimeAtom, next);
+        this.dispatch({ type: "SET_AGENT_RUNTIME", snapshot: next });
     }
 
     registerInputRef(ref: React.RefObject<AIPanelInputRef>) {
@@ -717,16 +770,30 @@ export class WaveAIModel {
         this.scrollToBottomCallback = callback;
     }
 
-    registerUseChatData(
-        sendMessage: UseChatSendMessageType,
-        setMessages: UseChatSetMessagesType,
-        status: ChatStatus,
-        stop: () => void
-    ) {
-        this.useChatSendMessage = sendMessage;
-        this.useChatSetMessages = setMessages;
-        this.useChatStatus = status;
-        this.useChatStop = stop;
+    private chatContextValue: AIPanelChatContextValue | null = null;
+
+    registerChatContext(value: AIPanelChatContextValue): void {
+        this.chatContextValue = value;
+    }
+
+    private getChatContext(): AIPanelChatContextValue | null {
+        return this.chatContextValue;
+    }
+
+    private getChatSendMessage(): UseChatSendMessageType | null {
+        return this.getChatContext()?.sendMessage ?? null;
+    }
+
+    private getChatSetMessages(): UseChatSetMessagesType | null {
+        return this.getChatContext()?.setMessages ?? null;
+    }
+
+    private getChatStatus(): string {
+        return this.getChatContext()?.status ?? "ready";
+    }
+
+    private getChatStop(): (() => void) | null {
+        return this.getChatContext()?.stop ?? null;
     }
 
     scrollToBottom() {
@@ -748,31 +815,19 @@ export class WaveAIModel {
         if (chatData?.sessionmeta) {
             this.upsertLocalSession(chatData.sessionmeta);
             this.setBackgroundJobs((chatData.sessionmeta as WaveChatSessionMeta).backgroundjobs ?? []);
-            const taskState = ((chatData.sessionmeta as any).taskstate as AgentTaskState | undefined) ?? null;
-            globalStore.set(this.taskStateAtom, taskState);
-            if (taskState?.focuschain) {
-                globalStore.set(this.focusChainAtom, taskState.focuschain);
-            } else {
-                globalStore.set(this.focusChainAtom, null);
-            }
-            if (taskState?.focuschain?.currentcontextusage != null) {
-                globalStore.set(this.contextUsageAtom, taskState.focuschain.currentcontextusage);
-            } else {
-                globalStore.set(this.contextUsageAtom, 0);
-            }
-            if (taskState?.securityblocked) {
-                globalStore.set(this.securityBlockedAtom, true);
-            } else {
-                globalStore.set(this.securityBlockedAtom, false);
-            }
+            const taskState = (chatData.sessionmeta as WaveChatSessionMeta).taskstate ?? null;
+            this.dispatch({ type: "SET_TASK_STATE", taskState });
+            this.dispatch({ type: "SET_FOCUS_CHAIN", focusChain: taskState?.focuschain ?? null });
+            this.dispatch({ type: "SET_CONTEXT_USAGE", usage: taskState?.focuschain?.currentcontextusage ?? 0 });
+            this.dispatch({ type: "SET_SECURITY_BLOCKED", blocked: Boolean(taskState?.securityblocked) });
         } else {
             this.setBackgroundJobs([]);
-            globalStore.set(this.taskStateAtom, null);
-            globalStore.set(this.focusChainAtom, null);
-            globalStore.set(this.contextUsageAtom, 0);
-            globalStore.set(this.securityBlockedAtom, false);
+            this.dispatch({ type: "SET_TASK_STATE", taskState: null });
+            this.dispatch({ type: "SET_FOCUS_CHAIN", focusChain: null });
+            this.dispatch({ type: "SET_CONTEXT_USAGE", usage: 0 });
+            this.dispatch({ type: "SET_SECURITY_BLOCKED", blocked: false });
         }
-        globalStore.set(this.isChatEmptyAtom, messages.length === 0);
+        this.dispatch({ type: "SET_IS_CHAT_EMPTY", value: messages.length === 0 });
         return messages as WaveUIMessage[];
     }
 
@@ -792,6 +847,31 @@ export class WaveAIModel {
             });
         }
         return jobs ?? [];
+    }
+
+    upsertBackgroundJobFromEvent(job: UIChatBackgroundJobInfo): void {
+        const currentJobs = globalStore.get(this.backgroundJobsAtom) ?? [];
+        const existingIdx = currentJobs.findIndex(
+            (j) => j.jobid === job.jobid || j.toolcallid === job.toolcallid
+        );
+        let updatedJobs: ChatBackgroundJobDetail[];
+        if (existingIdx >= 0) {
+            updatedJobs = [...currentJobs];
+            updatedJobs[existingIdx] = job as ChatBackgroundJobDetail;
+        } else {
+            updatedJobs = [...currentJobs, job as ChatBackgroundJobDetail];
+        }
+        this.setBackgroundJobs(updatedJobs);
+        const chatId = globalStore.get(this.chatId);
+        if (chatId) {
+            const session = globalStore.get(this.sessionsAtom).find((item) => item.chatid === chatId);
+            if (session) {
+                this.upsertLocalSession({
+                    ...session,
+                    backgroundjobs: updatedJobs,
+                });
+            }
+        }
     }
 
     async cancelBackgroundJobs(jobIds: string[]): Promise<void> {
@@ -843,16 +923,21 @@ export class WaveAIModel {
         await this.cancelBackgroundJobs(runningJobIds);
     }
 
+    registerScrollTarget(key: string, element: HTMLElement | null): void {
+        if (element) {
+            this.scrollTargetRegistry.set(key, element);
+        } else {
+            this.scrollTargetRegistry.delete(key);
+        }
+    }
+
     scrollToBackgroundJob(job: ChatBackgroundJobDetail): void {
         const toolCallId = job.toolcallid?.trim();
         const turnId = job.turnid?.trim();
-        const selectors = [
-            toolCallId ? `[data-toolcallid="${CSS.escape(toolCallId)}"]` : "",
-            turnId ? `[data-turnid="${CSS.escape(turnId)}"]` : "",
-        ].filter(Boolean);
-        for (const selector of selectors) {
-            const element = document.querySelector(selector);
-            if (element instanceof HTMLElement) {
+        const keys = [toolCallId, turnId].filter(Boolean);
+        for (const key of keys) {
+            const element = this.scrollTargetRegistry.get(key);
+            if (element) {
                 element.scrollIntoView({ behavior: "smooth", block: "center" });
                 return;
             }
@@ -862,8 +947,13 @@ export class WaveAIModel {
 
     async cancelGeneration() {
         this.dispatchAgentEvent({ type: "CANCEL_GENERATION" });
-        this.useChatStop?.();
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        this.getChatStop()?.();
+        const cancelPollInterval = 100;
+        const cancelMaxWait = 3000;
+        const cancelDeadline = Date.now() + cancelMaxWait;
+        while (this.getChatStatus() !== "ready" && this.getChatStatus() !== "error" && Date.now() < cancelDeadline) {
+            await new Promise((resolve) => setTimeout(resolve, cancelPollInterval));
+        }
 
         const chatIdValue = globalStore.get(this.chatId);
         if (!chatIdValue) {
@@ -871,7 +961,7 @@ export class WaveAIModel {
         }
         try {
             const messages = await this.reloadChatFromBackend(chatIdValue);
-            this.useChatSetMessages?.(messages);
+            this.getChatSetMessages()?.(messages);
         } catch (error) {
             console.error("Failed to reload chat after stop:", error);
         }
@@ -909,12 +999,7 @@ export class WaveAIModel {
     }
 
     private buildRetryMeta(retryCount: number, lastErrorCode?: string) {
-        return {
-            retryCount,
-            maxRetries: 2,
-            nextBackoffMs: Math.min(1000 * 2 ** retryCount, 4000),
-            lastErrorCode,
-        };
+        return buildRetryMetaUtil(retryCount, lastErrorCode);
     }
 
     private buildRetryParts(message: AIMessage): WaveUIMessagePart[] {
@@ -959,7 +1044,7 @@ export class WaveAIModel {
         }
 
         newInput += text;
-        globalStore.set(this.inputAtom, newInput);
+        this.dispatch({ type: "SET_INPUT", value: newInput });
 
         if (opts?.scrollToBottom && this.inputRef?.current) {
             setTimeout(() => this.inputRef.current.scrollToBottom(), 10);
@@ -992,20 +1077,19 @@ export class WaveAIModel {
             oref: this.orefContext,
             meta: { "waveai:agentmode": mode },
         });
-        this.clearChat();
     }
 
     refreshTerminalTargetInfo(): TerminalTargetInfo | null {
         const target = this.getTargetTerminalModel();
         if (target == null) {
-            globalStore.set(this.terminalTargetAtom, null);
+            this.dispatch({ type: "SET_TERMINAL_TARGET", info: null });
             return null;
         }
         const info = {
             blockId: target.blockId,
             ...this.getTerminalExecutionContext(target.blockId),
         };
-        globalStore.set(this.terminalTargetAtom, info);
+        this.dispatch({ type: "SET_TERMINAL_TARGET", info });
         return info;
     }
 
@@ -1016,21 +1100,22 @@ export class WaveAIModel {
         const focusedBlockId = getFocusedBlockId();
         if (focusedBlockId) {
             const bcm = getBlockComponentModel(focusedBlockId);
-            const viewModel = bcm?.viewModel as any;
-            if (viewModel?.viewType === "term" && typeof viewModel.sendDataToController === "function") {
+            const viewModel = bcm?.viewModel;
+            if (viewModel?.viewType === "term" && "sendDataToController" in viewModel && typeof viewModel.sendDataToController === "function") {
                 return {
                     blockId: focusedBlockId,
-                    sendDataToController: viewModel.sendDataToController.bind(viewModel),
+                    sendDataToController: (viewModel as ViewModel & { sendDataToController: (data: string) => void }).sendDataToController.bind(viewModel),
                 };
             }
         }
 
         for (const bcm of getAllBlockComponentModels()) {
-            const viewModel = bcm?.viewModel as any;
-            if (viewModel?.viewType === "term" && typeof viewModel.sendDataToController === "function") {
+            const viewModel = bcm.viewModel;
+            if (viewModel?.viewType === "term" && "sendDataToController" in viewModel && typeof viewModel.sendDataToController === "function") {
+                const termVm = viewModel as ViewModel & { blockId: string; sendDataToController: (data: string) => void };
                 return {
-                    blockId: viewModel.blockId,
-                    sendDataToController: viewModel.sendDataToController.bind(viewModel),
+                    blockId: termVm.blockId,
+                    sendDataToController: termVm.sendDataToController.bind(termVm),
                 };
             }
         }
@@ -1047,32 +1132,11 @@ export class WaveAIModel {
     }
 
     private shouldRunInteractively(command: string): boolean {
-        const normalized = command.trim().toLowerCase();
-        if (!normalized) {
-            return false;
-        }
-        return [
-            "ssh",
-            "sudo",
-            "mysql",
-            "psql",
-            "sqlite3",
-            "python",
-            "node",
-            "less",
-            "more",
-            "top",
-            "htop",
-            "vim",
-            "nano",
-        ].some((prefix) => normalized === prefix || normalized.startsWith(`${prefix} `));
+        return shouldRunInteractivelyUtil(command);
     }
 
     private buildInteractivePromptHint(command: string): string {
-        if (!this.shouldRunInteractively(command)) {
-            return "";
-        }
-        return "Command is waiting for terminal input";
+        return buildInteractivePromptHintUtil(command);
     }
 
     private handleInteractionResult(jobId: string, commandResult: CommandAgentGetCommandResultRtnData): void {
@@ -1085,7 +1149,7 @@ export class WaveAIModel {
             tuiSuppressed: commandResult.tuisuppressed,
             outputPreview: commandResult.output,
         };
-        globalStore.set(this.commandInteractionAtom, interaction);
+        this.dispatch({ type: "SET_COMMAND_INTERACTION", interaction });
         this.dispatchAgentEvent({
             type: "INTERACTION_REQUIRED",
             reason: interaction.promptHint,
@@ -1093,10 +1157,26 @@ export class WaveAIModel {
     }
 
     private clearInteractionResult(): void {
-        globalStore.set(this.commandInteractionAtom, null);
+        this.dispatch({ type: "SET_COMMAND_INTERACTION", interaction: null });
     }
 
     private async pollCommandJob(
+        tool: ToolCallEnvelope,
+        jobId: string,
+        startedAt: number
+    ): Promise<{ result?: ToolResultEnvelope; requiresInteraction?: boolean }> {
+        if (this.activePollJobs.has(jobId)) {
+            return {};
+        }
+        this.activePollJobs.add(jobId);
+        try {
+            return await this.pollCommandJobInner(tool, jobId, startedAt);
+        } finally {
+            this.activePollJobs.delete(jobId);
+        }
+    }
+
+    private async pollCommandJobInner(
         tool: ToolCallEnvelope,
         jobId: string,
         startedAt: number
@@ -1246,7 +1326,7 @@ export class WaveAIModel {
             approval: "answered",
             value: answer,
         });
-        globalStore.set(this.askUserAtom, null);
+        this.dispatch({ type: "SET_ASK_USER", data: null });
     }
 
     executeCommandInTerminal(command: string, opts?: { source?: "manual" | "auto" }): boolean {
@@ -1290,7 +1370,7 @@ export class WaveAIModel {
         recordTEvent("action:waveai:executecommand", {
             "action:source": opts?.source ?? "manual",
             "action:blockid": target.blockId,
-        } as any);
+        });
         return true;
     }
 
@@ -1302,7 +1382,7 @@ export class WaveAIModel {
             "waveai:requestid": tool.requestId,
             "waveai:taskid": tool.taskId,
             "waveai:capability": tool.capability,
-        } as any);
+        });
         try {
             if (tool.toolName !== "bash") {
                 const unsupportedResult: ToolResultEnvelope = {
@@ -1327,7 +1407,7 @@ export class WaveAIModel {
                     "waveai:ok": false,
                     "waveai:durationms": unsupportedResult.durationMs,
                     "waveai:error": unsupportedResult.errorCode,
-                } as any);
+                });
                 return unsupportedResult;
             }
 
@@ -1352,7 +1432,7 @@ export class WaveAIModel {
                     "waveai:ok": false,
                     "waveai:durationms": failedResult.durationMs,
                     "waveai:error": failedResult.errorCode,
-                } as any);
+                });
                 return failedResult;
             }
             const { connName, cwd } = this.getTerminalExecutionContext(blockId);
@@ -1394,7 +1474,7 @@ export class WaveAIModel {
                     "waveai:requestid": tool.requestId,
                     "waveai:taskid": tool.taskId,
                     "waveai:jobid": jobId,
-                } as any);
+                });
                 return {
                     requestId: tool.requestId,
                     taskId: tool.taskId,
@@ -1420,7 +1500,7 @@ export class WaveAIModel {
                 "waveai:ok": ok,
                 "waveai:durationms": result.durationMs,
                 "waveai:exitcode": result.exitCode,
-            } as any);
+            });
             return result;
         } catch (error) {
             const failedResult: ToolResultEnvelope = {
@@ -1441,7 +1521,7 @@ export class WaveAIModel {
                 "waveai:ok": false,
                 "waveai:durationms": failedResult.durationMs,
                 "waveai:error": failedResult.errorCode,
-            } as any);
+            });
             return failedResult;
         }
     }
@@ -1466,11 +1546,11 @@ export class WaveAIModel {
             "waveai:retrycount": retry.retryCount,
             "waveai:maxretries": retry.maxRetries,
             "waveai:lasterror": retry.lastErrorCode ?? "",
-        } as any);
+        });
 
-        if (shouldRetryRound && this.lastSubmittedMessage && this.useChatSendMessage) {
+        if (shouldRetryRound && this.lastSubmittedMessage && this.getChatSendMessage()) {
             this.realMessage = this.lastSubmittedMessage;
-            await this.useChatSendMessage({ parts: this.buildRetryParts(this.lastSubmittedMessage) });
+            await this.getChatSendMessage()!({ parts: this.buildRetryParts(this.lastSubmittedMessage) });
             return true;
         }
 
@@ -1503,7 +1583,7 @@ export class WaveAIModel {
         if (!this.isValidMode(mode)) {
             this.setAIModeToDefault();
         } else {
-            globalStore.set(this.currentAIMode, mode);
+            this.dispatch({ type: "SET_CURRENT_AI_MODE", mode });
             RpcApi.SetRTInfoCommand(TabRpcClient, {
                 oref: this.orefContext,
                 data: { "waveai:mode": mode },
@@ -1513,7 +1593,7 @@ export class WaveAIModel {
 
     setAIModeToDefault() {
         const defaultMode = globalStore.get(this.defaultModeAtom);
-        globalStore.set(this.currentAIMode, defaultMode);
+        this.dispatch({ type: "SET_CURRENT_AI_MODE", mode: defaultMode });
         RpcApi.SetRTInfoCommand(TabRpcClient, {
             oref: this.orefContext,
             data: { "waveai:mode": null },
@@ -1560,14 +1640,14 @@ export class WaveAIModel {
                 updatedts: Date.now(),
             });
         }
-        globalStore.set(this.chatId, chatIdValue);
+        this.dispatch({ type: "SET_CHAT_ID", chatId: chatIdValue });
 
         const aiModeValue = rtInfo?.["waveai:mode"];
         if (aiModeValue == null) {
             const defaultMode = globalStore.get(this.defaultModeAtom);
-            globalStore.set(this.currentAIMode, defaultMode);
+            this.dispatch({ type: "SET_CURRENT_AI_MODE", mode: defaultMode });
         } else if (this.isValidMode(aiModeValue)) {
-            globalStore.set(this.currentAIMode, aiModeValue);
+            this.dispatch({ type: "SET_CURRENT_AI_MODE", mode: aiModeValue });
         } else {
             this.setAIModeToDefault();
         }
@@ -1584,30 +1664,68 @@ export class WaveAIModel {
     }
 
     private hasSubmittableContent(input: string, droppedFiles: DroppedFile[]): boolean {
-        return input.trim().length > 0 || droppedFiles.length > 0;
+        return hasSubmittableContentUtil(input, droppedFiles);
     }
 
     private isChatBusy(): boolean {
         return (
-            (this.useChatStatus !== "ready" && this.useChatStatus !== "error") ||
+            (this.getChatStatus() !== "ready" && this.getChatStatus() !== "error") ||
             globalStore.get(this.isLoadingChatAtom)
         );
     }
 
     private enqueueSubmission(text: string, files: DroppedFile[]): void {
         const current = globalStore.get(this.queuedSubmissionsAtom);
-        globalStore.set(this.queuedSubmissionsAtom, [
-            ...current,
-            {
-                id: crypto.randomUUID(),
-                text,
-                files,
-                createdAt: Date.now(),
-            },
-        ]);
-        globalStore.set(this.inputAtom, "");
+        this.dispatch({
+            type: "SET_QUEUED_SUBMISSIONS",
+            submissions: [
+                ...current,
+                {
+                    id: crypto.randomUUID(),
+                    text,
+                    files,
+                    createdAt: Date.now(),
+                    status: "queued" as QueuedSubmissionStatus,
+                },
+            ],
+        });
+        this.dispatch({ type: "SET_INPUT", value: "" });
         this.clearFiles();
         this.clearError();
+    }
+
+    cancelQueuedSubmission(submissionId: string): void {
+        const current = globalStore.get(this.queuedSubmissionsAtom);
+        this.dispatch({
+            type: "SET_QUEUED_SUBMISSIONS",
+            submissions: current.filter((s) => s.id !== submissionId),
+        });
+    }
+
+    cancelAllQueuedSubmissions(): void {
+        this.dispatch({ type: "SET_QUEUED_SUBMISSIONS", submissions: [] });
+    }
+
+    async sendQueuedSubmissionNow(submissionId: string): Promise<void> {
+        const queued = globalStore.get(this.queuedSubmissionsAtom);
+        const target = queued.find((s) => s.id === submissionId);
+        if (!target) return;
+
+        this.dispatch({
+            type: "SET_QUEUED_SUBMISSIONS",
+            submissions: queued.filter((s) => s.id !== submissionId),
+        });
+
+        if (this.isChatBusy()) {
+            await this.cancelGeneration();
+            const deadline = Date.now() + 3000;
+            while (Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 100));
+                if (!this.isChatBusy()) break;
+            }
+        }
+
+        await this.sendSubmission(target.text, target.files);
     }
 
     async flushQueuedSubmissions(): Promise<void> {
@@ -1619,8 +1737,15 @@ export class WaveAIModel {
         if (!next) {
             return;
         }
+
+        if (next.status === "canceling") {
+            this.dispatch({ type: "SET_QUEUED_SUBMISSIONS", submissions: queued.slice(1) });
+            void this.flushQueuedSubmissions();
+            return;
+        }
+
         this.isFlushingQueuedSubmission = true;
-        globalStore.set(this.queuedSubmissionsAtom, queued.slice(1));
+        this.dispatch({ type: "SET_QUEUED_SUBMISSIONS", submissions: queued.slice(1) });
         try {
             await this.sendSubmission(next.text, next.files);
         } finally {
@@ -1643,6 +1768,7 @@ export class WaveAIModel {
                 favorite: session?.favorite,
                 updatedts: Date.now(),
                 lasttaskstate: "submitting",
+                isempty: false,
             });
             void this.persistSessionUpdate({
                 chatid: currentChatId,
@@ -1695,9 +1821,9 @@ export class WaveAIModel {
         this.realMessage = realMessage;
         this.lastSubmittedMessage = realMessage;
 
-        this.useChatSendMessage?.({ parts: uiMessageParts });
+        this.getChatSendMessage()?.({ parts: uiMessageParts });
 
-        globalStore.set(this.isChatEmptyAtom, false);
+        this.dispatch({ type: "SET_IS_CHAT_EMPTY", value: false });
     }
 
     async handleSubmit() {
@@ -1706,7 +1832,7 @@ export class WaveAIModel {
 
         if (input.trim() === "/clear" || input.trim() === "/new") {
             this.clearChat();
-            globalStore.set(this.inputAtom, "");
+            this.dispatch({ type: "SET_INPUT", value: "" });
             return;
         }
 
@@ -1720,15 +1846,15 @@ export class WaveAIModel {
         }
 
         await this.sendSubmission(input, droppedFiles);
-        globalStore.set(this.inputAtom, "");
+        this.dispatch({ type: "SET_INPUT", value: "" });
         this.clearFiles();
     }
 
     async uiLoadInitialChat() {
-        globalStore.set(this.isLoadingChatAtom, true);
+        this.dispatch({ type: "SET_IS_LOADING_CHAT", value: true });
         const messages = await this.loadInitialChat();
-        this.useChatSetMessages?.(messages);
-        globalStore.set(this.isLoadingChatAtom, false);
+        this.getChatSetMessages()?.(messages);
+        this.dispatch({ type: "SET_IS_LOADING_CHAT", value: false });
         setTimeout(() => {
             this.scrollToBottom();
         }, 100);
@@ -1820,30 +1946,30 @@ export class WaveAIModel {
     }
 
     openRestoreBackupModal(toolcallid: string) {
-        globalStore.set(this.restoreBackupModalToolCallId, toolcallid);
+        this.dispatch({ type: "SET_RESTORE_BACKUP_MODAL", toolCallId: toolcallid });
     }
 
     closeRestoreBackupModal() {
-        globalStore.set(this.restoreBackupModalToolCallId, null);
-        globalStore.set(this.restoreBackupStatus, "idle");
-        globalStore.set(this.restoreBackupError, null);
+        this.dispatch({ type: "SET_RESTORE_BACKUP_MODAL", toolCallId: null });
+        this.dispatch({ type: "SET_RESTORE_BACKUP_STATUS", status: "idle" });
+        this.dispatch({ type: "SET_RESTORE_BACKUP_ERROR", error: null });
     }
 
     async restoreBackup(toolcallid: string, backupFilePath: string, restoreToFileName: string) {
-        globalStore.set(this.restoreBackupStatus, "processing");
-        globalStore.set(this.restoreBackupError, null);
+        this.dispatch({ type: "SET_RESTORE_BACKUP_STATUS", status: "processing" });
+        this.dispatch({ type: "SET_RESTORE_BACKUP_ERROR", error: null });
         try {
             await RpcApi.FileRestoreBackupCommand(TabRpcClient, {
                 backupfilepath: backupFilePath,
                 restoretofilename: restoreToFileName,
             });
             console.log("Backup restored successfully:", { toolcallid, backupFilePath, restoreToFileName });
-            globalStore.set(this.restoreBackupStatus, "success");
+            this.dispatch({ type: "SET_RESTORE_BACKUP_STATUS", status: "success" });
         } catch (error) {
             console.error("Failed to restore backup:", error);
             const errorMsg = error?.message || String(error);
-            globalStore.set(this.restoreBackupError, errorMsg);
-            globalStore.set(this.restoreBackupStatus, "error");
+            this.dispatch({ type: "SET_RESTORE_BACKUP_ERROR", error: errorMsg });
+            this.dispatch({ type: "SET_RESTORE_BACKUP_STATUS", status: "error" });
         }
     }
 

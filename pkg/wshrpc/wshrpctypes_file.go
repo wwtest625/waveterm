@@ -39,6 +39,8 @@ type WshRpcRemoteFileInterface interface {
 	RemoteWriteFileCommand(ctx context.Context, data FileData) error
 	RemoteFileJoinCommand(ctx context.Context, paths []string) (*FileInfo, error)
 	RemoteMkdirCommand(ctx context.Context, path string) error
+	RemoteZipDirectoryCommand(ctx context.Context, data CommandRemoteZipDirectoryData) (*CommandRemoteZipDirectoryRtnData, error)
+	RemoteDeleteTempFileCommand(ctx context.Context, path string) error
 }
 
 type FileDataAt struct {
@@ -142,4 +144,13 @@ type CommandRemoteFileMultiInfoData struct {
 
 type CommandRemoteListEntriesRtnData struct {
 	FileInfo []*FileInfo `json:"fileinfo,omitempty"`
+}
+
+type CommandRemoteZipDirectoryData struct {
+	Path string `json:"path"`
+}
+
+type CommandRemoteZipDirectoryRtnData struct {
+	ZipPath string `json:"zippath"`
+	Size    int64  `json:"size"`
 }

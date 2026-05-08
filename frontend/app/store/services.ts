@@ -165,6 +165,7 @@ class WindowServiceType {
     }
 
     // move tab to a new window
+    // @returns object updates
     MoveTabToNewWindow(workspaceId: string, tabId: string, remainingTabIds: string[], pos: Point): Promise<void> {
         return WOS.callBackendService("window", "MoveTabToNewWindow", Array.from(arguments))
     }
@@ -238,3 +239,4 @@ class WorkspaceServiceType {
 }
 
 export const WorkspaceService = new WorkspaceServiceType();
+

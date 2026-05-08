@@ -45,8 +45,7 @@ const AIModeMenuItem = memo(({ config, isSelected, isDisabled, isPremiumDisabled
             <div className="flex items-center gap-2 pl-5">
                 {config["display:description"] && (
                     <div
-                        className={cn("text-xs", isDisabled ? "text-gray-500" : "text-muted")}
-                        style={{ whiteSpace: "pre-line" }}
+                        className={cn("text-xs whitespace-pre-line", isDisabled ? "text-gray-500" : "text-muted")}
                     >
                         {config["display:description"]}
                     </div>

@@ -4,13 +4,14 @@
 import { formatFileSizeError, isAcceptableFile, validateFileSize } from "@/app/aipanel/ai-utils";
 import { waveAIHasFocusWithin } from "@/app/aipanel/waveai-focus-utils";
 import { type WaveAIModel } from "@/app/aipanel/waveai-model";
+import { FocusManager } from "@/app/store/focusManager";
 import { Tooltip } from "@/element/tooltip";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { memo, useCallback, useEffect, useRef } from "react";
 
 interface AIPanelInputProps {
-    onSubmit: (e: React.FormEvent) => void;
+    onSubmit: (e: React.SyntheticEvent) => void;
     status: string;
     model: WaveAIModel;
 }
@@ -39,10 +40,13 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isPanelOpen = useAtomValue(model.getPanelVisibleAtom());
+    const focusedBlockId = useAtomValue(FocusManager.getInstance().blockFocusAtom);
     const canSubmit = Boolean(input.trim()) || droppedFiles.length > 0;
 
     let placeholder: string;
-    if (!isChatEmpty) {
+    if (queuedSubmissions.length > 0) {
+        placeholder = "Add to queue...";
+    } else if (!isChatEmpty) {
         placeholder = "Continue...";
     } else {
         placeholder = "Ask Wave AI anything...";
@@ -80,7 +84,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
         const isComposing = e.nativeEvent?.isComposing || e.keyCode == 229;
         if (e.key === "Enter" && !e.shiftKey && !isComposing) {
             e.preventDefault();
-            onSubmit(e as any);
+            onSubmit(e);
         }
     };
 
@@ -120,9 +124,16 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
         model.refreshTerminalTargetInfo();
         const intervalId = window.setInterval(() => {
             model.refreshTerminalTargetInfo();
-        }, 1000);
+        }, 10000);
         return () => window.clearInterval(intervalId);
     }, [isPanelOpen, model]);
+
+    useEffect(() => {
+        if (!isPanelOpen || focusedBlockId == null) {
+            return;
+        }
+        model.refreshTerminalTargetInfo();
+    }, [isPanelOpen, focusedBlockId, model]);
 
     const handleUploadClick = () => {
         fileInputRef.current?.click();
@@ -208,9 +219,8 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                         onBlur={handleBlur}
                         placeholder={placeholder}
                         className={cn(
-                            "w-full resize-none overflow-auto bg-transparent px-4 py-3 pr-24 text-white focus:outline-none"
+                            "w-full resize-none overflow-auto bg-transparent px-4 py-3 pr-24 text-white focus:outline-none text-[13px]"
                         )}
-                        style={{ fontSize: "13px" }}
                         rows={2}
                     />
                     <div className="absolute bottom-2 right-2 flex items-center gap-1">

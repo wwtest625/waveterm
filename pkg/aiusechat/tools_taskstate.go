@@ -305,7 +305,7 @@ func GetTodoWriteToolDefinition(chatId string, aiOpts *uctypes.AIOptsType) uctyp
 			}
 			return result, nil
 		},
-		ToolApproval: func(input any) string { return uctypes.ApprovalAutoApproved },
+		ToolApproval: func(input any, _ uctypes.ApprovalContext) string { return uctypes.ApprovalAutoApproved },
 	}
 }
 
@@ -381,6 +381,6 @@ func GetTodoReadToolDefinition(chatId string, aiOpts *uctypes.AIOptsType) uctype
 			}
 			return resultMap, nil
 		},
-		ToolApproval: func(input any) string { return uctypes.ApprovalAutoApproved },
+		ToolApproval: func(input any, _ uctypes.ApprovalContext) string { return uctypes.ApprovalAutoApproved },
 	}
 }

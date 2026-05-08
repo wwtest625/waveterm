@@ -4,6 +4,7 @@
 package wshremote
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -703,5 +704,135 @@ func (*ServerImpl) RemoteFileDeleteCommand(ctx context.Context, data wshrpc.Comm
 		}
 		return fmt.Errorf("cannot delete file %q: %w", data.Path, err)
 	}
+	return nil
+}
+
+func (impl *ServerImpl) RemoteZipDirectoryCommand(ctx context.Context, data wshrpc.CommandRemoteZipDirectoryData) (*wshrpc.CommandRemoteZipDirectoryRtnData, error) {
+	expandedPath, err := wavebase.ExpandHomeDir(data.Path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot expand path %q: %w", data.Path, err)
+	}
+	cleanedPath := filepath.Clean(expandedPath)
+
+	finfo, err := os.Stat(cleanedPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot stat %q: %w", data.Path, err)
+	}
+	if !finfo.IsDir() {
+		return nil, fmt.Errorf("path %q is not a directory", data.Path)
+	}
+
+	randHex, err := utilfn.RandomHexString(12)
+	if err != nil {
+		return nil, fmt.Errorf("cannot generate random hex: %w", err)
+	}
+	tmpDir := os.TempDir()
+	zipFileName := fmt.Sprintf("waveterm-zip-%s.zip", randHex)
+	zipPath := filepath.Join(tmpDir, zipFileName)
+
+	zipFile, err := os.Create(zipPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create zip file %q: %w", zipPath, err)
+	}
+
+	zipWriter := zip.NewWriter(zipFile)
+
+	err = filepath.WalkDir(cleanedPath, func(walkPath string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		relPath, err := filepath.Rel(filepath.Dir(cleanedPath), walkPath)
+		if err != nil {
+			return err
+		}
+		relPath = filepath.ToSlash(relPath)
+
+		if d.IsDir() {
+			_, err = zipWriter.Create(relPath + "/")
+			if err != nil {
+				return fmt.Errorf("cannot create zip entry for dir %q: %w", relPath, err)
+			}
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return fmt.Errorf("cannot create zip header for %q: %w", relPath, err)
+		}
+		header.Name = relPath
+		header.Method = zip.Deflate
+
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return fmt.Errorf("cannot create zip entry for %q: %w", relPath, err)
+		}
+
+		srcFile, err := os.Open(walkPath)
+		if err != nil {
+			return fmt.Errorf("cannot open file %q: %w", walkPath, err)
+		}
+		defer utilfn.GracefulClose(srcFile, "RemoteZipDirectoryCommand", walkPath)
+
+		_, err = io.Copy(writer, srcFile)
+		if err != nil {
+			return fmt.Errorf("cannot copy file %q to zip: %w", walkPath, err)
+		}
+		return nil
+	})
+
+	if err != nil {
+		zipWriter.Close()
+		utilfn.GracefulClose(zipFile, "RemoteZipDirectoryCommand", zipPath)
+		os.Remove(zipPath)
+		return nil, fmt.Errorf("error zipping directory %q: %w", data.Path, err)
+	}
+
+	err = zipWriter.Close()
+	if err != nil {
+		utilfn.GracefulClose(zipFile, "RemoteZipDirectoryCommand", zipPath)
+		os.Remove(zipPath)
+		return nil, fmt.Errorf("error closing zip writer: %w", err)
+	}
+
+	err = zipFile.Close()
+	if err != nil {
+		os.Remove(zipPath)
+		return nil, fmt.Errorf("error closing zip file: %w", err)
+	}
+
+	zipStat, err := os.Stat(zipPath)
+	if err != nil {
+		os.Remove(zipPath)
+		return nil, fmt.Errorf("cannot stat zip file %q: %w", zipPath, err)
+	}
+
+	return &wshrpc.CommandRemoteZipDirectoryRtnData{
+		ZipPath: zipPath,
+		Size:    zipStat.Size(),
+	}, nil
+}
+
+func (*ServerImpl) RemoteDeleteTempFileCommand(ctx context.Context, path string) error {
+	if path == "" {
+		return nil
+	}
+	expandedPath, err := wavebase.ExpandHomeDir(path)
+	if err != nil {
+		return nil
+	}
+	cleanedPath := filepath.Clean(expandedPath)
+	if !strings.HasPrefix(cleanedPath, os.TempDir()) {
+		return nil
+	}
+	os.Remove(cleanedPath)
 	return nil
 }

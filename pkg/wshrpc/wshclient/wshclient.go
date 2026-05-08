@@ -883,6 +883,18 @@ func RemoteMkdirCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) er
 	return err
 }
 
+// command "remotezipdirectory", wshserver.RemoteZipDirectoryCommand
+func RemoteZipDirectoryCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteZipDirectoryData, opts *wshrpc.RpcOpts) (*wshrpc.CommandRemoteZipDirectoryRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandRemoteZipDirectoryRtnData](w, "remotezipdirectory", data, opts)
+	return resp, err
+}
+
+// command "remotedeletetempfile", wshserver.RemoteDeleteTempFileCommand
+func RemoteDeleteTempFileCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "remotedeletetempfile", data, opts)
+	return err
+}
+
 // command "remotereconnecttojobmanager", wshserver.RemoteReconnectToJobManagerCommand
 func RemoteReconnectToJobManagerCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteReconnectToJobManagerData, opts *wshrpc.RpcOpts) (*wshrpc.CommandRemoteReconnectToJobManagerRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandRemoteReconnectToJobManagerRtnData](w, "remotereconnecttojobmanager", data, opts)

@@ -17,6 +17,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/util/fileutil"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 )
 
 type ChatStore struct {
@@ -380,6 +381,7 @@ func (cs *ChatStore) UpsertBackgroundJob(
 	cs.sessions[chatId] = meta
 	cs.persistLocked()
 	jobCopy := job
+	cs.publishBackgroundJobEvent(chatId, jobCopy)
 	return &jobCopy
 }
 
@@ -427,6 +429,9 @@ func (cs *ChatStore) ReplaceBackgroundJobs(
 	}
 	cs.sessions[chatId] = meta
 	cs.persistLocked()
+	for _, job := range meta.BackgroundJobs {
+		cs.publishBackgroundJobEvent(chatId, job)
+	}
 	return cloneBackgroundJobs(meta.BackgroundJobs)
 }
 
@@ -436,10 +441,12 @@ func (cs *ChatStore) ClearFinishedBackgroundJobs(chatId string, aiOpts *uctypes.
 	defer cs.lock.Unlock()
 	cs.upsertSessionMetaLocked(chatId, aiOpts, uctypes.UIChatSessionMetaUpdate{})
 	meta := cs.sessions[chatId]
+	var clearedJobs []uctypes.UIChatBackgroundJobInfo
 	filtered := meta.BackgroundJobs[:0]
 	for _, job := range meta.BackgroundJobs {
 		switch strings.TrimSpace(job.Status) {
 		case "completed", "error", "gone", "cancelled":
+			clearedJobs = append(clearedJobs, job)
 			continue
 		}
 		filtered = append(filtered, job)
@@ -450,6 +457,9 @@ func (cs *ChatStore) ClearFinishedBackgroundJobs(chatId string, aiOpts *uctypes.
 	}
 	cs.sessions[chatId] = meta
 	cs.persistLocked()
+	for _, job := range clearedJobs {
+		cs.publishBackgroundJobEvent(chatId, job)
+	}
 	return cloneBackgroundJobs(meta.BackgroundJobs)
 }
 
@@ -686,4 +696,12 @@ func (cs *ChatStore) RemoveMessage(chatId string, messageId string) bool {
 		cs.persistLocked()
 	}
 	return changed
+}
+
+func (cs *ChatStore) publishBackgroundJobEvent(chatId string, job uctypes.UIChatBackgroundJobInfo) {
+	wps.Broker.Publish(wps.WaveEvent{
+		Event:  wps.Event_WaveAIBgJob,
+		Scopes: []string{fmt.Sprintf("chat:%s", chatId)},
+		Data:   job,
+	})
 }

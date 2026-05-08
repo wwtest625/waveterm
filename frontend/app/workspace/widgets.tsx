@@ -96,14 +96,14 @@ async function handleWidgetSelect(widgetKey: string, widget: WidgetConfigType) {
     let savedDirPath: string | undefined;
     if (widgetKey === "defwidget@files") {
         const connection = focusedBlock?.connection ?? "";
-        console.log("[FileBrowserState] handleWidgetSelect: loading saved state for files widget, connection=", connection);
         const savedState = loadFileBrowserState(window.localStorage, connection || "local");
-        console.log("[FileBrowserState] handleWidgetSelect: savedState=", savedState);
         if (savedState?.dirPath) {
             savedDirPath = savedState.dirPath;
+            if (isDev()) {
+                console.log("[FileBrowserState] handleWidgetSelect: using savedDirPath=%s connection=%s", savedDirPath, connection);
+            }
         }
     }
-    console.log("[FileBrowserState] handleWidgetSelect: widgetKey=", widgetKey, "savedDirPath=", savedDirPath, "focusedBlock=", focusedBlock);
     const blockDef = buildWidgetBlockDef(widget, {
         ...focusedBlock,
         savedDirPath,

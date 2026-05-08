@@ -86,7 +86,7 @@ export function dockerContainerMatchesSearch(
             .toLowerCase()
             .includes(normalizedContainerSearch);
     const matchesImageSearch =
-        normalizedImageSearch === "" || container.image.toLowerCase().includes(normalizedImageSearch);
+        normalizedImageSearch === "" || container.imageId.toLowerCase().includes(normalizedImageSearch);
     return matchesContainerSearch && matchesImageSearch;
 }
 

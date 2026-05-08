@@ -31,6 +31,17 @@ func (ws *WshServer) DockerListContainersCommand(ctx context.Context, data wshrp
 			},
 		}, nil
 	}
+	if len(containers) > 0 {
+		imageIdMap, _ := fetchContainerImageIds(ctx, data.Connection, containers)
+		for i := range containers {
+			for fullId, imageId := range imageIdMap {
+				if strings.HasPrefix(fullId, containers[i].Id) {
+					containers[i].ImageId = imageId
+					break
+				}
+			}
+		}
+	}
 	return wshrpc.DockerListContainersResponse{Containers: containers}, nil
 }
 
@@ -131,6 +142,33 @@ func dockerListImagesArgs() []string {
 
 func runDockerCLI(ctx context.Context, connName string, args []string) (string, string, error) {
 	return runCLI(ctx, connName, "docker", args)
+}
+
+func fetchContainerImageIds(ctx context.Context, connName string, containers []wshrpc.DockerContainerSummary) (map[string]string, error) {
+	containerIds := make([]string, 0, len(containers))
+	for _, c := range containers {
+		if c.Id != "" {
+			containerIds = append(containerIds, c.Id)
+		}
+	}
+	if len(containerIds) == 0 {
+		return nil, nil
+	}
+	args := append([]string{"inspect", "--format", fmt.Sprintf("{{.Id}}%s{{.Image}}", dockerFieldSep)}, containerIds...)
+	stdout, _, err := runDockerCLI(ctx, connName, args)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]string)
+	for _, line := range splitNonEmptyLines(stdout) {
+		parts := strings.SplitN(line, dockerFieldSep, 2)
+		if len(parts) == 2 {
+			containerId := strings.TrimPrefix(strings.TrimSpace(parts[0]), "sha256:")
+			imageId := strings.TrimPrefix(strings.TrimSpace(parts[1]), "sha256:")
+			result[containerId] = imageId
+		}
+	}
+	return result, nil
 }
 
 func parseDockerContainerSummaries(output string) ([]wshrpc.DockerContainerSummary, error) {

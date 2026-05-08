@@ -33,6 +33,7 @@ const (
 	Event_AIModeConfig        = "waveai:modeconfig"    // type: wconfig.AIModeConfigUpdate
 	Event_TabIndicator        = "tab:indicator"        // type: wshrpc.TabIndicatorEventData
 	Event_BlockJobStatus      = "block:jobstatus"      // type: wshrpc.BlockJobStatusData
+	Event_WaveAIBgJob         = "waveai:bgjob"         // type: uctypes.UIChatBackgroundJobInfo
 )
 
 var AllEvents []string = []string{
@@ -54,6 +55,7 @@ var AllEvents []string = []string{
 	Event_AIModeConfig,
 	Event_TabIndicator,
 	Event_BlockJobStatus,
+	Event_WaveAIBgJob,
 }
 
 type WaveEvent struct {

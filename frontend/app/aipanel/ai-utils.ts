@@ -371,6 +371,10 @@ export const validateFileSizeFromInfo = (
     return null;
 };
 
+export const isTerminalBackgroundJobStatus = (status: string | undefined): boolean => {
+    return status === "completed" || status === "error" || status === "gone" || status === "cancelled";
+};
+
 export const formatFileSizeError = (error: FileSizeError): string => {
     const typeLabel = error.fileType === "image" ? "Image" : error.fileType === "pdf" ? "PDF" : "Text file";
     return `${typeLabel} "${error.fileName}" is too large (${formatFileSize(error.fileSize)}). Maximum size is ${formatFileSize(error.maxSize)}.`;
@@ -591,4 +595,46 @@ export function getModeDisplayName(config: AIModeConfigType): string {
     }
 
     return `${model || "unknown"} (${provider || "custom"})`;
+}
+
+export function formatBackgroundJobStatusLabel(job: { approvalstate?: string; interactionstate?: string; status?: string }): string {
+    if (job.approvalstate === "needs-approval") {
+        return "Awaiting Approval";
+    }
+    if (job.interactionstate === "awaiting-input") {
+        return "Awaiting Input";
+    }
+    if (job.interactionstate === "tui-detected") {
+        return "Interactive UI Detected";
+    }
+    switch (job.status) {
+        case "running":
+            return "Running";
+        case "completed":
+            return "Completed";
+        case "error":
+            return "Failed";
+        case "gone":
+            return "Gone";
+        case "cancelled":
+            return "Cancelled";
+        default:
+            return "Unknown";
+    }
+}
+
+export function formatBackgroundJobDuration(durationMs: number | undefined): string {
+    if (!durationMs || durationMs <= 0) {
+        return "";
+    }
+    if (durationMs < 1000) {
+        return `${durationMs}ms`;
+    }
+    if (durationMs < 60_000) {
+        return `${(durationMs / 1000).toFixed(durationMs < 10_000 ? 1 : 0)}s`;
+    }
+    const totalSeconds = Math.floor(durationMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}m ${seconds}s`;
 }

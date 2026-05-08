@@ -56,6 +56,7 @@ import {
 import { buildRemoteFileError } from "./preview-error-util";
 import { type PreviewModel } from "./preview-model";
 import { loadFileBrowserState, saveFileBrowserState, type FileBrowserState } from "./preview-directory-state";
+import { isDev } from "@/util/isdev";
 
 const PageJumpSize = 20;
 const TreeMaxWidth = 100000;
@@ -708,11 +709,12 @@ function DirectoryTable({
         const osInstance = osRef.current.osInstance();
         if (!osInstance) return;
         const viewport = osInstance.elements().viewport;
-        console.log("[FileBrowserState] DirectoryTable: restoring scroll position=", savedListScrollPosition, "currentScrollTop=", viewport.scrollTop, "dataLength=", data.length);
+        if (isDev()) {
+            console.log("[FileBrowserState] DirectoryTable: restoring scroll position=%d", savedListScrollPosition);
+        }
         requestAnimationFrame(() => {
             viewport.scrollTop = savedListScrollPosition;
             scrollRestoredRef.current = true;
-            console.log("[FileBrowserState] DirectoryTable: scroll restored, newScrollTop=", viewport.scrollTop);
         });
     }, [savedListScrollPosition, data]);
 
@@ -1053,7 +1055,6 @@ function DirectoryTree({
     }, [dirPath, rootPath, selectedPath]);
 
     const defaultExpandedIds = useMemo(() => {
-        console.log("[FileBrowserState] DirectoryTree: computing defaultExpandedIds, savedExpandedPaths=", savedExpandedPaths, "rootPath=", rootPath);
         if (savedExpandedPaths.length > 0) {
             const validPaths = savedExpandedPaths.filter((p) => {
                 if (p === rootPath) return true;
@@ -1062,11 +1063,12 @@ function DirectoryTree({
                 return p.startsWith(`${rootPath}/`);
             });
             if (validPaths.length > 0) {
-                console.log("[FileBrowserState] DirectoryTree: using saved expanded paths, validPaths=", validPaths);
+                if (isDev()) {
+                    console.log("[FileBrowserState] DirectoryTree: using saved expanded paths, count=%d rootPath=%s", validPaths.length, rootPath);
+                }
                 return validPaths;
             }
         }
-        console.log("[FileBrowserState] DirectoryTree: no valid saved expanded paths, using rootPath=", [rootPath]);
         return [rootPath];
     }, [rootPath, savedExpandedPaths]);
 
@@ -1204,10 +1206,11 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
 
     useEffect(() => {
         if (stateInitializedRef.current) return;
-        console.log("[FileBrowserState] DirectoryPreview: initializing state, stateStorageKey=", stateStorageKey);
         const saved = loadFileBrowserState(window.localStorage, stateStorageKey);
         if (saved) {
-            console.log("[FileBrowserState] DirectoryPreview: restoring saved state=", saved);
+            if (isDev()) {
+                console.log("[FileBrowserState] DirectoryPreview: restoring state, viewMode=%s dirPath=%s selectedPath=%s expandedPaths=%d listScroll=%d", saved.viewMode, saved.dirPath, saved.selectedPath, saved.expandedPaths.length, saved.listScrollPosition);
+            }
             globalStore.set(model.directoryViewMode, saved.viewMode);
             if (saved.selectedPath) {
                 setSelectedPath(saved.selectedPath);
@@ -1218,8 +1221,6 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
             if (saved.listScrollPosition) {
                 setListScrollPosition(saved.listScrollPosition);
             }
-        } else {
-            console.log("[FileBrowserState] DirectoryPreview: no saved state found, using defaults");
         }
         stateInitializedRef.current = true;
     }, [stateStorageKey, model]);
@@ -1241,7 +1242,6 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
             dirPath: dirPath ?? "",
             listScrollPosition: listScrollPosition,
         };
-        console.log("[FileBrowserState] DirectoryPreview: auto-saving state=", currentState);
         debouncedSaveState(currentState);
     }, [directoryViewMode, savedExpandedPaths, selectedPath, dirPath, listScrollPosition, debouncedSaveState]);
 

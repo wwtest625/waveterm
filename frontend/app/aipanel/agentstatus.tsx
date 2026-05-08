@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
+import { t } from "./aipanel-i18n";
 import { shouldHideProgressStatusLines } from "./aitooluse";
 import {
     AgentRuntimeSnapshot,
@@ -111,18 +112,12 @@ function messageTextIncludesCapabilityDenial(message: WaveUIMessage | undefined)
         "blocked by host policy",
         "refused to execute",
         "unable to execute",
-        "无法实际读取",
-        "不能真实读取",
-        "无法访问终端",
-        "不能访问终端",
-        "宿主策略直接拦了",
-        "宿主策略拦截",
-        "被宿主策略拦了",
-        "被拒绝执行",
-        "拒绝执行",
-        "运行在沙箱中",
-        "命令执行超时",
-        "请求超时无法完成",
+        ...t.agent.cannotRead,
+        ...t.agent.hostPolicyBlocked,
+        ...t.agent.executionDenied,
+        t.agent.runningInSandbox,
+        t.agent.commandTimeout,
+        t.agent.requestTimeout,
     ];
     return denialPhrases.some((phrase) => combinedText.includes(phrase));
 }

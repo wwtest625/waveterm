@@ -6,6 +6,7 @@ import { cn } from "@/util/util";
 import { memo, useCallback, useEffect, useRef } from "react";
 import { getFileIcon } from "./ai-utils";
 import { AIFeedbackButtons } from "./aifeedbackbuttons";
+import { t } from "./aipanel-i18n";
 import { AIToolUseGroup } from "./aitooluse";
 import { AI_CODE_FONT_FAMILY, isToolDetailPart, WaveUIMessage, WaveUIMessagePart } from "./aitypes";
 import { WaveAIModel } from "./waveai-model";
@@ -208,7 +209,7 @@ const getThinkingMessage = (
         return null;
     }
 
-    return { message: "处理中..." };
+    return { message: t.message.processing };
 };
 
 export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {

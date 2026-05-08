@@ -1,5 +1,6 @@
 import { AskUserOption } from "@/app/aipanel/aitypes";
 import { WaveAIModel } from "@/app/aipanel/waveai-model";
+import { t } from "@/app/aipanel/aipanel-i18n";
 import { cn } from "@/util/util";
 import * as jotai from "jotai";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -86,11 +87,11 @@ export const AskUserCard = memo(() => {
                     <div className="flex items-center gap-2">
                         <span className="text-base">{isConfirm ? "⚠️" : "❓"}</span>
                         <span className={cn("font-medium", isConfirm ? "text-red-100" : "text-blue-100")}>
-                            {isConfirm ? "确认操作" : "需要补充信息"}
+                            {isConfirm ? t.askUser.confirmAction : t.askUser.needMoreInfo}
                         </span>
                     </div>
                     <div className="mt-1.5 text-sm text-zinc-200">{askData.prompt}</div>
-                    {askData.taskid && <div className="mt-1 text-[10px] text-zinc-500">关联任务: {askData.taskid}</div>}
+                    {askData.taskid && <div className="mt-1 text-[10px] text-zinc-500">{t.askUser.relatedTask(askData.taskid)}</div>}
                 </div>
                 <button
                     type="button"
@@ -101,7 +102,7 @@ export const AskUserCard = memo(() => {
                     }}
                     className="rounded-lg border border-red-300/12 bg-red-300/[0.06] px-2.5 py-1 text-[11px] text-red-200/70"
                 >
-                    跳过
+                    {t.askUser.skip}
                 </button>
             </div>
 
@@ -126,7 +127,7 @@ export const AskUserCard = memo(() => {
                         >
                             {opt.recommended && (
                                 <span className="mr-1.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
-                                    推荐
+                                    {t.askUser.recommended}
                                 </span>
                             )}
                             {opt.label}
@@ -162,7 +163,7 @@ export const AskUserCard = memo(() => {
                                 {selectedIds.has(opt.id) ? "✓ " : "○ "}
                                 {opt.recommended && (
                                     <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
-                                        推荐
+                                        {t.askUser.recommended}
                                     </span>
                                 )}
                                 {opt.label}
@@ -186,7 +187,7 @@ export const AskUserCard = memo(() => {
                                     : "bg-white/[0.02] text-zinc-600"
                             )}
                         >
-                            确认选择
+                            {t.askUser.confirmSelection}
                         </button>
                     </div>
                 </>
@@ -202,14 +203,14 @@ export const AskUserCard = memo(() => {
                         onClick={() => handleConfirm(true)}
                         className="rounded-lg border border-red-400/15 bg-red-400/[0.06] px-3 py-1.5 text-sm text-red-100 hover:bg-red-400/10"
                     >
-                        确认
+                        {t.askUser.confirm}
                     </button>
                     <button
                         type="button"
                         onClick={() => handleConfirm(false)}
                         className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/[0.06]"
                     >
-                        取消
+                        {t.askUser.cancel}
                     </button>
                 </div>
             )}
@@ -225,7 +226,7 @@ export const AskUserCard = memo(() => {
                                 handleSubmit(input.trim());
                             }
                         }}
-                        placeholder={askData.default || "请输入..."}
+                        placeholder={askData.default || t.askUser.inputPlaceholder}
                         className="min-w-0 flex-1 rounded-lg border border-white/[0.06] bg-black/15 px-3 py-1.5 text-sm text-white outline-none placeholder:text-zinc-500"
                     />
                     <button
@@ -242,7 +243,7 @@ export const AskUserCard = memo(() => {
                                 : "bg-white/[0.02] text-zinc-600"
                         )}
                     >
-                        发送
+                        {t.askUser.send}
                     </button>
                 </div>
             )}

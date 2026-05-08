@@ -194,6 +194,30 @@ type TEventProps struct {
 	WaveAIIsLocal                  bool           `json:"waveai:islocal,omitempty"`
 	WaveAIFeedback                 string         `json:"waveai:feedback,omitempty" tstype:"\"good\" | \"bad\""`
 	WaveAIAction                   string         `json:"waveai:action,omitempty"`
+	WaveAITraceId                  string         `json:"waveai:traceid,omitempty"`
+	WaveAIAgentMode                string         `json:"waveai:agentmode,omitempty"`
+	WaveAITtfbMs                   int            `json:"waveai:ttfbms,omitempty"`
+	WaveAITotalMs                  int            `json:"waveai:totalms,omitempty"`
+	WaveAIStreamMs                 int            `json:"waveai:streamms,omitempty"`
+	WaveAIHadFirstToken            bool           `json:"waveai:hadfirsttoken,omitempty"`
+	WaveAITool                     string         `json:"waveai:tool,omitempty"`
+	WaveAIRequestId                string         `json:"waveai:requestid,omitempty"`
+	WaveAITaskId                   string         `json:"waveai:taskid,omitempty"`
+	WaveAICapability               string         `json:"waveai:capability,omitempty"`
+	WaveAIOk                       bool           `json:"waveai:ok,omitempty"`
+	WaveAIDurationMs               int            `json:"waveai:durationms,omitempty"`
+	WaveAIJobId                    string         `json:"waveai:jobid,omitempty"`
+	WaveAIError                    string         `json:"waveai:error,omitempty"`
+	WaveAIExitCode                 int            `json:"waveai:exitcode,omitempty"`
+	WaveAIScope                    string         `json:"waveai:scope,omitempty"`
+	WaveAIRetryCount               int            `json:"waveai:retrycount,omitempty"`
+	WaveAIMaxRetries               int            `json:"waveai:maxretries,omitempty"`
+	WaveAILastError                string         `json:"waveai:lasterror,omitempty"`
+	WaveAIEndState                 string         `json:"waveai:endstate,omitempty"`
+	WaveAIState                    string         `json:"waveai:state,omitempty"`
+	WaveAIWaitMs                   int            `json:"waveai:waitms,omitempty"`
+	WaveAISource                   string         `json:"action:source,omitempty"`
+	WaveAIBlockId                  string         `json:"action:blockid,omitempty"`
 
 	JobDoneReason string `json:"job:donereason,omitempty"`
 	JobKind       string `json:"job:kind,omitempty"`

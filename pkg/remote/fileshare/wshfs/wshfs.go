@@ -228,6 +228,31 @@ func Join(ctx context.Context, path string, parts ...string) (*wshrpc.FileInfo, 
 	return wshclient.RemoteFileJoinCommand(RpcClient, append([]string{conn.Path}, parts...), &wshrpc.RpcOpts{Route: wshutil.MakeConnectionRouteId(conn.Host)})
 }
 
+func ZipDirectory(ctx context.Context, path string) (*wshrpc.CommandRemoteZipDirectoryRtnData, error) {
+	log.Printf("ZipDirectory: %v", path)
+	conn, err := parseConnection(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return wshclient.RemoteZipDirectoryCommand(RpcClient, wshrpc.CommandRemoteZipDirectoryData{Path: conn.Path}, &wshrpc.RpcOpts{Route: wshutil.MakeConnectionRouteId(conn.Host)})
+}
+
+func MakeZipStreamUri(ctx context.Context, originalUri string, zipPath string) string {
+	conn, err := parseConnection(ctx, originalUri)
+	if err != nil {
+		return zipPath
+	}
+	return conn.Scheme + "://" + conn.Host + "/" + zipPath
+}
+
+func DeleteTempFile(ctx context.Context, originalUri string, tempFilePath string) error {
+	conn, err := parseConnection(ctx, originalUri)
+	if err != nil {
+		return err
+	}
+	return wshclient.RemoteDeleteTempFileCommand(RpcClient, tempFilePath, &wshrpc.RpcOpts{Route: wshutil.MakeConnectionRouteId(conn.Host)})
+}
+
 func moveInternal(srcConn, destConn *connparse.Connection, opts *wshrpc.FileCopyOpts) error {
 	if srcConn.Host != destConn.Host {
 		return fmt.Errorf("move internal, src and dest hosts do not match")

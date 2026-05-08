@@ -509,10 +509,10 @@ func TestWaveRunCommandResultPayload_StillCarriesRawFieldsForFrontend(t *testing
 }
 
 func TestWriteAndEditToolDefinitionsRemainAutoApproved(t *testing.T) {
-	if GetWriteTextFileToolDefinition().ToolApproval(nil) != uctypes.ApprovalAutoApproved {
+	if GetWriteTextFileToolDefinition().ToolApproval(nil, uctypes.ApprovalContext{}) != uctypes.ApprovalAutoApproved {
 		t.Fatal("expected write tool to stay auto-approved")
 	}
-	if GetEditTextFileToolDefinition().ToolApproval(nil) != uctypes.ApprovalAutoApproved {
+	if GetEditTextFileToolDefinition().ToolApproval(nil, uctypes.ApprovalContext{}) != uctypes.ApprovalAutoApproved {
 		t.Fatal("expected edit tool to stay auto-approved")
 	}
 }
