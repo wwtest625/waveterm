@@ -6,7 +6,7 @@ import type {
     ChatBackgroundJobDetail,
     WaveChatSessionMeta,
 } from "@/app/aipanel/aitypes";
-import type { DroppedFile } from "./waveai-model";
+import type { DroppedFile } from "./waveai-file-service";
 
 export function sortSessions(sessions: WaveChatSessionMeta[]): WaveChatSessionMeta[] {
     return [...sessions].sort((left, right) => {

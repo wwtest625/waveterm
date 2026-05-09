@@ -24,6 +24,8 @@ import {
 } from "@/app/aipanel/aitypes";
 import { type AIPanelChatContextValue } from "@/app/aipanel/aipanel-chat-context";
 import { type WaveAIAction, getActionLogEnabled } from "@/app/aipanel/waveai-actions";
+import { AgentRuntimeModule } from "@/app/aipanel/waveai-agent-runtime";
+import { FileServiceModule, type DroppedFile as DroppedFileType } from "@/app/aipanel/waveai-file-service";
 import { FocusManager } from "@/app/store/focusManager";
 import {
     atoms,
@@ -46,12 +48,7 @@ import * as jotai from "jotai";
 import type React from "react";
 import {
     createDataUrl,
-    createImagePreview,
-    formatFileSizeError,
-    isAcceptableFile,
     normalizeMimeType,
-    resizeImage,
-    validateFileSizeFromInfo,
 } from "./ai-utils";
 import type { AIPanelInputRef } from "./aipanelinput";
 import {
@@ -59,21 +56,13 @@ import {
     sortBackgroundJobs as sortBackgroundJobsUtil,
     summarizeSessionText as summarizeSessionTextUtil,
     isReusableNewChatSession as isReusableNewChatSessionUtil,
-    shouldThrottleExecutingRuntimeUpdate as shouldThrottleExecutingRuntimeUpdateUtil,
     buildRetryMeta as buildRetryMetaUtil,
     shouldRunInteractively as shouldRunInteractivelyUtil,
     buildInteractivePromptHint as buildInteractivePromptHintUtil,
     hasSubmittableContent as hasSubmittableContentUtil,
 } from "./waveai-utils";
 
-export interface DroppedFile {
-    id: string;
-    file: File;
-    name: string;
-    type: string;
-    size: number;
-    previewUrl?: string;
-}
+export type DroppedFile = DroppedFileType;
 
 export type AgentMode = "default" | "planning" | "auto-approve";
 
@@ -113,24 +102,22 @@ export class WaveAIModel {
 
     // ─── Message Input & Queue ─────────────────────────────────────────────────
     inputAtom: jotai.PrimitiveAtom<string> = jotai.atom("");
-    droppedFiles: jotai.PrimitiveAtom<DroppedFile[]> = jotai.atom([]);
     queuedSubmissionsAtom: jotai.PrimitiveAtom<QueuedSubmission[]> = jotai.atom([]);
-    errorMessage: jotai.PrimitiveAtom<string> = jotai.atom(null) as jotai.PrimitiveAtom<string>;
 
-    // ─── Agent Runtime ─────────────────────────────────────────────────────────
-    isAIStreaming = jotai.atom(false);
-    agentRuntimeAtom: jotai.PrimitiveAtom<AgentRuntimeSnapshot> = jotai.atom(getDefaultAgentRuntimeSnapshot());
-    taskStateAtom: jotai.PrimitiveAtom<AgentTaskState | null> = jotai.atom(
-        null
-    ) as jotai.PrimitiveAtom<AgentTaskState | null>;
-    focusChainAtom: jotai.PrimitiveAtom<AgentFocusChainState | null> = jotai.atom(
-        null
-    ) as jotai.PrimitiveAtom<AgentFocusChainState | null>;
-    contextUsageAtom: jotai.PrimitiveAtom<number> = jotai.atom(0);
-    securityBlockedAtom: jotai.PrimitiveAtom<boolean> = jotai.atom(false);
-    askUserAtom: jotai.PrimitiveAtom<AskUserData | null> = jotai.atom(null) as jotai.PrimitiveAtom<AskUserData | null>;
-    private lastExecutingRuntimeUpdateAt = 0;
-    private readonly executingRuntimeThrottleMs = 250;
+    // ─── Sub-Modules ───────────────────────────────────────────────────────────
+    readonly agentRuntime: AgentRuntimeModule;
+    readonly fileService: FileServiceModule;
+
+    // ─── Agent Runtime (delegated) ─────────────────────────────────────────────
+    get isAIStreaming() { return this.agentRuntime.isAIStreaming; }
+    get agentRuntimeAtom() { return this.agentRuntime.agentRuntimeAtom; }
+    get taskStateAtom() { return this.agentRuntime.taskStateAtom; }
+    get focusChainAtom() { return this.agentRuntime.focusChainAtom; }
+    get contextUsageAtom() { return this.agentRuntime.contextUsageAtom; }
+    get securityBlockedAtom() { return this.agentRuntime.securityBlockedAtom; }
+    get askUserAtom() { return this.agentRuntime.askUserAtom; }
+    get errorMessage() { return this.agentRuntime.errorMessage; }
+    get droppedFiles() { return this.fileService.droppedFiles; }
 
     // ─── Tool Execution & Command Interaction ──────────────────────────────────
     commandInteractionAtom: jotai.PrimitiveAtom<CommandInteractionState | null> = jotai.atom(
@@ -169,6 +156,9 @@ export class WaveAIModel {
         this.orefContext = orefContext;
         this.chatId = jotai.atom(null) as jotai.PrimitiveAtom<string>;
         this.aiModeConfigs = atoms.waveaiModeConfigAtom;
+
+        this.agentRuntime = new AgentRuntimeModule(orefContext, (action) => this.dispatch(action));
+        this.fileService = new FileServiceModule((action) => this.dispatch(action), (msg) => this.agentRuntime.setError(msg));
 
         this.hasPremiumAtom = jotai.atom((get) => {
             const rateLimitInfo = get(atoms.waveAIRateLimitInfoAtom);
@@ -416,96 +406,19 @@ export class WaveAIModel {
     }
 
     async addFile(file: File): Promise<DroppedFile> {
-        // Resize images before storing
-        const processedFile = await resizeImage(file);
-
-        const droppedFile: DroppedFile = {
-            id: crypto.randomUUID(),
-            file: processedFile,
-            name: processedFile.name,
-            type: processedFile.type,
-            size: processedFile.size,
-        };
-
-        // Create 128x128 preview data URL for images
-        if (processedFile.type.startsWith("image/")) {
-            const previewDataUrl = await createImagePreview(processedFile);
-            if (previewDataUrl) {
-                droppedFile.previewUrl = previewDataUrl;
-            }
-        }
-
-        const currentFiles = globalStore.get(this.droppedFiles);
-        this.dispatch({ type: "SET_DROPPED_FILES", files: [...currentFiles, droppedFile] });
-
-        return droppedFile;
+        return this.fileService.addFile(file);
     }
 
     async addFileFromRemoteUri(draggedFile: DraggedFile): Promise<void> {
-        if (draggedFile.isDir) {
-            this.setError("Cannot add directories to Wave AI. Please select a file.");
-            return;
-        }
-
-        try {
-            const fileInfo = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: draggedFile.uri } }, null);
-            if (fileInfo.notfound) {
-                this.setError(`File not found: ${draggedFile.relName}`);
-                return;
-            }
-            if (fileInfo.isdir) {
-                this.setError("Cannot add directories to Wave AI. Please select a file.");
-                return;
-            }
-
-            const mimeType = fileInfo.mimetype || "application/octet-stream";
-            const fileSize = fileInfo.size || 0;
-            const sizeError = validateFileSizeFromInfo(draggedFile.relName, fileSize, mimeType);
-            if (sizeError) {
-                this.setError(formatFileSizeError(sizeError));
-                return;
-            }
-
-            const fileData = await RpcApi.FileReadCommand(TabRpcClient, { info: { path: draggedFile.uri } }, null);
-            if (!fileData.data64) {
-                this.setError(`Failed to read file: ${draggedFile.relName}`);
-                return;
-            }
-
-            const buffer = base64ToArrayBuffer(fileData.data64);
-            const file = new File([buffer], draggedFile.relName, { type: mimeType });
-            if (!isAcceptableFile(file)) {
-                this.setError(
-                    `File type not supported: ${draggedFile.relName}. Supported: images, PDFs, and text/code files.`
-                );
-                return;
-            }
-
-            await this.addFile(file);
-        } catch (error) {
-            console.error("Error handling FILE_ITEM drop:", error);
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            this.setError(`Failed to add file: ${errorMsg}`);
-        }
+        return this.fileService.addFileFromRemoteUri(draggedFile);
     }
 
     removeFile(fileId: string) {
-        const currentFiles = globalStore.get(this.droppedFiles);
-        const updatedFiles = currentFiles.filter((f) => f.id !== fileId);
-        this.dispatch({ type: "SET_DROPPED_FILES", files: updatedFiles });
+        this.fileService.removeFile(fileId);
     }
 
     clearFiles() {
-        const currentFiles = globalStore.get(this.droppedFiles);
-
-        // Cleanup all preview URLs
-        currentFiles.forEach((file) => {
-            if (file.previewUrl) {
-                URL.revokeObjectURL(file.previewUrl);
-            }
-        });
-
-        this.dispatch({ type: "SET_DROPPED_FILES", files: [] });
+        this.fileService.clearFiles();
     }
 
     async loadSessions(opts?: { includeArchived?: boolean; includeDeleted?: boolean }): Promise<WaveChatSessionMeta[]> {
@@ -713,53 +626,27 @@ export class WaveAIModel {
     }
 
     setError(message: string) {
-        this.dispatch({ type: "SET_ERROR_MESSAGE", message });
+        this.agentRuntime.setError(message);
     }
 
     clearError() {
-        this.dispatch({ type: "SET_ERROR_MESSAGE", message: null });
+        this.agentRuntime.clearError();
     }
 
     setAgentRuntimeSnapshot(snapshot: AgentRuntimeSnapshot) {
-        const current = globalStore.get(this.agentRuntimeAtom);
-        if (agentRuntimeSnapshotEquals(current, snapshot)) {
-            return;
-        }
-        if (snapshot.state === "executing") {
-            this.lastExecutingRuntimeUpdateAt = Date.now();
-        }
-        this.dispatch({ type: "SET_AGENT_RUNTIME", snapshot });
+        this.agentRuntime.setAgentRuntimeSnapshot(snapshot);
     }
 
     private shouldThrottleExecutingRuntimeUpdate(current: AgentRuntimeSnapshot, next: AgentRuntimeSnapshot): boolean {
-        return shouldThrottleExecutingRuntimeUpdateUtil(current, next, this.lastExecutingRuntimeUpdateAt, this.executingRuntimeThrottleMs);
+        return false;
     }
 
     mergeAgentRuntimeSnapshot(patch: AgentRuntimeSnapshotPatch) {
-        const current = globalStore.get(this.agentRuntimeAtom);
-        const next = mergeAgentRuntimeSnapshot(current, patch);
-        if (this.shouldThrottleExecutingRuntimeUpdate(current, next)) {
-            return;
-        }
-        if (agentRuntimeSnapshotEquals(current, next)) {
-            return;
-        }
-        if (next.state === "executing") {
-            this.lastExecutingRuntimeUpdateAt = Date.now();
-        }
-        this.dispatch({ type: "SET_AGENT_RUNTIME", snapshot: next });
+        this.agentRuntime.mergeAgentRuntimeSnapshot(patch);
     }
 
     dispatchAgentEvent(event: AgentRuntimeEvent) {
-        const current = globalStore.get(this.agentRuntimeAtom);
-        const next = reduceAgentRuntimeSnapshot(current, event);
-        if (agentRuntimeSnapshotEquals(current, next)) {
-            return;
-        }
-        if (next.state === "executing") {
-            this.lastExecutingRuntimeUpdateAt = Date.now();
-        }
-        this.dispatch({ type: "SET_AGENT_RUNTIME", snapshot: next });
+        this.agentRuntime.dispatchAgentEvent(event);
     }
 
     registerInputRef(ref: React.RefObject<AIPanelInputRef>) {
@@ -1052,31 +939,19 @@ export class WaveAIModel {
     }
 
     setModel(model: string) {
-        RpcApi.SetMetaCommand(TabRpcClient, {
-            oref: this.orefContext,
-            meta: { "waveai:model": model },
-        });
+        this.agentRuntime.setModel(model);
     }
 
     setWidgetAccess(enabled: boolean) {
-        RpcApi.SetMetaCommand(TabRpcClient, {
-            oref: this.orefContext,
-            meta: { "waveai:widgetcontext": enabled },
-        });
+        this.agentRuntime.setWidgetAccess(enabled);
     }
 
     setAutoExecute(enabled: boolean) {
-        RpcApi.SetMetaCommand(TabRpcClient, {
-            oref: this.orefContext,
-            meta: { "waveai:autoexecute": enabled } as MetaType,
-        });
+        this.agentRuntime.setAutoExecute(enabled);
     }
 
     setAgentMode(mode: AgentMode) {
-        RpcApi.SetMetaCommand(TabRpcClient, {
-            oref: this.orefContext,
-            meta: { "waveai:agentmode": mode },
-        });
+        this.agentRuntime.setAgentMode(mode);
     }
 
     refreshTerminalTargetInfo(): TerminalTargetInfo | null {
