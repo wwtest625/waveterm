@@ -144,6 +144,7 @@ declare global {
         targetPath?: string;
         transferredBytes?: number;
         totalBytes?: number;
+        totalFiles?: number;
         error?: string;
     };
 

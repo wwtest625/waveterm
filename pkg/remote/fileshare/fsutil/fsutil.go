@@ -108,12 +108,17 @@ func ReadFileStream(ctx context.Context, readCh <-chan wshrpc.RespOrErrorUnion[w
 					return err
 				}
 			} else {
-				if resp.Data64 == "" {
+				if resp.Data64 != "" {
+					decoder := base64.NewDecoder(base64.StdEncoding, bytes.NewReader([]byte(resp.Data64)))
+					if err := fileCallback(decoder); err != nil {
+						return err
+					}
+				} else if len(resp.Data) > 0 {
+					if err := fileCallback(bytes.NewReader(resp.Data)); err != nil {
+						return err
+					}
+				} else {
 					continue
-				}
-				decoder := base64.NewDecoder(base64.StdEncoding, bytes.NewReader([]byte(resp.Data64)))
-				if err := fileCallback(decoder); err != nil {
-					return err
 				}
 			}
 		}

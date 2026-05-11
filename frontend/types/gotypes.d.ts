@@ -686,6 +686,22 @@ declare global {
         size: number;
     };
 
+    // wshrpc.CommandRemoteZipToStreamData
+    type CommandRemoteZipToStreamData = {
+        path: string;
+    };
+
+    // wshrpc.CommandRemoteZipToStreamRtnData
+    type CommandRemoteZipToStreamRtnData = {
+        currentfile?: string;
+        totalfiles?: number;
+        donefiles?: number;
+        totalsize?: number;
+        data?: string;
+        datalen?: number;
+        isdone?: boolean;
+    };
+
     // wshrpc.CommandRenameAppFileData
     type CommandRenameAppFileData = {
         appid: string;
@@ -1044,6 +1060,7 @@ declare global {
         tag: string;
         sizeText: string;
         inUse: boolean;
+        containers: number;
     };
 
     // wshrpc.DockerListContainersRequest
@@ -1109,6 +1126,7 @@ declare global {
     type FileData = {
         info?: FileInfo;
         data64?: string;
+        data?: string;
         entries?: FileInfo[];
         at?: FileDataAt;
     };
@@ -1684,6 +1702,7 @@ declare global {
         "window:savelastwindow"?: boolean;
         "window:dimensions"?: string;
         "window:zoom"?: number;
+        "window:autobalance"?: boolean;
         "telemetry:*"?: boolean;
         "telemetry:enabled"?: boolean;
         "conn:*"?: boolean;

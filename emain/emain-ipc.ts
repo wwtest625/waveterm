@@ -31,6 +31,7 @@ let webviewFocusId: number = null;
 let webviewKeys: string[] = [];
 const pendingDownloadRequests = new Map<number, Array<{ taskId: string; filePath: string }>>();
 const pendingDownloadTasks = new Map<string, { senderWebContentsId: number; filePath: string }>();
+const pendingZipMetadata = new Map<string, { totalFiles: number; totalBytes: number }>();
 const registeredDownloadSessions = new WeakSet<Electron.Session>();
 
 function parseDownloadRequestFromUrl(downloadUrl: string): { taskId: string; filePath: string } | null {
@@ -111,6 +112,20 @@ function ensureDownloadProgressBridge(session: Electron.Session): void {
         return;
     }
     registeredDownloadSessions.add(session);
+
+    // Intercept response headers for streaming ZIP directory downloads to extract progress metadata
+    session.webRequest.onHeadersReceived((details, callback) => {
+        if (details.url.includes("/wave/stream-directory/") && details.responseHeaders) {
+            const headers = details.responseHeaders as Record<string, string | string[]>;
+            const totalFiles = parseInt(getSingleHeaderVal(headers, "x-zip-total-files") ?? "0");
+            if (totalFiles > 0) {
+                const totalBytes = parseInt(getSingleHeaderVal(headers, "x-zip-total-bytes") ?? "0");
+                pendingZipMetadata.set(details.url, { totalFiles, totalBytes });
+            }
+        }
+        callback({ responseHeaders: details.responseHeaders });
+    });
+
     session.on("will-download", (_downloadEvent, item, webContents) => {
         if (webContents == null) {
             return;
@@ -126,18 +141,32 @@ function ensureDownloadProgressBridge(session: Electron.Session): void {
         const hostFolder = getDownloadFolderName(effectiveFilePath);
         const targetDir = path.join(downloadsDir, hostFolder);
         fs.mkdirSync(targetDir, { recursive: true });
-        item.setSavePath(getUniqueDownloadPath(targetDir, item.getFilename()));
+        let filename = item.getFilename();
+        const downloadUrl = item.getURL();
+        if (downloadUrl.includes("/wave/stream-directory/") && !filename.toLowerCase().endsWith(".zip")) {
+            filename = filename + ".zip";
+        }
+        item.setSavePath(getUniqueDownloadPath(targetDir, filename));
+
+        // Retrieve zip metadata captured from response headers
+        const zipMeta = downloadUrl.includes("/wave/stream-directory/") ? pendingZipMetadata.get(downloadUrl) : undefined;
+        if (zipMeta) {
+            pendingZipMetadata.delete(downloadUrl);
+        }
 
         const emitProgress = (status: "running" | "success" | "error" | "cancelled", phase: "progress" | "done", error?: string) => {
+            const transferredBytes = item.getReceivedBytes();
+            const totalBytes = zipMeta?.totalBytes ?? item.getTotalBytes();
             targetWebContents.send("download-transfer-event", {
                 taskId: request.taskId,
                 phase,
                 status,
-                name: item.getFilename(),
+                name: filename,
                 sourcePath: effectiveFilePath,
                 targetPath: item.getSavePath(),
-                transferredBytes: item.getReceivedBytes(),
-                totalBytes: item.getTotalBytes(),
+                transferredBytes,
+                totalBytes,
+                totalFiles: zipMeta?.totalFiles,
                 error,
             });
         };

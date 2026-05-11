@@ -4,7 +4,6 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -307,11 +306,10 @@ func handleRemoteStreamFileFromCh(w http.ResponseWriter, req *http.Request, path
 				w.Header().Set(ContentLengthHeaderKey, fmt.Sprintf("%d", fileInfo.Size))
 				continue
 			}
-			if respUnion.Response.Data64 == "" {
+			if len(respUnion.Response.Data) == 0 {
 				continue
 			}
-			decoder := base64.NewDecoder(base64.StdEncoding, bytes.NewReader([]byte(respUnion.Response.Data64)))
-			_, err := io.Copy(w, decoder)
+			_, err := w.Write(respUnion.Response.Data)
 			if err != nil {
 				log.Printf("error streaming file %q: %v\n", path, err)
 				// not sure what to do here, the headers have already been sent.
@@ -360,13 +358,6 @@ func handleStreamDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	zipResult, err := wshfs.ZipDirectory(r.Context(), path)
-	if err != nil {
-		log.Printf("error zipping directory %q: %v\n", path, err)
-		http.Error(w, fmt.Sprintf("error zipping directory: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	dirName := "directory"
 	if parsedUrl, parseErr := url.Parse(path); parseErr == nil {
 		urlPath := parsedUrl.Path
@@ -378,26 +369,57 @@ func handleStreamDirectory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, dirName))
+	rtnCh := wshfs.ZipToStream(r.Context(), path)
 
-	zipRemoteUri := wshfs.MakeZipStreamUri(r.Context(), path, zipResult.ZipPath)
-	rtnCh := wshfs.ReadStream(r.Context(), wshrpc.FileData{
-		Info: &wshrpc.FileInfo{
-			Path: zipRemoteUri,
-		},
-	})
-
-	err = handleRemoteStreamFileFromCh(w, r, zipRemoteUri, rtnCh, nil, false)
-	if err != nil {
-		log.Printf("error streaming zip file %q: %v\n", zipRemoteUri, err)
-		http.Error(w, fmt.Sprintf("error streaming zip file: %v", err), http.StatusInternalServerError)
+	// First packet carries total count/metadata
+	respUnion, ok := <-rtnCh
+	if !ok {
+		http.Error(w, "zip stream closed unexpectedly", http.StatusInternalServerError)
+		return
+	}
+	if respUnion.Error != nil {
+		log.Printf("error streaming directory %q: %v\n", path, respUnion.Error)
+		http.Error(w, fmt.Sprintf("error streaming directory: %v", respUnion.Error), http.StatusInternalServerError)
+		return
+	}
+	firstMeta := respUnion.Response
+	if firstMeta.TotalFiles > 0 {
+		w.Header().Set("X-Zip-Total-Files", fmt.Sprintf("%d", firstMeta.TotalFiles))
+	}
+	if firstMeta.TotalSize > 0 {
+		w.Header().Set("X-Zip-Total-Bytes", fmt.Sprintf("%d", firstMeta.TotalSize))
 	}
 
-	go func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		wshfs.DeleteTempFile(cleanupCtx, path, zipResult.ZipPath)
-	}()
+	w.Header().Set(ContentTypeHeaderKey, "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, dirName))
+
+	ctx := r.Context()
+	flusher, canFlush := w.(http.Flusher)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case respUnion, ok := <-rtnCh:
+			if !ok {
+				return
+			}
+			if respUnion.Error != nil {
+				log.Printf("error streaming zip: %v\n", respUnion.Error)
+				return
+			}
+			resp := respUnion.Response
+			if len(resp.Data) > 0 {
+				_, err := w.Write(resp.Data)
+				if err != nil {
+					log.Printf("error writing zip data: %v\n", err)
+					return
+				}
+				if canFlush {
+					flusher.Flush()
+				}
+			}
+		}
+	}
 }
 
 func WriteJsonError(w http.ResponseWriter, errVal error) {

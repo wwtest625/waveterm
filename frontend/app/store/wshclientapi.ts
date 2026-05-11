@@ -782,6 +782,11 @@ class RpcApiType {
         return client.wshRpcCall("remotezipdirectory", data, opts);
     }
 
+    // command "remoteziptostream" [responsestream]
+	RemoteZipToStreamCommand(client: WshClient, data: CommandRemoteZipToStreamData, opts?: RpcOpts): AsyncGenerator<CommandRemoteZipToStreamRtnData, void, boolean> {
+        return client.wshRpcStream("remoteziptostream", data, opts);
+    }
+
     // command "renameappfile" [call]
     RenameAppFileCommand(client: WshClient, data: CommandRenameAppFileData, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("renameappfile", data, opts);

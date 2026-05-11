@@ -41,6 +41,7 @@ type WshRpcRemoteFileInterface interface {
 	RemoteMkdirCommand(ctx context.Context, path string) error
 	RemoteZipDirectoryCommand(ctx context.Context, data CommandRemoteZipDirectoryData) (*CommandRemoteZipDirectoryRtnData, error)
 	RemoteDeleteTempFileCommand(ctx context.Context, path string) error
+	RemoteZipToStreamCommand(ctx context.Context, data CommandRemoteZipToStreamData) chan RespOrErrorUnion[CommandRemoteZipToStreamRtnData]
 }
 
 type FileDataAt struct {
@@ -51,6 +52,7 @@ type FileDataAt struct {
 type FileData struct {
 	Info    *FileInfo   `json:"info,omitempty"`
 	Data64  string      `json:"data64,omitempty"`
+	Data    []byte      `json:"data,omitempty"`
 	Entries []*FileInfo `json:"entries,omitempty"`
 	At      *FileDataAt `json:"at,omitempty"` // if set, this turns read/write ops to ReadAt/WriteAt ops (len is only used for ReadAt)
 }
@@ -144,6 +146,20 @@ type CommandRemoteFileMultiInfoData struct {
 
 type CommandRemoteListEntriesRtnData struct {
 	FileInfo []*FileInfo `json:"fileinfo,omitempty"`
+}
+
+type CommandRemoteZipToStreamData struct {
+	Path string `json:"path"`
+}
+
+type CommandRemoteZipToStreamRtnData struct {
+	CurrentFile string `json:"currentfile,omitempty"`
+	TotalFiles  int    `json:"totalfiles,omitempty"`
+	DoneFiles   int    `json:"donefiles,omitempty"`
+	TotalSize   int64  `json:"totalsize,omitempty"`
+	Data        []byte `json:"data,omitempty"`
+	DataLen     int    `json:"datalen,omitempty"`
+	IsDone      bool   `json:"isdone,omitempty"`
 }
 
 type CommandRemoteZipDirectoryData struct {

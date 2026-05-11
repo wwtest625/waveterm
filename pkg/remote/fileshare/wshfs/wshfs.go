@@ -237,6 +237,15 @@ func ZipDirectory(ctx context.Context, path string) (*wshrpc.CommandRemoteZipDir
 	return wshclient.RemoteZipDirectoryCommand(RpcClient, wshrpc.CommandRemoteZipDirectoryData{Path: conn.Path}, &wshrpc.RpcOpts{Route: wshutil.MakeConnectionRouteId(conn.Host)})
 }
 
+func ZipToStream(ctx context.Context, path string) <-chan wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteZipToStreamRtnData] {
+	log.Printf("ZipToStream: %v", path)
+	conn, err := parseConnection(ctx, path)
+	if err != nil {
+		return wshutil.SendErrCh[wshrpc.CommandRemoteZipToStreamRtnData](err)
+	}
+	return wshclient.RemoteZipToStreamCommand(RpcClient, wshrpc.CommandRemoteZipToStreamData{Path: conn.Path}, &wshrpc.RpcOpts{Route: wshutil.MakeConnectionRouteId(conn.Host)})
+}
+
 func MakeZipStreamUri(ctx context.Context, originalUri string, zipPath string) string {
 	conn, err := parseConnection(ctx, originalUri)
 	if err != nil {

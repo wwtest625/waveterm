@@ -118,6 +118,12 @@ func BlocksListCommand(w *wshutil.WshRpc, data wshrpc.BlocksListRequest, opts *w
 	return resp, err
 }
 
+// command "cancelwaveaibackgroundjobs", wshserver.CancelWaveAIBackgroundJobsCommand
+func CancelWaveAIBackgroundJobsCommand(w *wshutil.WshRpc, data wshrpc.CommandCancelWaveAIBackgroundJobsData, opts *wshrpc.RpcOpts) ([]uctypes.UIChatBackgroundJobInfo, error) {
+	resp, err := sendRpcRequestCallHelper[[]uctypes.UIChatBackgroundJobInfo](w, "cancelwaveaibackgroundjobs", data, opts)
+	return resp, err
+}
+
 // command "captureblockscreenshot", wshserver.CaptureBlockScreenshotCommand
 func CaptureBlockScreenshotCommand(w *wshutil.WshRpc, data wshrpc.CommandCaptureBlockScreenshotData, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "captureblockscreenshot", data, opts)
@@ -127,6 +133,12 @@ func CaptureBlockScreenshotCommand(w *wshutil.WshRpc, data wshrpc.CommandCapture
 // command "checkgoversion", wshserver.CheckGoVersionCommand
 func CheckGoVersionCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandCheckGoVersionRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandCheckGoVersionRtnData](w, "checkgoversion", nil, opts)
+	return resp, err
+}
+
+// command "clearwaveaibackgroundjobs", wshserver.ClearWaveAIBackgroundJobsCommand
+func ClearWaveAIBackgroundJobsCommand(w *wshutil.WshRpc, data wshrpc.CommandClearWaveAIBackgroundJobsData, opts *wshrpc.RpcOpts) ([]uctypes.UIChatBackgroundJobInfo, error) {
+	resp, err := sendRpcRequestCallHelper[[]uctypes.UIChatBackgroundJobInfo](w, "clearwaveaibackgroundjobs", data, opts)
 	return resp, err
 }
 
@@ -572,15 +584,15 @@ func GetVarCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshrpc.R
 	return resp, err
 }
 
-// command "getwaveaichat", wshserver.GetWaveAIChatCommand
-func GetWaveAIChatCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWaveAIChatData, opts *wshrpc.RpcOpts) (*uctypes.UIChat, error) {
-	resp, err := sendRpcRequestCallHelper[*uctypes.UIChat](w, "getwaveaichat", data, opts)
-	return resp, err
-}
-
 // command "getwaveaibackgroundjob", wshserver.GetWaveAIBackgroundJobCommand
 func GetWaveAIBackgroundJobCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWaveAIBackgroundJobData, opts *wshrpc.RpcOpts) (*uctypes.UIChatBackgroundJobInfo, error) {
 	resp, err := sendRpcRequestCallHelper[*uctypes.UIChatBackgroundJobInfo](w, "getwaveaibackgroundjob", data, opts)
+	return resp, err
+}
+
+// command "getwaveaichat", wshserver.GetWaveAIChatCommand
+func GetWaveAIChatCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWaveAIChatData, opts *wshrpc.RpcOpts) (*uctypes.UIChat, error) {
+	resp, err := sendRpcRequestCallHelper[*uctypes.UIChat](w, "getwaveaichat", data, opts)
 	return resp, err
 }
 
@@ -710,15 +722,15 @@ func ListAllEditableAppsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshr
 	return resp, err
 }
 
-// command "listwaveaisessions", wshserver.ListWaveAISessionsCommand
-func ListWaveAISessionsCommand(w *wshutil.WshRpc, data wshrpc.CommandListWaveAISessionsData, opts *wshrpc.RpcOpts) ([]*uctypes.UIChatSessionMeta, error) {
-	resp, err := sendRpcRequestCallHelper[[]*uctypes.UIChatSessionMeta](w, "listwaveaisessions", data, opts)
-	return resp, err
-}
-
 // command "listwaveaibackgroundjobs", wshserver.ListWaveAIBackgroundJobsCommand
 func ListWaveAIBackgroundJobsCommand(w *wshutil.WshRpc, data wshrpc.CommandListWaveAIBackgroundJobsData, opts *wshrpc.RpcOpts) ([]uctypes.UIChatBackgroundJobInfo, error) {
 	resp, err := sendRpcRequestCallHelper[[]uctypes.UIChatBackgroundJobInfo](w, "listwaveaibackgroundjobs", data, opts)
+	return resp, err
+}
+
+// command "listwaveaisessions", wshserver.ListWaveAISessionsCommand
+func ListWaveAISessionsCommand(w *wshutil.WshRpc, data wshrpc.CommandListWaveAISessionsData, opts *wshrpc.RpcOpts) ([]*uctypes.UIChatSessionMeta, error) {
+	resp, err := sendRpcRequestCallHelper[[]*uctypes.UIChatSessionMeta](w, "listwaveaisessions", data, opts)
 	return resp, err
 }
 
@@ -812,6 +824,12 @@ func ReloadSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	return err
 }
 
+// command "remotedeletetempfile", wshserver.RemoteDeleteTempFileCommand
+func RemoteDeleteTempFileCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "remotedeletetempfile", data, opts)
+	return err
+}
+
 // command "remotedisconnectfromjobmanager", wshserver.RemoteDisconnectFromJobManagerCommand
 func RemoteDisconnectFromJobManagerCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteDisconnectFromJobManagerData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "remotedisconnectfromjobmanager", data, opts)
@@ -883,18 +901,6 @@ func RemoteMkdirCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) er
 	return err
 }
 
-// command "remotezipdirectory", wshserver.RemoteZipDirectoryCommand
-func RemoteZipDirectoryCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteZipDirectoryData, opts *wshrpc.RpcOpts) (*wshrpc.CommandRemoteZipDirectoryRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandRemoteZipDirectoryRtnData](w, "remotezipdirectory", data, opts)
-	return resp, err
-}
-
-// command "remotedeletetempfile", wshserver.RemoteDeleteTempFileCommand
-func RemoteDeleteTempFileCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "remotedeletetempfile", data, opts)
-	return err
-}
-
 // command "remotereconnecttojobmanager", wshserver.RemoteReconnectToJobManagerCommand
 func RemoteReconnectToJobManagerCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteReconnectToJobManagerData, opts *wshrpc.RpcOpts) (*wshrpc.CommandRemoteReconnectToJobManagerRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandRemoteReconnectToJobManagerRtnData](w, "remotereconnecttojobmanager", data, opts)
@@ -927,6 +933,17 @@ func RemoteTerminateJobManagerCommand(w *wshutil.WshRpc, data wshrpc.CommandRemo
 func RemoteWriteFileCommand(w *wshutil.WshRpc, data wshrpc.FileData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "remotewritefile", data, opts)
 	return err
+}
+
+// command "remotezipdirectory", wshserver.RemoteZipDirectoryCommand
+func RemoteZipDirectoryCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteZipDirectoryData, opts *wshrpc.RpcOpts) (*wshrpc.CommandRemoteZipDirectoryRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandRemoteZipDirectoryRtnData](w, "remotezipdirectory", data, opts)
+	return resp, err
+}
+
+// command "remoteziptostream", wshserver.RemoteZipToStreamCommand
+func RemoteZipToStreamCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteZipToStreamData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteZipToStreamRtnData] {
+	return sendRpcRequestResponseStreamHelper[wshrpc.CommandRemoteZipToStreamRtnData](w, "remoteziptostream", data, opts)
 }
 
 // command "renameappfile", wshserver.RenameAppFileCommand
@@ -1124,18 +1141,6 @@ func UpdateWaveAISessionCommand(w *wshutil.WshRpc, data wshrpc.CommandUpdateWave
 	return resp, err
 }
 
-// command "cancelwaveaibackgroundjobs", wshserver.CancelWaveAIBackgroundJobsCommand
-func CancelWaveAIBackgroundJobsCommand(w *wshutil.WshRpc, data wshrpc.CommandCancelWaveAIBackgroundJobsData, opts *wshrpc.RpcOpts) ([]uctypes.UIChatBackgroundJobInfo, error) {
-	resp, err := sendRpcRequestCallHelper[[]uctypes.UIChatBackgroundJobInfo](w, "cancelwaveaibackgroundjobs", data, opts)
-	return resp, err
-}
-
-// command "clearwaveaibackgroundjobs", wshserver.ClearWaveAIBackgroundJobsCommand
-func ClearWaveAIBackgroundJobsCommand(w *wshutil.WshRpc, data wshrpc.CommandClearWaveAIBackgroundJobsData, opts *wshrpc.RpcOpts) ([]uctypes.UIChatBackgroundJobInfo, error) {
-	resp, err := sendRpcRequestCallHelper[[]uctypes.UIChatBackgroundJobInfo](w, "clearwaveaibackgroundjobs", data, opts)
-	return resp, err
-}
-
 // command "vdomasyncinitiation", wshserver.VDomAsyncInitiationCommand
 func VDomAsyncInitiationCommand(w *wshutil.WshRpc, data vdom.VDomAsyncInitiationRequest, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "vdomasyncinitiation", data, opts)
@@ -1259,4 +1264,5 @@ func WslStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.ConnSta
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.ConnStatus](w, "wslstatus", nil, opts)
 	return resp, err
 }
+
 

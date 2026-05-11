@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/remote/connparse"
@@ -179,7 +180,7 @@ func (impl *ServerImpl) RemoteStreamFileCommand(ctx context.Context, data wshrpc
 				firstPk = false
 			}
 			if len(data) > 0 {
-				resp.Data64 = base64.StdEncoding.EncodeToString(data)
+				resp.Data = data
 				resp.At = &wshrpc.FileDataAt{Offset: byteRange.Start, Size: len(data)}
 			}
 			ch <- wshrpc.RespOrErrorUnion[wshrpc.FileData]{Response: resp}
@@ -485,8 +486,8 @@ func (*ServerImpl) fileInfoInternal(path string, extended bool) (*wshrpc.FileInf
 	if err != nil {
 		return nil, fmt.Errorf("cannot stat file %q: %w", path, err)
 	}
-	rtn := statToFileInfo(cleanedPath, finfo, extended)
-	if extended {
+	rtn := statToFileInfo(cleanedPath, finfo, extended && !finfo.IsDir())
+	if extended && !finfo.IsDir() {
 		rtn.ReadOnly = checkIsReadOnly(cleanedPath, finfo, true)
 	}
 	return rtn, nil
@@ -835,4 +836,172 @@ func (*ServerImpl) RemoteDeleteTempFileCommand(ctx context.Context, path string)
 	}
 	os.Remove(cleanedPath)
 	return nil
+}
+
+func (impl *ServerImpl) RemoteZipToStreamCommand(ctx context.Context, data wshrpc.CommandRemoteZipToStreamData) chan wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteZipToStreamRtnData] {
+	ch := make(chan wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteZipToStreamRtnData], 32)
+	go func() {
+		defer close(ch)
+
+		expandedPath, err := wavebase.ExpandHomeDir(data.Path)
+		if err != nil {
+			ch <- wshutil.RespErr[wshrpc.CommandRemoteZipToStreamRtnData](fmt.Errorf("cannot expand path %q: %w", data.Path, err))
+			return
+		}
+		cleanedPath := filepath.Clean(expandedPath)
+
+		finfo, err := os.Stat(cleanedPath)
+		if err != nil {
+			ch <- wshutil.RespErr[wshrpc.CommandRemoteZipToStreamRtnData](fmt.Errorf("cannot stat %q: %w", data.Path, err))
+			return
+		}
+		if !finfo.IsDir() {
+			ch <- wshutil.RespErr[wshrpc.CommandRemoteZipToStreamRtnData](fmt.Errorf("path %q is not a directory", data.Path))
+			return
+		}
+
+		// First pass: count total files and total size (fast, no compression)
+		totalFiles := 0
+		totalSize := int64(0)
+		filepath.WalkDir(cleanedPath, func(walkPath string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			totalFiles++
+			info, infoErr := d.Info()
+			if infoErr == nil {
+				totalSize += info.Size()
+			}
+			return nil
+		})
+
+		// Send initial metadata with file count for progress
+		ch <- wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteZipToStreamRtnData]{
+			Response: wshrpc.CommandRemoteZipToStreamRtnData{
+				TotalFiles: totalFiles,
+				TotalSize:  totalSize,
+			},
+		}
+
+		// Create pipe for streaming zip: walker writes zip to pipe, reader sends chunks via channel
+		pipeR, pipeW := io.Pipe()
+		walkerErrCh := make(chan error, 1)
+		var doneFiles atomic.Int32
+
+		// Walker goroutine: walk directory and write to zip
+		go func() {
+			defer func() {
+				pipeW.Close()
+				close(walkerErrCh)
+			}()
+
+			zipWriter := zip.NewWriter(pipeW)
+			zipDir := filepath.Dir(cleanedPath)
+
+			walkErr := filepath.WalkDir(cleanedPath, func(walkPath string, d fs.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+
+				relPath, relErr := filepath.Rel(zipDir, walkPath)
+				if relErr != nil {
+					return relErr
+				}
+				relPath = filepath.ToSlash(relPath)
+
+				if d.IsDir() {
+					_, err := zipWriter.Create(relPath + "/")
+					return err
+				}
+
+				info, infoErr := d.Info()
+				if infoErr != nil {
+					return infoErr
+				}
+
+				header, headerErr := zip.FileInfoHeader(info)
+				if headerErr != nil {
+					return fmt.Errorf("cannot create zip header for %q: %w", relPath, headerErr)
+				}
+				header.Name = relPath
+				header.Method = zip.Deflate
+
+				entryWriter, entryErr := zipWriter.CreateHeader(header)
+				if entryErr != nil {
+					return fmt.Errorf("cannot create zip entry for %q: %w", relPath, entryErr)
+				}
+
+				srcFile, openErr := os.Open(walkPath)
+				if openErr != nil {
+					return fmt.Errorf("cannot open file %q: %w", walkPath, openErr)
+				}
+
+				_, copyErr := io.Copy(entryWriter, srcFile)
+				srcFile.Close()
+				if copyErr != nil {
+					return fmt.Errorf("cannot copy file %q to zip: %w", walkPath, copyErr)
+				}
+
+				doneFiles.Add(1)
+				return nil
+			})
+
+			if walkErr != nil {
+				walkerErrCh <- walkErr
+				return
+			}
+
+			if closeErr := zipWriter.Close(); closeErr != nil {
+				walkerErrCh <- closeErr
+				return
+			}
+		}()
+
+		// Reader: read from pipe and send data chunks via channel
+		buf := make([]byte, wshrpc.FileChunkSize)
+		for {
+			n, readErr := pipeR.Read(buf)
+			if n > 0 {
+				chunk := make([]byte, n)
+				copy(chunk, buf[:n])
+				ch <- wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteZipToStreamRtnData]{
+					Response: wshrpc.CommandRemoteZipToStreamRtnData{
+						Data:       chunk,
+						DataLen:    n,
+						DoneFiles:  int(doneFiles.Load()),
+						TotalFiles: totalFiles,
+					},
+				}
+			}
+			if readErr != nil {
+				if readErr == io.EOF {
+					break
+				}
+				ch <- wshutil.RespErr[wshrpc.CommandRemoteZipToStreamRtnData](readErr)
+				return
+			}
+		}
+
+		// Check if walker had any errors
+		if walkerErr := <-walkerErrCh; walkerErr != nil {
+			ch <- wshutil.RespErr[wshrpc.CommandRemoteZipToStreamRtnData](walkerErr)
+			return
+		}
+
+		// Signal completion
+		ch <- wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteZipToStreamRtnData]{
+			Response: wshrpc.CommandRemoteZipToStreamRtnData{
+				DoneFiles:  int(doneFiles.Load()),
+				TotalFiles: totalFiles,
+				IsDone:     true,
+			},
+		}
+	}()
+	return ch
 }
