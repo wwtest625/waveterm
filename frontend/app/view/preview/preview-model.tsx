@@ -903,6 +903,6 @@ export class PreviewModel implements ViewModel {
     }
 
     async formatRemoteUri(path: string, get: Getter): Promise<string> {
-        return formatRemoteUri(path, await get(this.connection));
+        return formatRemoteUri(path, get(this.connectionImmediate));
     }
 }

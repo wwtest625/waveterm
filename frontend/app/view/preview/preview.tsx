@@ -108,6 +108,11 @@ function PreviewView({
     const [errorMsg, setErrorMsg] = useAtom(model.errorMsgAtom);
     const connection = useAtomValue(model.connectionImmediate);
     const fileInfo = useAtomValue(model.statFile);
+    const refreshVersion = useAtomValue(model.refreshVersion);
+
+    useEffect(() => {
+        globalStore.get(model.fullFile).catch(() => {});
+    }, [model, refreshVersion]);
 
     useEffect(() => {
         if (!fileInfo) {

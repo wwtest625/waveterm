@@ -25,13 +25,13 @@ import {
     Header,
     Row,
     RowData,
-    Table,
     createColumnHelper,
     flexRender,
     getCoreRowModel,
     getSortedRowModel,
     useReactTable,
 } from "@tanstack/react-table";
+import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
 import { PrimitiveAtom, atom, useAtom, useAtomValue, useSetAtom } from "jotai";
 import { OverlayScrollbarsComponent, OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
@@ -704,6 +704,15 @@ function DirectoryTable({
     const [scrollHeight, setScrollHeight] = useState(0);
     const scrollRestoredRef = useRef(false);
 
+    const allRows = table.getRowModel().rows;
+
+    const virtualizer = useVirtualizer({
+        count: allRows.length,
+        getScrollElement: () => osRef.current?.osInstance()?.elements()?.viewport ?? null,
+        estimateSize: () => 26,
+        overscan: 10,
+    });
+
     useEffect(() => {
         if (scrollRestoredRef.current || savedListScrollPosition <= 0 || !osRef.current) return;
         const osInstance = osRef.current.osInstance();
@@ -752,21 +761,18 @@ function DirectoryTable({
             <TableComponent
                 bodyRef={bodyRef}
                 model={model}
-                data={data}
                 dirPath={dirPath}
                 rootPath={rootPath}
-                table={table}
                 search={search}
                 focusIndex={focusIndex}
                 setFocusIndex={setFocusIndex}
                 setSearch={setSearch}
-                setSelectedPath={setSelectedPath}
-                setRefreshVersion={setRefreshVersion}
-                osRef={osRef.current}
                 newFile={newFile}
                 newDirectory={newDirectory}
                 openUploadFilePicker={openUploadFilePicker}
                 setEntryManagerProps={setEntryManagerProps}
+                virtualizer={virtualizer}
+                allRows={allRows}
             />
         </OverlayScrollbarsComponent>
     );
@@ -775,21 +781,18 @@ function DirectoryTable({
 interface TableBodyProps {
     bodyRef: React.RefObject<HTMLDivElement>;
     model: PreviewModel;
-    data: Array<FileInfo>;
     dirPath: string;
     rootPath: string;
-    table: Table<FileInfo>;
     search: string;
     focusIndex: number;
     setFocusIndex: (_: number) => void;
     setSearch: (_: string) => void;
-    setSelectedPath: (_: string) => void;
-    setRefreshVersion: React.Dispatch<React.SetStateAction<number>>;
-    osRef: OverlayScrollbarsComponentRef;
     newFile: (basePath?: string) => void;
     newDirectory: (basePath?: string) => void;
     openUploadFilePicker: (targetDir: string) => void;
     setEntryManagerProps: (props?: EntryManagerOverlayProps) => void;
+    virtualizer: Virtualizer<HTMLElement, Element>;
+    allRows: Row<FileInfo>[];
 }
 
 function TableBody({
@@ -797,64 +800,29 @@ function TableBody({
     model,
     dirPath,
     rootPath,
-    table,
     search,
     focusIndex,
     setFocusIndex,
     setSearch,
-    setRefreshVersion,
-    osRef,
     newFile,
     newDirectory,
     openUploadFilePicker,
     setEntryManagerProps,
+    virtualizer,
+    allRows,
 }: TableBodyProps) {
     const searchActive = useAtomValue(model.directorySearchActive);
     const dummyLineRef = useRef<HTMLDivElement>(null);
     const warningBoxRef = useRef<HTMLDivElement>(null);
-    const conn = useAtomValue(model.connection);
+    const conn = useAtomValue(model.connectionImmediate);
     const finfo = useAtomValue(model.statFile);
     const setErrorMsg = useSetAtom(model.errorMsgAtom);
-    const rows = table.getRowModel().rows;
-    const dotdotRow = rows.find((row) => row.original.name === "..");
-    const otherRows = rows.filter((row) => row !== dotdotRow);
 
     useEffect(() => {
-        if (focusIndex === null || !bodyRef.current || !osRef) {
-            return;
+        if (focusIndex != null && focusIndex >= 0 && focusIndex < allRows.length) {
+            virtualizer.scrollToIndex(focusIndex, { align: "auto" });
         }
-
-        const osInstance = osRef.osInstance();
-        if (!osInstance) {
-            return;
-        }
-
-        const rowElement = bodyRef.current.querySelector(`[data-rowindex="${focusIndex}"]`) as HTMLDivElement;
-        if (!rowElement) {
-            return;
-        }
-
-        const viewport = osInstance.elements().viewport;
-        const viewportHeight = viewport.offsetHeight;
-        const rowRect = rowElement.getBoundingClientRect();
-        const parentRect = viewport.getBoundingClientRect();
-        const viewportScrollTop = viewport.scrollTop;
-        const rowTopRelativeToViewport = rowRect.top - parentRect.top + viewport.scrollTop;
-        const rowBottomRelativeToViewport = rowRect.bottom - parentRect.top + viewport.scrollTop;
-
-        if (rowTopRelativeToViewport - 30 < viewportScrollTop) {
-            // Row is above the visible area
-            let topVal = rowTopRelativeToViewport - 30;
-            if (topVal < 0) {
-                topVal = 0;
-            }
-            viewport.scrollTo({ top: topVal });
-        } else if (rowBottomRelativeToViewport + 5 > viewportScrollTop + viewportHeight) {
-            // Row is below the visible area
-            const topVal = rowBottomRelativeToViewport - viewportHeight + 5;
-            viewport.scrollTo({ top: topVal });
-        }
-    }, [focusIndex]);
+    }, [focusIndex, virtualizer, allRows.length]);
 
     const handleFileContextMenu = useCallback(
         (e: any, targetFile?: FileInfo) => {
@@ -881,6 +849,8 @@ function TableBody({
         [conn, dirPath, model, newDirectory, newFile, openUploadFilePicker, rootPath, setEntryManagerProps, setErrorMsg]
     );
 
+    const virtualItems = virtualizer.getVirtualItems();
+
     return (
         <div className="dir-table-body" ref={bodyRef}>
             {(searchActive || search !== "") && (
@@ -903,34 +873,36 @@ function TableBody({
                     </div>
                 </div>
             )}
-            <div className="dir-table-body-scroll-box">
+            <div
+                className="dir-table-body-scroll-box"
+                style={{
+                    height: virtualizer.getTotalSize(),
+                    position: "relative",
+                }}
+            >
                 <div className="dummy dir-table-body-row" ref={dummyLineRef}>
                     <div className="dir-table-body-cell">dummy-data</div>
                 </div>
-                {dotdotRow && (
-                    <TableRow
-                        model={model}
-                        row={dotdotRow}
-                        focusIndex={focusIndex}
-                        setFocusIndex={setFocusIndex}
-                        setSearch={setSearch}
-                        idx={0}
-                        handleFileContextMenu={handleFileContextMenu}
-                        key="dotdot"
-                    />
-                )}
-                {otherRows.map((row, idx) => (
-                    <TableRow
-                        model={model}
-                        row={row}
-                        focusIndex={focusIndex}
-                        setFocusIndex={setFocusIndex}
-                        setSearch={setSearch}
-                        idx={dotdotRow ? idx + 1 : idx}
-                        handleFileContextMenu={handleFileContextMenu}
-                        key={row.original.path}
-                    />
-                ))}
+                {virtualItems.map((virtualRow) => {
+                    const row = allRows[virtualRow.index];
+                    if (!row) return null;
+                    return (
+                        <MemoizedTableRow
+                            model={model}
+                            row={row}
+                            focusIndex={focusIndex}
+                            setFocusIndex={setFocusIndex}
+                            setSearch={setSearch}
+                            idx={virtualRow.index}
+                            handleFileContextMenu={handleFileContextMenu}
+                            dirPath={dirPath}
+                            connection={conn}
+                            key={row.original.path}
+                            virtualRowStart={virtualRow.start}
+                            virtualRowSize={virtualRow.size}
+                        />
+                    );
+                })}
             </div>
         </div>
     );
@@ -944,6 +916,10 @@ type TableRowProps = {
     setSearch: (_: string) => void;
     idx: number;
     handleFileContextMenu: (e: any, finfo: FileInfo) => void;
+    dirPath: string;
+    connection: string;
+    virtualRowStart?: number;
+    virtualRowSize?: number;
 };
 
 function TableRow({
@@ -954,9 +930,11 @@ function TableRow({
     setSearch,
     idx,
     handleFileContextMenu,
+    dirPath,
+    connection,
+    virtualRowStart,
+    virtualRowSize,
 }: TableRowProps) {
-    const dirPath = useAtomValue(model.statFilePath);
-    const connection = useAtomValue(model.connection);
     const setErrorMsg = useSetAtom(model.errorMsgAtom);
 
     const dragItem: DraggedFile = {
@@ -981,10 +959,24 @@ function TableRow({
         [drag]
     );
 
+    const isFocused = focusIndex === idx;
+
+    const virtualStyle: React.CSSProperties = virtualRowStart != null
+        ? {
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: virtualRowSize ?? 26,
+              transform: `translateY(${virtualRowStart}px)`,
+          }
+        : {};
+
     return (
         <div
-            className={clsx("dir-table-body-row", { focused: focusIndex === idx }, idx % 2 === 0 ? "row-even" : "row-odd")}
+            className={clsx("dir-table-body-row", { focused: isFocused }, idx % 2 === 0 ? "row-even" : "row-odd")}
             data-rowindex={idx}
+            style={virtualStyle}
             onDoubleClick={() => {
                 handleFileActivation(row.original, model, connection, setErrorMsg);
                 setSearch("");
@@ -1007,9 +999,27 @@ function TableRow({
     );
 }
 
+const MemoizedTableRow = React.memo(
+    TableRow,
+    (prev, next) =>
+        prev.row.original.path === next.row.original.path &&
+        prev.row.original.isdir === next.row.original.isdir &&
+        prev.row.original.size === next.row.original.size &&
+        prev.row.original.modtime === next.row.original.modtime &&
+        prev.idx === next.idx &&
+        prev.focusIndex === next.focusIndex &&
+        prev.dirPath === next.dirPath &&
+        prev.connection === next.connection &&
+        prev.virtualRowStart === next.virtualRowStart &&
+        prev.virtualRowSize === next.virtualRowSize
+);
+
 const MemoizedTableBody = React.memo(
     TableBody,
-    (prev, next) => prev.table.options.data == next.table.options.data
+    (prev, next) =>
+        prev.table.options.data == next.table.options.data &&
+        prev.focusIndex === next.focusIndex &&
+        prev.search === next.search
 ) as typeof TableBody;
 
 interface DirectoryTreeProps {
@@ -1188,8 +1198,10 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const [showTransferPanel, setShowTransferPanel] = useAtom(model.showTransferPanel);
     const [selectedPath, setSelectedPath] = useState("");
     const [refreshVersion, setRefreshVersion] = useAtom(model.refreshVersion);
-    const conn = useAtomValue(model.connection);
     const connImmediate = useAtomValue(model.connectionImmediate);
+    useEffect(() => {
+        globalStore.get(model.connection).catch(() => {});
+    }, [connImmediate]);
     const connStatus = useAtomValue(model.connStatus);
     const blockData = useAtomValue(model.blockAtom);
     const finfo = useAtomValue(model.statFile);
@@ -1289,11 +1301,11 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         });
                     }
                 } catch (e) {
-                    setErrorMsg(buildRemoteFileError(e, connStatus, conn, "Cannot Read Directory"));
+                    setErrorMsg(buildRemoteFileError(e, connStatus, connImmediate, "Cannot Read Directory"));
                 }
                 setUnfilteredData(entries);
             }),
-        [conn, connStatus, dirPath, directoryViewMode, refreshVersion]
+        [connImmediate, connStatus, dirPath, directoryViewMode, refreshVersion]
     );
 
     const filteredData = useMemo(
@@ -1355,7 +1367,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 if (selectedFileInfo == null) {
                     return;
                 }
-                handleFileActivation(selectedFileInfo, model, conn, setErrorMsg);
+                handleFileActivation(selectedFileInfo, model, connImmediate, setErrorMsg);
                 setSearchText("");
                 globalStore.set(model.directorySearchActive, false);
                 return true;
@@ -1385,7 +1397,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
         return () => {
             model.directoryKeyDownHandler = null;
         };
-    }, [conn, directoryViewMode, selectedFileInfo, selectedPath, searchText]);
+    }, [connImmediate, directoryViewMode, selectedFileInfo, selectedPath, searchText]);
 
     useEffect(() => {
         if (filteredData.length != 0 && focusIndex > filteredData.length - 1) {
@@ -1492,7 +1504,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         localPath: file.localPath,
                         name: file.name,
                         size: file.size,
-                        connection: conn,
+                        connection: connImmediate,
                         targetPath,
                         resolveRemotePath: (nextTargetPath) => model.formatRemoteUri(nextTargetPath, globalStore.get),
                         onCompleted: () => model.refreshCallback?.(),
@@ -1508,7 +1520,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 });
             }
         },
-        [conn, model, setErrorMsg]
+        [connImmediate, model, setErrorMsg]
     );
 
     const beginUploadFlow = useCallback((targetDir: string, files: UploadCandidate[]) => {
@@ -1692,11 +1704,11 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                     type: "separator",
                 },
             ];
-            addOpenMenuItems(menu, conn, finfo, model.blockId);
+            addOpenMenuItems(menu, connImmediate, finfo, model.blockId);
 
             ContextMenuModel.getInstance().showContextMenu(menu, e);
         },
-        [conn, dirPath, finfo, model.blockId, newDirectory, newFile, openUploadFilePicker, rootPath]
+        [connImmediate, dirPath, finfo, model.blockId, newDirectory, newFile, openUploadFilePicker, rootPath]
     );
 
     return (
@@ -1741,7 +1753,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         model={model}
                         rootPath={rootPath}
                         dirPath={dirPath}
-                        conn={conn}
+                        conn={connImmediate}
                         connStatus={connStatus}
                         fullConfig={fullConfig}
                         showHiddenFiles={showHiddenFiles}

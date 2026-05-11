@@ -8,6 +8,11 @@
     position: relative;
     --min-row-width: 35rem;
 
+    .directory-tree-view {
+        min-height: 0;
+        overflow: hidden;
+    }
+
     &.native-file-drag-over {
         outline: 1px dashed rgb(from var(--accent-color) r g b / 0.85);
         outline-offset: -4px;
@@ -117,6 +122,8 @@
 
             .dir-table-body-scroll-box {
                 position: relative;
+                width: 100%;
+                min-width: fit-content;
                 .dummy {
                     position: absolute;
                     visibility: hidden;

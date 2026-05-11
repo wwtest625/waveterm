@@ -16,7 +16,7 @@ function MarkdownPreview({ model }: SpecializedViewProps) {
             model.refreshCallback = null;
         };
     }, []);
-    const connName = useAtomValue(model.connection);
+    const connName = useAtomValue(model.connectionImmediate);
     const fileInfo = useAtomValue(model.statFile);
     const fontSizeOverride = useAtomValue(getOverrideConfigAtom(model.blockId, "markdown:fontsize"));
     const fixedFontSizeOverride = useAtomValue(getOverrideConfigAtom(model.blockId, "markdown:fixedfontsize"));

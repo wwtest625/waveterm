@@ -55,7 +55,7 @@ function StreamingPreview({ model }: SpecializedViewProps) {
             model.refreshCallback = null;
         };
     }, []);
-    const conn = useAtomValue(model.connection);
+    const conn = useAtomValue(model.connectionImmediate);
     const fileInfo = useAtomValue(model.statFile);
     const filePath = fileInfo.path;
     const remotePath = formatRemoteUri(filePath, conn);
