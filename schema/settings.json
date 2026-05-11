@@ -205,6 +205,9 @@
         "preview:showhiddenfiles": {
           "type": "boolean"
         },
+        "preview:defaultdir": {
+          "type": "string"
+        },
         "tab:preset": {
           "type": "string"
         },
@@ -276,6 +279,9 @@
         },
         "window:zoom": {
           "type": "number"
+        },
+        "window:autobalance": {
+          "type": "boolean"
         },
         "telemetry:*": {
           "type": "boolean"

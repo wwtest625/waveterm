@@ -12,15 +12,17 @@ export function buildWidgetBlockDef(widget: WidgetConfigType, focusedBlock?: Foc
     const meta = { ...(source.meta ?? {}) };
 
     if (meta.view === "preview") {
+        if (focusedBlock?.view === "term") {
+            if (focusedBlock.connection != null && focusedBlock.connection !== "") {
+                meta.connection = focusedBlock.connection;
+            }
+        }
         if (focusedBlock?.savedDirPath != null && focusedBlock.savedDirPath !== "") {
             if (isDev()) {
                 console.log("[FileBrowserState] buildWidgetBlockDef: using savedDirPath=%s", focusedBlock.savedDirPath);
             }
             meta.file = focusedBlock.savedDirPath;
         } else if (focusedBlock?.view === "term") {
-            if (focusedBlock.connection != null && focusedBlock.connection !== "") {
-                meta.connection = focusedBlock.connection;
-            }
             if (focusedBlock.cwd != null && focusedBlock.cwd !== "") {
                 meta.file = focusedBlock.cwd;
             }

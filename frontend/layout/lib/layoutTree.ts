@@ -15,6 +15,7 @@ import {
     DefaultNodeSize,
     DropDirection,
     FlexDirection,
+    LayoutNode,
     LayoutTreeActionType,
     LayoutTreeComputeMoveNodeAction,
     LayoutTreeDeleteNodeAction,
@@ -29,10 +30,21 @@ import {
     MoveOperation,
 } from "./types";
 
-import { newLayoutNode } from "./layoutNode";
+import { newLayoutNode, walkNodes } from "./layoutNode";
 import { LayoutTreeReplaceNodeAction, LayoutTreeSplitHorizontalAction, LayoutTreeSplitVerticalAction } from "./types";
 
 export const DEFAULT_MAX_CHILDREN = 5;
+
+export function autoBalanceSizes(rootNode: LayoutNode): void {
+    if (!rootNode) return;
+    walkNodes(rootNode, (node) => {
+        if (!node.children || node.children.length === 0) return;
+        const equalSize = DefaultNodeSize;
+        node.children.forEach((child) => {
+            child.size = equalSize;
+        });
+    });
+}
 
 /**
  * Computes an operation for inserting a new node into the tree in the given direction relative to the specified node.

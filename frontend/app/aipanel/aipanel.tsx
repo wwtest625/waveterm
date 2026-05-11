@@ -10,7 +10,6 @@ import { cn } from "@/util/util";
 import * as jotai from "jotai";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AIDroppedFiles } from "./aidroppedfiles";
-import { BackgroundJobsPanel } from "./aibgjobspanel";
 import { CommandInteractionInput } from "./aicommandinteraction";
 import { AIBlockMask, AIDragOverlay, AIErrorMessage, AIWelcomeMessage, ConfigChangeModeFixer } from "./aiminorcomponents";
 import { AISessionToolbar } from "./aisessiontoolbar";
@@ -212,7 +211,6 @@ const AIPanelComponentInner = memo(() => {
                     onDelete={(chatid, title) => setDeleteDialog({ chatid, title })}
                 />
                 <TaskProgressPanel taskState={taskState} compact={true} />
-                <BackgroundJobsPanel />
                 {coalescedMessages.length === 0 && initialLoadDone ? (
                     <div
                         className="flex-1 overflow-y-auto p-2 relative"

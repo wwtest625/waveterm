@@ -547,6 +547,15 @@ export const SettingsVisualContent = memo(({ model }: SettingsContentProps) => {
                         />
                     </SettingItem>
                     <SettingItem
+                        label="自动平衡布局"
+                        description="新增或删除块时自动等分空间"
+                    >
+                        <ToggleSwitch
+                            checked={settings["window:autobalance"] === true}
+                            onChange={(v) => updateSetting("window:autobalance", v)}
+                        />
+                    </SettingItem>
+                    <SettingItem
                         label="窗口透明"
                         description="启用窗口透明度（macOS/Windows）"
                     >

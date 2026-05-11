@@ -11,7 +11,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atoms, getConnStatusAtom } from "@/store/global";
 import { RpcApi } from "@/store/wshclientapi";
 import { atom, useAtomValue } from "jotai";
-import React, { type MouseEvent, useCallback, useEffect, useMemo, useState } from "react";
+import React, { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     buildConnectionHost,
     buildConnMetaFromForm,
@@ -354,9 +354,9 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     const [latencyMap, setLatencyMap] = useState<Record<string, number | null>>({});
     const selectedConnStatus = useAtomValue(getConnStatusAtom(selectedHost));
 
-    function showConnectionFailureModal(title: string, error: unknown, attemptedHost?: string | null) {
+    function showConnectionFailureModal(title: string, error: unknown, attemptedHost?: string | null, onRetry?: () => void) {
         modalsModel.pushModal("MessageModal", {
-            children: <ConnectionFailureModalContent title={title} error={error} attemptedHost={attemptedHost} />,
+            children: <ConnectionFailureModalContent title={title} error={error} attemptedHost={attemptedHost} onRetry={onRetry} />,
         });
     }
 
@@ -404,7 +404,12 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         }
     }, [filteredHosts, selectedHost]);
 
+    const prevSelectedHostRef = useRef(selectedHost);
     useEffect(() => {
+        if (selectedHost === prevSelectedHostRef.current) {
+            return;
+        }
+        prevSelectedHostRef.current = selectedHost;
         if (selectedHost === "__new__") {
             setForm(makeBlankForm());
             return;
@@ -482,7 +487,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 { timeout: 60000 }
             );
         } catch (e) {
-            showConnectionFailureModal("连接失败", e, host);
+            showConnectionFailureModal("连接失败", e, host, () => void handleConnect(host));
         }
     }
 
@@ -587,7 +592,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 { timeout: 60000 }
             );
         } catch (e) {
-            showConnectionFailureModal("连接测试失败", e, attemptedHost);
+            showConnectionFailureModal("连接测试失败", e, attemptedHost, () => void handleTestConnection());
         } finally {
             setTesting(false);
         }
@@ -623,7 +628,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 { timeout: 60000 }
             );
         } catch (e) {
-            showConnectionFailureModal("WSH 设置失败", e, attemptedHost);
+            showConnectionFailureModal("WSH 设置失败", e, attemptedHost, () => void handleEnsureWsh());
         } finally {
             setEnsuringWsh(false);
         }

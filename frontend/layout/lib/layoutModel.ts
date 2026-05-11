@@ -12,6 +12,7 @@ import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
 import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
 import {
+    autoBalanceSizes,
     clearTree,
     computeMoveNode,
     deleteNode,
@@ -216,6 +217,7 @@ export class LayoutModel {
      */
     lastEphemeralNodeId: string;
     magnifiedNodeSizeAtom: Atom<number>;
+    autoBalanceAtom: Atom<boolean>;
 
     /**
      * The size of the resize handles, in CSS pixels.
@@ -325,6 +327,7 @@ export class LayoutModel {
 
         this.ephemeralNode = atom();
         this.magnifiedNodeSizeAtom = getSettingsKeyAtom("window:magnifiedblocksize");
+        this.autoBalanceAtom = getSettingsKeyAtom("window:autobalance");
 
         this.magnifiedNodeIdAtom = atom((get) => {
             const treeState = get(this.localTreeStateAtom);
@@ -692,6 +695,20 @@ export class LayoutModel {
             this.lastMagnifiedNodeId = this.magnifiedNodeId;
             this.lastEphemeralNodeId = undefined;
             this.magnifiedNodeId = this.treeState.magnifiedNodeId;
+        }
+        const autoBalance = this.getter(this.autoBalanceAtom);
+        if (autoBalance && this.treeState.rootNode) {
+            const balanceActions: LayoutTreeActionType[] = [
+                LayoutTreeActionType.InsertNode,
+                LayoutTreeActionType.InsertNodeAtIndex,
+                LayoutTreeActionType.DeleteNode,
+                LayoutTreeActionType.SplitHorizontal,
+                LayoutTreeActionType.SplitVertical,
+                LayoutTreeActionType.CommitPendingAction,
+            ];
+            if (balanceActions.includes(action.type)) {
+                autoBalanceSizes(this.treeState.rootNode);
+            }
         }
         if (setState) {
             this.updateTree();
