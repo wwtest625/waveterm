@@ -70,6 +70,8 @@ func (ws *WshServer) DockerContainerActionCommand(ctx context.Context, data wshr
 		args = []string{"start", data.ContainerId}
 	case "stop":
 		args = []string{"stop", data.ContainerId}
+	case "kill":
+		args = []string{"kill", data.ContainerId}
 	case "restart":
 		args = []string{"restart", data.ContainerId}
 	case "remove":
@@ -80,8 +82,8 @@ func (ws *WshServer) DockerContainerActionCommand(ctx context.Context, data wshr
 			return wshrpc.DockerActionResponse{
 				Error: &wshrpc.DockerError{
 					Code:    "unknown",
-					Message: "Unsupported Docker container action \"rename\".",
-					Detail:  "A new container name is required.",
+					Message: "A new container name is required for rename.",
+					Detail:  "The newName field must not be empty.",
 				},
 			}, nil
 		}
@@ -199,12 +201,14 @@ func parseDockerImageSummaries(output string) ([]wshrpc.DockerImageSummary, erro
 		if len(parts) != 5 {
 			return nil, fmt.Errorf("unexpected docker image row: %q", line)
 		}
+		containerCount, inUse := parseDockerImageContainersAndInUse(parts[4])
 		images = append(images, wshrpc.DockerImageSummary{
 			Id:         strings.TrimSpace(parts[0]),
 			Repository: strings.TrimSpace(parts[1]),
 			Tag:        strings.TrimSpace(parts[2]),
 			SizeText:   strings.TrimSpace(parts[3]),
-			InUse:      parseDockerImageInUse(parts[4]),
+			InUse:      inUse,
+			Containers: containerCount,
 		})
 	}
 	return images, nil
@@ -223,25 +227,19 @@ func splitNonEmptyLines(output string) []string {
 }
 
 func normalizeDockerContainerState(raw string) string {
-	state := strings.ToLower(strings.TrimSpace(raw))
-	switch state {
-	case "running", "paused", "exited", "created", "dead", "restarting":
-		return state
-	default:
-		return state
-	}
+	return strings.ToLower(strings.TrimSpace(raw))
 }
 
-func parseDockerImageInUse(raw string) bool {
+func parseDockerImageContainersAndInUse(raw string) (int, bool) {
 	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" || strings.EqualFold(trimmed, "n/a") || trimmed == "0" {
-		return false
+	if trimmed == "" || strings.EqualFold(trimmed, "n/a") {
+		return 0, false
 	}
 	count, err := strconv.Atoi(trimmed)
 	if err != nil {
-		return true
+		return 0, true
 	}
-	return count > 0
+	return count, count > 0
 }
 
 func makeDockerError(err error, stdout string, stderr string) *wshrpc.DockerError {

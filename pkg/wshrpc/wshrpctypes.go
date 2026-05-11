@@ -500,6 +500,7 @@ type DockerImageSummary struct {
 	Tag        string `json:"tag"`
 	SizeText   string `json:"sizeText"`
 	InUse      bool   `json:"inUse"`
+	Containers int    `json:"containers"`
 }
 
 type DockerError struct {

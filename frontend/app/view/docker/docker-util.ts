@@ -17,6 +17,11 @@ export function buildDockerPullCommand(imageRef: string): string {
     return `docker pull ${shellQuote([imageRef])}`;
 }
 
+export function buildDockerSaveCommand(imageRef: string): string {
+    const safeName = imageRef.replace(/[^a-zA-Z0-9._-]/g, "_");
+    return `docker save ${shellQuote([imageRef])} -o ${shellQuote([safeName + ".tar"])}`;
+}
+
 export function buildDockerRenameCommand(containerId: string, newName: string): string {
     return `docker rename ${shellQuote([containerId])} ${shellQuote([newName])}`;
 }
@@ -95,6 +100,10 @@ export function sortDockerContainersForDisplay(
     starredContainerIds: Iterable<string>
 ): DockerContainerSummary[] {
     const starredIds = new Set(Array.from(starredContainerIds).map((id) => id.trim()).filter((id) => id !== ""));
+    const isRunningLike = (state?: string) => {
+        const normalized = normalizeDockerState(state);
+        return normalized === "running" || normalized === "paused" || normalized === "restarting";
+    };
     return containers
         .map((container, index) => ({ container, index }))
         .sort((left, right) => {
@@ -102,6 +111,11 @@ export function sortDockerContainersForDisplay(
             const rightStarred = starredIds.has(right.container.id);
             if (leftStarred !== rightStarred) {
                 return leftStarred ? -1 : 1;
+            }
+            const leftRunning = isRunningLike(left.container.state);
+            const rightRunning = isRunningLike(right.container.state);
+            if (leftRunning !== rightRunning) {
+                return leftRunning ? -1 : 1;
             }
             return left.index - right.index;
         })
@@ -137,6 +151,12 @@ export function dockerStateLabel(state?: string): string {
     if (normalized === "restarting") {
         return "重启中";
     }
+    if (normalized === "removing") {
+        return "移除中";
+    }
+    if (normalized === "configured") {
+        return "已配置";
+    }
     if (normalized === "") {
         return "未知";
     }
@@ -154,7 +174,10 @@ export function dockerStateBadgeClass(state?: string): string {
     if (normalized === "exited" || normalized === "dead") {
         return "border-red-500/40 bg-red-500/10 text-red-300";
     }
-    if (normalized === "created") {
+    if (normalized === "restarting" || normalized === "removing") {
+        return "border-blue-500/40 bg-blue-500/10 text-blue-300";
+    }
+    if (normalized === "created" || normalized === "configured") {
         return "border-zinc-600 bg-zinc-800/80 text-zinc-300";
     }
     return "border-zinc-600 bg-zinc-800/80 text-zinc-300";

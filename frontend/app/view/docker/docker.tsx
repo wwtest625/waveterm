@@ -18,6 +18,7 @@ import {
     buildDockerExecCommand,
     buildDockerLogsCommand,
     buildDockerPullCommand,
+    buildDockerSaveCommand,
     canRemoveDockerContainer,
     dockerContainerMatchesSearch,
     dockerStateBadgeClass,
@@ -34,8 +35,6 @@ const searchInputClass =
     "w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-500 focus:border-accent";
 
 const panelClass = "rounded-xl border border-zinc-800 bg-zinc-950/70 p-4";
-const searchFieldClass =
-    "w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-500 focus:border-accent";
 const DockerViewComponent = memo(DockerView);
 type DockerTabKey = "containers" | "images";
 
@@ -43,19 +42,25 @@ function RowActionButton({
     label,
     onClick,
     disabled,
+    pending,
     variant = "default",
 }: {
     label: string;
     onClick: () => void;
     disabled?: boolean;
+    pending?: boolean;
     variant?: "default" | "danger";
 }) {
     const className =
         variant === "danger"
-            ? "!h-[28px] !px-2 !text-xs !bg-red-500/10 !border-red-500/30 !text-red-300 hover:!bg-red-500/20"
-            : "!h-[28px] !px-2 !text-xs";
+            ? pending
+                ? "!h-[28px] !px-2 !text-xs !bg-red-500/10 !border-red-500/30 !text-red-300 !opacity-50 !cursor-wait"
+                : "!h-[28px] !px-2 !text-xs !bg-red-500/10 !border-red-500/30 !text-red-300 hover:!bg-red-500/20"
+            : pending
+              ? "!h-[28px] !px-2 !text-xs !opacity-50 !cursor-wait"
+              : "!h-[28px] !px-2 !text-xs";
     return (
-        <Button className={className} onClick={onClick} disabled={disabled}>
+        <Button className={className} onClick={onClick} disabled={disabled || pending}>
             {label}
         </Button>
     );
@@ -167,7 +172,7 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<DockerError | null>(null);
     const [actionError, setActionError] = useState<DockerError | null>(null);
-    const [pendingAction, setPendingAction] = useState<string | null>(null);
+    const [pendingActions, setPendingActions] = useState<Record<string, string>>({});
 
     const refreshData = useCallback(
         async (showLoading = false) => {
@@ -201,9 +206,20 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
         setActionError(null);
         void refreshData(true);
         const intervalId = window.setInterval(() => {
-            void refreshData(false);
+            if (document.visibilityState === "visible") {
+                void refreshData(false);
+            }
         }, 5000);
-        return () => window.clearInterval(intervalId);
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                void refreshData(false);
+            }
+        };
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        return () => {
+            window.clearInterval(intervalId);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+        };
     }, [refreshData]);
 
     useEffect(() => {
@@ -238,17 +254,26 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
 
     const filteredImages = useMemo(() => {
         const search = imagesSearch.trim().toLowerCase();
-        if (search === "") {
-            return images;
-        }
-        return images.filter((image) =>
-            [image.repository, image.tag, image.id, image.sizeText].join(" ").toLowerCase().includes(search)
-        );
+        const filtered = search === ""
+            ? images
+            : images.filter((image) =>
+                [image.repository, image.tag, image.id, image.sizeText].join(" ").toLowerCase().includes(search)
+            );
+        return filtered
+            .map((image, index) => ({ image, index }))
+            .sort((left, right) => {
+                if (right.image.containers !== left.image.containers) {
+                    return right.image.containers - left.image.containers;
+                }
+                return left.index - right.index;
+            })
+            .map(({ image }) => image);
     }, [images, imagesSearch]);
 
     const runContainerAction = useCallback(
-        async (containerId: string, action: "start" | "stop" | "restart" | "remove") => {
-            setPendingAction(`${action}:${containerId}`);
+        async (containerId: string, action: "start" | "stop" | "kill" | "restart" | "remove") => {
+            const actionKey = `${action}:${containerId}`;
+            setPendingActions((prev) => ({ ...prev, [actionKey]: action }));
             setActionError(null);
             try {
                 const resp = await RpcApi.DockerContainerActionCommand(TabRpcClient, {
@@ -265,7 +290,11 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                 const message = err instanceof Error ? err.message : "Docker 操作失败。";
                 setActionError({ code: "unknown", message });
             } finally {
-                setPendingAction(null);
+                setPendingActions((prev) => {
+                    const next = { ...prev };
+                    delete next[actionKey];
+                    return next;
+                });
             }
         },
         [connection, refreshData]
@@ -273,7 +302,8 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
 
     const runImageRemove = useCallback(
         async (imageId: string) => {
-            setPendingAction(`remove-image:${imageId}`);
+            const actionKey = `remove-image:${imageId}`;
+            setPendingActions((prev) => ({ ...prev, [actionKey]: "remove" }));
             setActionError(null);
             try {
                 const resp = await RpcApi.DockerImageActionCommand(TabRpcClient, {
@@ -290,7 +320,11 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                 const message = err instanceof Error ? err.message : "Docker 操作失败。";
                 setActionError({ code: "unknown", message });
             } finally {
-                setPendingAction(null);
+                setPendingActions((prev) => {
+                    const next = { ...prev };
+                    delete next[actionKey];
+                    return next;
+                });
             }
         },
         [connection, refreshData]
@@ -332,6 +366,17 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
         await runPullImage(pullImageRef);
         setPullImageRef("");
     }, [pullImageRef, runPullImage]);
+
+    const saveImage = useCallback(
+        async (imageRef: string) => {
+            if (!imageRef || imageRef === "<none>") {
+                return;
+            }
+            setActionError(null);
+            await openCommandInNewBlock(buildDockerSaveCommand(imageRef), "", connection, blockId, `导出：${imageRef}`);
+        },
+        [blockId, connection]
+    );
 
     const openRenameContainer = useCallback((container: DockerContainerSummary) => {
         setRenameContainer(container);
@@ -447,13 +492,13 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                             </div>
                             <div className="flex w-full max-w-xl flex-col gap-2 sm:flex-row">
                                 <input
-                                    className={`${searchFieldClass} sm:flex-1`}
+                                    className={`${searchInputClass} sm:flex-1`}
                                     placeholder="搜索容器名"
                                     value={containersSearch}
                                     onChange={(e) => setContainersSearch(e.target.value)}
                                 />
                                 <input
-                                    className={`${searchFieldClass} sm:flex-1`}
+                                    className={`${searchInputClass} sm:flex-1`}
                                     placeholder="搜索镜像ID"
                                     value={containerImageSearch}
                                     onChange={(e) => setContainerImageSearch(e.target.value)}
@@ -468,7 +513,10 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                     const containerKey = container.id;
                                     const stateLabel = dockerStateLabel(container.state);
                                     const disableRemove = !canRemoveDockerContainer(container.state);
-                                    const isBusy = pendingAction != null && pendingAction.includes(containerKey);
+                                    const isBusy = Object.keys(pendingActions).some((key) => key.endsWith(`:${containerKey}`));
+                                    const isTogglePending =
+                                        `start:${containerKey}` in pendingActions || `stop:${containerKey}` in pendingActions;
+                                    const isRestartPending = `restart:${containerKey}` in pendingActions;
                                     const isRunningLike =
                                         container.state === "running" ||
                                         container.state === "paused" ||
@@ -495,10 +543,10 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                                 type: "separator",
                                             },
                                             {
-                                                label: "停止",
+                                                label: "强制停止",
                                                 enabled: isRunningLike && !isBusy,
                                                 click: () => {
-                                                    void runContainerAction(container.id, "stop");
+                                                    void runContainerAction(container.id, "kill");
                                                 },
                                             },
                                             {
@@ -575,21 +623,24 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                                     <DockerIdRow label="容器 ID" value={container.id} />
                                                 </div>
                                                 <div className="flex flex-wrap gap-2 lg:justify-end">
-                                                    {isRunningLike ? (
+                                                    <RowActionButton
+                                                        label={isRunningLike ? "停止" : "启动"}
+                                                        onClick={() =>
+                                                            void runContainerAction(
+                                                                container.id,
+                                                                isRunningLike ? "stop" : "start"
+                                                            )
+                                                        }
+                                                        pending={isTogglePending}
+                                                        variant={isRunningLike ? "danger" : "default"}
+                                                    />
+                                                    {isRunningLike && (
                                                         <RowActionButton
                                                             label="重启"
                                                             onClick={() =>
                                                                 void runContainerAction(container.id, "restart")
                                                             }
-                                                            disabled={isBusy}
-                                                        />
-                                                    ) : (
-                                                        <RowActionButton
-                                                            label="启动"
-                                                            onClick={() =>
-                                                                void runContainerAction(container.id, "start")
-                                                            }
-                                                            disabled={isBusy}
+                                                            pending={isRestartPending}
                                                         />
                                                     )}
                                                     <RowActionButton
@@ -643,7 +694,7 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                         image.tag && image.tag !== "<none>"
                                             ? `${image.repository}:${image.tag}`
                                             : image.repository;
-                                    const isBusy = pendingAction === `remove-image:${image.id}`;
+                                    const isBusy = `remove-image:${image.id}` in pendingActions;
                                     return (
                                         <div
                                             key={image.id}
@@ -656,18 +707,28 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                                     </div>
                                                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                                                         <span>大小：{image.sizeText || "未知"}</span>
-                                                        {image.inUse ? (
-                                                            <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-amber-200">
-                                                                使用中
-                                                            </span>
-                                                        ) : null}
+                                                        {image.containers > 0 ? (
+                                                            <button
+                                                                type="button"
+                                                                className="cursor-pointer rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-amber-200 transition-colors hover:bg-amber-500/20"
+                                                                onClick={() => {
+                                                                    setActiveTab("containers");
+                                                                    setContainerImageSearch(image.id);
+                                                                    setContainersSearch("");
+                                                                }}
+                                                            >
+                                                                {image.containers} 个容器使用中
+                                                            </button>
+                                                        ) : (
+                                                            <span>未被使用</span>
+                                                        )}
                                                     </div>
                                                     <DockerIdRow label="镜像 ID" value={image.id} />
                                                 </div>
                                                 <div className="flex flex-wrap gap-2 lg:justify-end">
                                                     <RowActionButton
-                                                        label="更新"
-                                                        onClick={() => void runPullImage(imageRef)}
+                                                        label="导出"
+                                                        onClick={() => void saveImage(imageRef)}
                                                         disabled={!image.repository || image.repository === "<none>"}
                                                     />
                                                     <RowActionButton
