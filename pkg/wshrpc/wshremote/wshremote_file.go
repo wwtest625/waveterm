@@ -435,31 +435,19 @@ func statToFileInfo(fullPath string, finfo fs.FileInfo, extended bool) *wshrpc.F
 	return rtn
 }
 
-// fileInfo might be null
 func checkIsReadOnly(path string, fileInfo fs.FileInfo, exists bool) bool {
-	if !exists || fileInfo.Mode().IsDir() {
+	if !exists {
 		dirName := filepath.Dir(path)
-		randHexStr, err := utilfn.RandomHexString(12)
-		if err != nil {
-			// we're not sure, just return false
-			return false
-		}
-		tmpFileName := filepath.Join(dirName, "wsh-tmp-"+randHexStr)
-		fd, err := os.Create(tmpFileName)
+		dirInfo, err := os.Stat(dirName)
 		if err != nil {
 			return true
 		}
-		utilfn.GracefulClose(fd, "checkIsReadOnly", tmpFileName)
-		os.Remove(tmpFileName)
-		return false
+		return dirInfo.Mode().Perm()&0200 == 0
 	}
-	// try to open for writing, if this fails then it is read-only
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		return true
+	if fileInfo.Mode().IsDir() {
+		return fileInfo.Mode().Perm()&0200 == 0
 	}
-	utilfn.GracefulClose(file, "checkIsReadOnly", path)
-	return false
+	return fileInfo.Mode().Perm()&0200 == 0
 }
 
 func computeDirPart(path string) string {

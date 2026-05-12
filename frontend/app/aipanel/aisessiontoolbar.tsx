@@ -153,7 +153,7 @@ export const AISessionToolbar = memo(({ messages, onRename, onDelete }: AISessio
     }, [messages, activeSession?.title]);
 
     return (
-        <div className="border-b border-white/[0.06] bg-black/10 px-3 py-2">
+        <div className="border-b border-white/[0.04] bg-black/[0.06] px-3 py-2">
             <div className="flex items-center gap-2">
                 <AIModeDropdown />
                 <div className="ml-auto flex items-center gap-0.5 text-zinc-500">
@@ -179,8 +179,8 @@ export const AISessionToolbar = memo(({ messages, onRename, onDelete }: AISessio
                         >
                             <i className="fa-solid fa-clock-rotate-left text-[10px]" />
                         </PopoverButton>
-                        <PopoverContent className="flex w-[320px] max-w-[calc(100vw-24px)] flex-col rounded-xl border border-white/10 bg-zinc-900/96 p-2 shadow-2xl backdrop-blur">
-                            <div className="flex w-full items-center rounded-md border border-white/8 bg-white/5 px-2 text-zinc-400 focus-within:border-lime-300/35 focus-within:text-zinc-300">
+                        <PopoverContent className="flex w-[320px] max-w-[calc(100vw-24px)] flex-col rounded-xl border border-white/[0.06] bg-zinc-900/96 p-2 shadow-2xl backdrop-blur">
+                            <div className="flex w-full items-center rounded-md bg-white/[0.04] px-2 text-zinc-400 focus-within:bg-white/[0.06] focus-within:text-zinc-300">
                                 <i className="fa-solid fa-magnifying-glass text-[11px]" />
                                 <input
                                     value={query}

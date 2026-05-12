@@ -43,6 +43,13 @@ import (
 const SshProxyJumpMaxDepth = 10
 
 const (
+	DialRetryMaxAttempts     = 3
+	DialRetryBaseDelay       = 1 * time.Second
+	DialRetryMaxDelay        = 5 * time.Second
+	DialRetryPerAttemptTimeout = 15 * time.Second
+)
+
+const (
 	ConnErrCode_ConfigParse    = "config-parse"
 	ConnErrCode_ConfigDefault  = "config-default"
 	ConnErrCode_ProxyDepth     = "proxy-depth"
@@ -244,6 +251,29 @@ func ClassifyDialErrorSubCode(err error) string {
 	}
 
 	return DialSubCode_Other
+}
+
+func IsDialErrorRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	subCode := ClassifyDialErrorSubCode(err)
+	switch subCode {
+	case DialSubCode_Timeout, DialSubCode_Refused, DialSubCode_ConnReset,
+		DialSubCode_HostUnreach, DialSubCode_NetUnreach, DialSubCode_NoRoute,
+		DialSubCode_DNS:
+		return true
+	default:
+		return false
+	}
+}
+
+func calcDialRetryDelay(attempt int) time.Duration {
+	delay := DialRetryBaseDelay * time.Duration(1<<uint(attempt))
+	if delay > DialRetryMaxDelay {
+		return DialRetryMaxDelay
+	}
+	return delay
 }
 
 // This exists to trick the ssh library into continuing to try
@@ -986,13 +1016,41 @@ func connectInternal(ctx context.Context, networkAddr string, clientConfig *ssh.
 	var clientConn net.Conn
 	var err error
 	if currentClient == nil {
-		d := net.Dialer{Timeout: clientConfig.Timeout}
-		blocklogger.Infof(ctx, "[conndebug] ssh dial %s\n", networkAddr)
-		clientConn, err = d.DialContext(ctx, "tcp", networkAddr)
-		if err != nil {
+		dialTimeout := clientConfig.Timeout
+		if dialTimeout == 0 {
+			dialTimeout = DialRetryPerAttemptTimeout
+		}
+		var lastDialErr error
+		for attempt := 0; attempt < DialRetryMaxAttempts; attempt++ {
+			if attempt > 0 {
+				delay := calcDialRetryDelay(attempt - 1)
+				blocklogger.Infof(ctx, "[conndebug] dial retry attempt %d/%d after %v\n", attempt+1, DialRetryMaxAttempts, delay)
+				select {
+				case <-ctx.Done():
+					return nil, utilds.MakeSubCodedError(ConnErrCode_Dial, DialSubCode_ContextCanceled, ctx.Err())
+				case <-time.After(delay):
+				}
+			}
+			d := net.Dialer{Timeout: dialTimeout}
+			blocklogger.Infof(ctx, "[conndebug] ssh dial %s (attempt %d/%d)\n", networkAddr, attempt+1, DialRetryMaxAttempts)
+			clientConn, err = d.DialContext(ctx, "tcp", networkAddr)
+			if err == nil {
+				break
+			}
+			lastDialErr = err
 			subCode := ClassifyDialErrorSubCode(err)
 			blocklogger.Infof(ctx, "[conndebug] ERROR dial error [%s]: %v\n", subCode, err)
-			return nil, utilds.MakeSubCodedError(ConnErrCode_Dial, subCode, err)
+			if !IsDialErrorRetryable(err) {
+				return nil, utilds.MakeSubCodedError(ConnErrCode_Dial, subCode, err)
+			}
+			if ctx.Err() != nil {
+				return nil, utilds.MakeSubCodedError(ConnErrCode_Dial, DialSubCode_ContextCanceled, ctx.Err())
+			}
+		}
+		if err != nil {
+			subCode := ClassifyDialErrorSubCode(lastDialErr)
+			blocklogger.Infof(ctx, "[conndebug] ERROR dial failed after %d attempts [%s]: %v\n", DialRetryMaxAttempts, subCode, lastDialErr)
+			return nil, utilds.MakeSubCodedError(ConnErrCode_Dial, subCode, lastDialErr)
 		}
 	} else {
 		blocklogger.Infof(ctx, "[conndebug] ssh dial (from client) %s\n", networkAddr)

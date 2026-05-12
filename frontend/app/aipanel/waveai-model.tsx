@@ -569,11 +569,7 @@ export class WaveAIModel {
         this.clearFiles();
         this.clearError();
         this.dispatch({ type: "CLEAR_CHAT_STATE" });
-        const currentChatId = globalStore.get(this.chatId);
-        const currentSession = globalStore.get(this.sessionsAtom).find((session) => session.chatid === currentChatId);
-        const reusableSession = this.isReusableNewChatSession(currentSession)
-            ? currentSession
-            : this.findReusableNewChatSession();
+        const reusableSession = this.findReusableNewChatSession();
         const newChatId = reusableSession?.chatid ?? crypto.randomUUID();
         this.dispatch({ type: "SET_CHAT_ID", chatId: newChatId });
         const newSession: WaveChatSessionMeta = {

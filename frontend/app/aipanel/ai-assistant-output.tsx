@@ -31,7 +31,9 @@ type AssistantDisplayContent = {
     thinkingText: string;
 };
 
-function getAssistantDisplayContent(messages: WaveUIMessage[]): AssistantDisplayContent {
+const WAVEAI_THINK_TOOL_PART_TYPE = "tool-waveai_think";
+
+function getAssistantDisplayContent(messages: WaveUIMessage[], hasTaskChain: boolean): AssistantDisplayContent {
     const answerSegments: string[] = [];
     const thinkingSegments: string[] = [];
 
@@ -39,19 +41,43 @@ function getAssistantDisplayContent(messages: WaveUIMessage[]): AssistantDisplay
         if (!message?.parts?.length) {
             continue;
         }
-        const rawText = message.parts
-            .filter(isTextPart)
-            .map((part) => part.text ?? "")
-            .join("\n\n");
-        if (!rawText.trim()) {
-            continue;
-        }
-        const { answerText, thinkingText } = splitReasoningFromText(rawText);
-        if (answerText) {
-            answerSegments.push(answerText);
-        }
-        if (thinkingText) {
-            thinkingSegments.push(thinkingText);
+        for (const part of message.parts) {
+            if (part.type === "reasoning" && typeof (part as any).text === "string") {
+                const reasoningText = (part as any).text.trim();
+                if (reasoningText && !hasTaskChain) {
+                    thinkingSegments.push(reasoningText);
+                }
+                continue;
+            }
+            if (part.type === WAVEAI_THINK_TOOL_PART_TYPE && (part as any).state === "input-available") {
+                if (!hasTaskChain) {
+                    const input = (part as any).input;
+                    if (input && typeof input === "object") {
+                        const thought = typeof input.thought === "string" ? input.thought.trim() : "";
+                        const actionPlan = typeof input.action_plan === "string" ? input.action_plan.trim() : "";
+                        if (thought) {
+                            thinkingSegments.push(thought);
+                        }
+                        if (actionPlan) {
+                            thinkingSegments.push(`Plan: ${actionPlan}`);
+                        }
+                    }
+                }
+                continue;
+            }
+            if (isTextPart(part)) {
+                const rawText = part.text ?? "";
+                if (!rawText.trim()) {
+                    continue;
+                }
+                const { answerText, thinkingText } = splitReasoningFromText(rawText);
+                if (answerText) {
+                    answerSegments.push(answerText);
+                }
+                if (thinkingText) {
+                    thinkingSegments.push(thinkingText);
+                }
+            }
         }
     }
 
@@ -87,7 +113,7 @@ export const UserPromptCard = memo(({ message }: { message?: WaveUIMessage }) =>
     }
     return (
         <div className="flex justify-end">
-            <div className="max-w-[78%] rounded-2xl border border-lime-300/15 bg-lime-300/[0.06] px-4 py-3 text-sm text-zinc-100">
+            <div className="max-w-[78%] rounded-2xl border-l-2 border-lime-300/20 bg-lime-300/[0.04] px-4 py-3 text-sm text-zinc-200">
                 <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-lime-200/50">You</div>
                 <div className="whitespace-pre-wrap break-words">{text}</div>
             </div>
@@ -99,8 +125,8 @@ UserPromptCard.displayName = "UserPromptCard";
 
 const StreamingTextBlock = memo(({ text }: { text: string }) => {
     return (
-        <div className="relative overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-            <div className="absolute inset-y-0 left-0 w-0.5 bg-emerald-400/50" />
+        <div className="relative overflow-hidden rounded-lg bg-white/[0.015] px-4 py-3">
+            <div className="absolute inset-y-0 left-0 w-0.5 bg-emerald-400/40" />
             <div className="whitespace-pre-wrap break-words pl-2 text-[13px] leading-6 text-zinc-100">
                 {text}
                 <span className="inline-block w-[3px] h-[14px] ml-0.5 bg-emerald-400 animate-pulse rounded-sm align-text-bottom" />
@@ -127,16 +153,16 @@ CompletionHeader.displayName = "CompletionHeader";
 const AssistantRail = memo(({ blockStatus }: { blockStatus: AIBlockOutputStatus }) => {
     const dotClass =
         blockStatus.status === "partially_received" || blockStatus.status === "pending"
-            ? "bg-emerald-400/60"
+            ? "bg-emerald-400/50"
             : blockStatus.status === "failed"
-              ? "bg-red-400/60"
+              ? "bg-red-400/50"
               : blockStatus.status === "cancelled"
-                ? "bg-zinc-500/60"
-                : "bg-zinc-600";
+                ? "bg-zinc-500/50"
+                : "bg-zinc-600/60";
     return (
         <div className="flex shrink-0 flex-col items-center">
-            <div className={cn("mt-1 h-2 w-2 rounded-full", dotClass)} />
-            <div className="mt-2 h-full min-h-10 w-px bg-white/[0.04]" />
+            <div className={cn("mt-1.5 h-1.5 w-1.5 rounded-full", dotClass)} />
+            <div className="mt-1.5 h-full min-h-8 w-px bg-white/[0.03]" />
         </div>
     );
 });
@@ -173,8 +199,8 @@ const ThinkingTraceCard = memo(({ reasoningText, isStreaming }: { reasoningText:
     }
 
     return (
-        <div className="mb-3 overflow-hidden rounded-xl border border-emerald-300/12 bg-emerald-300/[0.03]">
-            <div className="flex items-center justify-between gap-2 border-b border-emerald-300/10 px-3 py-2">
+        <div className="mb-3 overflow-hidden rounded-lg border-l-2 border-emerald-300/15 bg-emerald-300/[0.02]">
+            <div className="flex items-center justify-between gap-2 border-b border-emerald-300/8 px-3 py-2">
                 <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.12em] text-emerald-200/70">
                     <i className="fa-solid fa-brain" />
                     <span>{t.message.deepThinking}</span>
@@ -205,7 +231,7 @@ const ThinkingTraceCard = memo(({ reasoningText, isStreaming }: { reasoningText:
                 {displayedText}
             </pre>
             {displayState.shouldCollapse && !expanded && (
-                <div className="border-t border-emerald-300/10 px-3 py-1.5 text-[10px] text-emerald-200/50">
+                <div className="border-t border-emerald-300/6 px-3 py-1.5 text-[10px] text-emerald-200/50">
                     {t.message.showFirstNLines(THINKING_OUTPUT_COLLAPSE_LINES)}
                 </div>
             )}
@@ -226,11 +252,11 @@ function toOutputText(value: unknown): string {
 }
 
 export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskTurn; fallbackOutput?: string }) => {
-    const { answerText: assistantText, thinkingText } = getAssistantDisplayContent(turn.assistantMessages);
+    const hasTaskChain = shouldShowTurnTaskChain(turn);
+    const { answerText: assistantText, thinkingText } = getAssistantDisplayContent(turn.assistantMessages, hasTaskChain);
     const rawToolOutput = toOutputText(fallbackOutput);
     const exitCodeLabel = formatExitCodeLabel(getTurnExitCode(turn.assistantMessages));
     const outputText = assistantText || fallbackOutput || "";
-    const hasTaskChain = shouldShowTurnTaskChain(turn);
     const blockStatus = turn.blockOutputStatus;
     const isActive = isAIBlockActive(blockStatus);
     const isTerminal = isAIBlockTerminal(blockStatus);
@@ -260,10 +286,10 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
 
     const blockBorderClass =
         blockStatus.status === "failed"
-            ? "border-red-400/15"
+            ? "border-l-2 border-red-400/20"
             : blockStatus.status === "cancelled"
-              ? "border-zinc-500/15"
-              : "border-white/[0.06]";
+              ? "border-l-2 border-zinc-500/20"
+              : "border-l-2 border-white/[0.04]";
 
     const handleCopy = async () => {
         const copyText = assistantText || rawToolOutput || outputText;
@@ -278,18 +304,18 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
     return (
         <div className="flex items-stretch gap-3">
             <AssistantRail blockStatus={blockStatus} />
-            <div className={cn("min-w-0 flex-1 rounded-2xl border bg-white/[0.02] px-4 py-3.5", blockBorderClass)}>
+            <div className={cn("min-w-0 flex-1 rounded-lg bg-white/[0.015] px-4 py-3.5", blockBorderClass)}>
                 {showCompletionHeader && <CompletionHeader />}
 
                 {blockStatus.status === "cancelled" && (
-                    <div className="mb-3 flex items-center gap-2 rounded-lg border border-zinc-500/15 bg-zinc-500/[0.06] px-3 py-2 text-[11px] text-zinc-300">
+                    <div className="mb-3 flex items-center gap-2 rounded-lg border-l-2 border-zinc-500/20 bg-zinc-500/[0.04] px-3 py-2 text-[11px] text-zinc-400">
                         <i className="fa-solid fa-ban text-zinc-400" />
                         <span>{blockStatus.cancellationReason ? t.message.cancelledWithReason(cancellationReasonLabel(blockStatus.cancellationReason)) : t.message.cancelled}</span>
                     </div>
                 )}
 
                 {blockStatus.status === "failed" && (
-                    <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-400/15 bg-red-400/[0.06] px-3 py-2 text-[11px] text-red-200">
+                    <div className="mb-3 flex items-center gap-2 rounded-lg border-l-2 border-red-400/20 bg-red-400/[0.04] px-3 py-2 text-[11px] text-red-300">
                         <i className="fa-solid fa-circle-exclamation text-red-400" />
                         <span>{blockStatus.errorMessage ? t.message.executionErrorWithMsg(blockStatus.errorMessage) : t.message.executionError}</span>
                     </div>
@@ -311,12 +337,12 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
                 )}
 
                 {showRawOutputBlock && (
-                    <div className="mt-2 overflow-hidden rounded-xl border border-white/[0.06] bg-black/20">
-                        <div className="flex items-center justify-between gap-3 border-b border-white/[0.04] px-3 py-1.5">
+                    <div className="mt-2 overflow-hidden rounded-lg bg-black/25">
+                        <div className="flex items-center justify-between gap-3 border-b border-white/[0.03] px-3 py-1.5">
                             <div className="flex items-center gap-2">
                                 <div className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">{t.message.result}</div>
                                 {exitCodeLabel && (
-                                    <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                                    <span className="rounded-full bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400">
                                         {exitCodeLabel}
                                     </span>
                                 )}
@@ -338,7 +364,7 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
                             {displayedRawOutput}
                         </pre>
                         {rawOutputDisplay.shouldCollapse && !rawOutputExpanded && (
-                            <div className="border-t border-white/[0.04] px-3 py-1.5 text-[10px] text-zinc-500">
+                            <div className="border-t border-white/[0.03] px-3 py-1.5 text-[10px] text-zinc-500">
                                 {t.message.showFirstNLines(RAW_OUTPUT_COLLAPSE_LINES)}
                             </div>
                         )}
@@ -355,11 +381,11 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
                 {showEmptyState && <div className="mt-3 text-sm text-zinc-400">No visible result returned.</div>}
 
                 {isTerminal && (assistantText || rawToolOutput) && (
-                    <div className="mt-3 flex items-center gap-2 border-t border-white/[0.04] pt-2.5">
+                    <div className="mt-3 flex items-center gap-2 border-t border-white/[0.03] pt-2.5">
                         <button
                             type="button"
                             onClick={handleCopy}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] text-zinc-400 transition hover:border-white/[0.1] hover:bg-white/[0.05] hover:text-zinc-200"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.03] px-2.5 py-1 text-[11px] text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
                         >
                             <i className={`fa ${copied ? "fa-check" : "fa-copy"} text-[10px]`} />
                             {copied ? t.message.copied : t.message.copy}

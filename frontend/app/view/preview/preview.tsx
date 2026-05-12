@@ -8,6 +8,7 @@ import { BlockHeaderSuggestionControl } from "@/app/suggestion/suggestion";
 import { globalStore } from "@/store/global";
 import { isBlank, makeConnRoute } from "@/util/util";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { loadable } from "jotai/utils";
 import { memo, useEffect } from "react";
 import { CSVView } from "./csvview";
 import { DirectoryPreview } from "./preview-directory";
@@ -108,11 +109,7 @@ function PreviewView({
     const [errorMsg, setErrorMsg] = useAtom(model.errorMsgAtom);
     const connection = useAtomValue(model.connectionImmediate);
     const fileInfo = useAtomValue(model.statFile);
-    const refreshVersion = useAtomValue(model.refreshVersion);
-
-    useEffect(() => {
-        globalStore.get(model.fullFile).catch(() => {});
-    }, [model, refreshVersion]);
+    useAtomValue(loadable(model.fullFile));
 
     useEffect(() => {
         if (!fileInfo) {

@@ -63,7 +63,7 @@ export const AIErrorMessage = memo(() => {
     }
 
     return (
-        <div className="mx-3 mb-2 rounded-xl border border-red-500/15 bg-red-500/[0.04] px-3 py-2 relative">
+        <div className="mx-3 mb-2 rounded-lg border-l-2 border-red-500/20 bg-red-500/[0.03] px-3 py-2 relative">
             <button
                 onClick={() => model.clearError()}
                 className="absolute top-2 right-2 text-red-400/60 hover:text-red-300 cursor-pointer z-10"

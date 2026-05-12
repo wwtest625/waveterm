@@ -190,7 +190,7 @@ const AIPanelComponentInner = memo(() => {
                 "mt-1 h-[calc(100%-4px)]",
                 "rounded-tr-[12px] rounded-br-[12px] rounded-bl-[12px]",
                 (isDragOver || isReactDndDragOver) && "bg-zinc-800 border-accent",
-                isFocused ? "border border-white/[0.08]" : "border border-transparent"
+                isFocused ? "border border-white/[0.04]" : "border-none"
             )}
             onFocusCapture={handleFocusCapture}
             onPointerEnter={handlePointerEnter}

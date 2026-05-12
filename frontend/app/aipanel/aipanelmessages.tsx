@@ -14,10 +14,9 @@ import {
 } from "./aitypes";
 import { AskUserCard } from "./askusercard";
 import { t } from "./aipanel-i18n";
-import { TaskProgressPanel } from "./taskprogresspanel";
 import { WaveAIModel } from "./waveai-model";
 import { AssistantOutputCard, UserPromptCard } from "./ai-assistant-output";
-import { type TaskTurn, getTurnTaskPlan } from "./ai-taskturn-utils";
+import { type TaskTurn } from "./ai-taskturn-utils";
 import {
     shouldFollowLatestOutput,
     useBufferedTaskTurns,
@@ -82,7 +81,7 @@ const CompactRateLimit = memo(() => {
 
     if (rateLimitInfo.req === 0 && rateLimitInfo.preq === 0) {
         return (
-            <div className="rounded-full border border-red-300/12 bg-red-300/[0.05] px-2 py-0.5 text-[10px] text-red-200/70">
+            <div className="rounded-full bg-red-300/[0.05] px-2 py-0.5 text-[10px] text-red-200/70">
                 Daily limit reached
             </div>
         );
@@ -90,7 +89,7 @@ const CompactRateLimit = memo(() => {
 
     if (rateLimitInfo.preq <= 5) {
         return (
-            <div className="rounded-full border border-amber-300/12 bg-amber-300/[0.05] px-2 py-0.5 text-[10px] text-amber-200/70">
+            <div className="rounded-full bg-amber-300/[0.05] px-2 py-0.5 text-[10px] text-amber-200/70">
                 Premium {Math.max(rateLimitInfo.preq, 0)} left
             </div>
         );
@@ -110,7 +109,7 @@ const PanelHero = memo(() => {
     const stateLabel = runtime.phaseLabel || "Ready";
 
     return (
-        <div className="mb-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+        <div className="mb-4 border-b border-white/[0.04] bg-white/[0.015] px-4 py-3">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
@@ -118,10 +117,10 @@ const PanelHero = memo(() => {
                         <span>{providerLabel}</span>
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-400">
-                        <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5">
+                        <span className="rounded-full bg-white/[0.03] px-2 py-0.5">
                             {modeLabel}
                         </span>
-                        <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5">
+                        <span className="rounded-full bg-white/[0.03] px-2 py-0.5">
                             {stateLabel}
                         </span>
                         <CompactRateLimit />
@@ -139,7 +138,6 @@ const TaskTurnCard = memo(
     ({ turn, fallbackOutput, isLatestTurn }: { turn: TaskTurn; fallbackOutput?: string; isLatestTurn: boolean }) => {
         const model = WaveAIModel.getInstance();
         const runtime = useAtomValue(model.agentRuntimeAtom);
-        const taskPlan = getTurnTaskPlan(turn);
 
         if (!turn.userMessage && turn.assistantMessages.length === 0) {
             return null;
@@ -149,12 +147,6 @@ const TaskTurnCard = memo(
                 <UserPromptCard message={turn.userMessage} />
                 {shouldShowTurnTaskChain(turn) && <TaskChain turn={turn} runtime={isLatestTurn ? runtime : null} />}
                 <AssistantOutputCard turn={turn} fallbackOutput={fallbackOutput} />
-                {taskPlan && (
-                    <TaskProgressPanel
-                        taskState={taskPlan}
-                        className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3"
-                    />
-                )}
             </div>
         );
     }
@@ -270,7 +262,7 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
                         <ErrorBoundary
                             key={turn.id}
                             fallback={
-                                <div className="mx-3 my-2 rounded-xl border border-red-500/15 bg-red-500/[0.04] px-3 py-2 text-xs text-red-200/70">
+                                <div className="mx-3 my-2 rounded-lg border-l-2 border-red-500/20 bg-red-500/[0.03] px-3 py-2 text-xs text-red-200/70">
                                     {t.aipanel.messageRenderError}
                                 </div>
                             }

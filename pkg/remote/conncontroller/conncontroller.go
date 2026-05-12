@@ -1144,10 +1144,8 @@ func EnsureConnection(ctx context.Context, connName string) error {
 		return nil
 	case Status_Connecting:
 		return conn.WaitForConnect(ctx)
-	case Status_Init, Status_Disconnected:
+	case Status_Init, Status_Disconnected, Status_Error:
 		return conn.Connect(ctx, &wconfig.ConnKeywords{})
-	case Status_Error:
-		return fmt.Errorf("connection error: %s", connStatus.Error)
 	default:
 		return fmt.Errorf("unknown connection status %q", connStatus.Status)
 	}

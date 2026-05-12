@@ -649,6 +649,7 @@ const INTERNAL_ASSISTANT_TOOL_NAMES = new Set([
     "waveai_todo_read",
     "waveai_use_skill",
     "waveai_create_skill",
+    "waveai_think",
 ]);
 
 export function isInternalAssistantToolName(toolName?: string): boolean {

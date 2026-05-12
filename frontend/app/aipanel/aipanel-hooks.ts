@@ -1,6 +1,7 @@
 import { formatFileSizeError, isAcceptableFile, validateFileSize } from "./ai-utils";
 import { atoms, getFocusedBlockId, recordTEvent } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
+import * as jotai from "jotai";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { type AIPanelChatContextValue } from "./aipanel-chat-context";
 import { deriveAgentRuntimeStatus } from "./agentstatus";
@@ -278,7 +279,9 @@ export function useBackgroundJobsRefresh(
 const STREAM_UPDATE_THROTTLE_MS = 34;
 
 export function useChatSetup(model: WaveAIModel, tabId: string) {
+    const chatId = jotai.useAtomValue(model.chatId);
     const { messages, sendMessage, status, setMessages, error, stop } = useChat<WaveUIMessage>({
+        id: chatId,
         experimental_throttle: STREAM_UPDATE_THROTTLE_MS,
         transport: new DefaultChatTransport({
             api: model.getUseChatEndpointUrl(),

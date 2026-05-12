@@ -167,8 +167,8 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     return (
         <div
             className={cn(
-                "border-t border-white/[0.04] bg-black/[0.06] px-3 pb-3 pt-2",
-                isFocused && "border-lime-300/15"
+                "border-t border-white/[0.03] bg-black/[0.04] px-3 pb-3 pt-2",
+                isFocused && "border-lime-300/12"
             )}
         >
             <input
@@ -185,10 +185,10 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                         <span className="shrink-0 text-zinc-500">Agent targets</span>
                         <span
                             className={cn(
-                                "min-w-0 truncate rounded-md border px-1.5 py-0.5",
+                                "min-w-0 truncate rounded-md px-1.5 py-0.5",
                                 terminalTarget
-                                    ? "border-lime-300/10 bg-lime-300/[0.04] text-zinc-300"
-                                    : "border-red-300/10 bg-red-300/[0.04] text-red-200/70"
+                                    ? "bg-lime-300/[0.04] text-zinc-300"
+                                    : "bg-red-300/[0.04] text-red-200/70"
                             )}
                             title={
                                 terminalTarget
@@ -209,7 +209,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                 : "Ready"}
                     </div>
                 </div>
-                <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-black/15">
+                <div className="relative overflow-hidden rounded-2xl bg-black/20">
                     <textarea
                         ref={textareaRef}
                         value={input}

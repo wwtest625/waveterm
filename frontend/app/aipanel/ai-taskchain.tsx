@@ -59,6 +59,11 @@ export type TaskChainFlowEntry =
           group: TaskChainDisplayGroup;
           narrativeBefore?: string;
           narrativeAfter?: string;
+      }
+    | {
+          type: "thinking";
+          id: string;
+          text: string;
       };
 
 export type TaskChainStepEntry = Extract<TaskChainFlowEntry, { type: "step" }>;
@@ -385,6 +390,27 @@ export function getTaskChainDisplayGroups(steps: TaskChainStep[]): TaskChainDisp
     return groups;
 }
 
+const WAVEAI_THINK_TOOL_PART_TYPE = "tool-waveai_think";
+
+function extractThinkingTextFromPart(part: WaveUIMessagePart): string | null {
+    if (part.type === "reasoning" && typeof (part as any).text === "string") {
+        const text = (part as any).text.trim();
+        return text || null;
+    }
+    if (part.type === WAVEAI_THINK_TOOL_PART_TYPE && (part as any).state === "input-available") {
+        const input = (part as any).input;
+        if (input && typeof input === "object") {
+            const thought = typeof input.thought === "string" ? input.thought.trim() : "";
+            const actionPlan = typeof input.action_plan === "string" ? input.action_plan.trim() : "";
+            const segments: string[] = [];
+            if (thought) segments.push(thought);
+            if (actionPlan) segments.push(`Plan: ${actionPlan}`);
+            return segments.length > 0 ? segments.join("\n\n") : null;
+        }
+    }
+    return null;
+}
+
 export function buildTaskChainFlowEntries(
     turn: TaskTurn,
     displayGroups: TaskChainDisplayGroup[]
@@ -420,6 +446,15 @@ export function buildTaskChainFlowEntries(
 
     for (const message of turn.assistantMessages) {
         for (const part of message.parts ?? []) {
+            const thinkingText = extractThinkingTextFromPart(part);
+            if (thinkingText) {
+                entries.push({
+                    type: "thinking",
+                    id: `${turn.id}:thinking:${entries.length}`,
+                    text: thinkingText,
+                });
+                continue;
+            }
             if (isTextPart(part)) {
                 const { answerText } = splitReasoningFromText(part.text ?? "");
                 if (answerText) {
@@ -644,7 +679,7 @@ const CommandNarrativeBlock = memo(({ title, text }: { title: string; text: stri
     const model = WaveAIModel.getInstance();
 
     return (
-        <div className="mb-1 rounded border border-emerald-300/10 bg-emerald-300/[0.035] px-1.5 py-1">
+        <div className="mb-1 rounded border-l-2 border-emerald-300/12 bg-emerald-300/[0.02] px-1.5 py-1">
             <div className="mb-0.5 flex items-center gap-1 text-[9px] font-medium tracking-[0.1em] text-emerald-200/65 uppercase">
                 <i className="fa-solid fa-sparkles text-[8px]" />
                 <span>{title}</span>
@@ -663,11 +698,56 @@ const CommandNarrativeBlock = memo(({ title, text }: { title: string; text: stri
 
 CommandNarrativeBlock.displayName = "CommandNarrativeBlock";
 
+const THINKING_INLINE_COLLAPSE_LINES = 3;
+
+const ThinkingInlineBlock = memo(({ text, isStreaming }: { text: string; isStreaming?: boolean }) => {
+    const [expanded, setExpanded] = useState(false);
+    const normalized = text.trim();
+    const lines = normalized ? normalized.split(/\r?\n/) : [];
+    const shouldCollapse = lines.length > THINKING_INLINE_COLLAPSE_LINES;
+    const displayedText = expanded ? normalized : (shouldCollapse ? lines.slice(0, THINKING_INLINE_COLLAPSE_LINES).join("\n") : normalized);
+
+    if (!normalized) {
+        return null;
+    }
+
+    return (
+        <div className="mb-1 rounded border-l-2 border-emerald-300/15 bg-emerald-300/[0.02] px-2 py-1">
+            <div className="mb-0.5 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1 text-[9px] font-medium tracking-[0.1em] text-emerald-200/65 uppercase">
+                    <i className="fa-solid fa-brain text-[8px]" />
+                    <span>{t.message.deepThinking}</span>
+                    {isStreaming && (
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    )}
+                </div>
+                {shouldCollapse && (
+                    <button
+                        type="button"
+                        onClick={() => setExpanded((v) => !v)}
+                        className="text-[9px] uppercase tracking-[0.1em] text-emerald-200/40 transition hover:text-emerald-100"
+                    >
+                        {expanded ? t.message.collapse : t.message.expand(lines.length)}
+                    </button>
+                )}
+            </div>
+            <pre
+                className="whitespace-pre-wrap break-words text-[11px] leading-5 text-emerald-50/70"
+                style={{ fontFamily: AI_CODE_FONT_FAMILY }}
+            >
+                {displayedText}
+            </pre>
+        </div>
+    );
+});
+
+ThinkingInlineBlock.displayName = "ThinkingInlineBlock";
+
 const NarrativeBlock = memo(({ text }: { text: string }) => {
     const model = WaveAIModel.getInstance();
 
     return (
-        <div className="rounded-lg border border-emerald-300/12 bg-emerald-300/[0.035] px-2 py-1">
+        <div className="rounded border-l-2 border-emerald-300/12 bg-emerald-300/[0.02] px-2 py-1">
             <div className="mb-0.5 text-[9px] uppercase tracking-[0.12em] text-emerald-200/60">{t.message.aiDescription}</div>
             <WaveStreamdown
                 text={text}
@@ -683,19 +763,57 @@ const NarrativeBlock = memo(({ text }: { text: string }) => {
 
 NarrativeBlock.displayName = "NarrativeBlock";
 
-const TaskChainStepGroup = memo(
+function getStepDotColor(status: TaskChainStepStatus, isActive: boolean): string {
+    if (isActive && (status === "running" || status === "pending")) {
+        return "bg-emerald-400/70";
+    }
+    switch (status) {
+        case "completed":
+            return "bg-emerald-400/50";
+        case "running":
+            return "bg-yellow-400/70";
+        case "failed":
+            return "bg-red-400/60";
+        case "cancelled":
+            return "bg-zinc-500/50";
+        default:
+            return "bg-zinc-600/50";
+    }
+}
+
+function getStepIcon(status: TaskChainStepStatus, isActive: boolean): React.ReactNode {
+    if (isActive && status === "running") {
+        return <i className="fa-solid fa-spinner fa-spin text-[8px]" />;
+    }
+    switch (status) {
+        case "completed":
+            return <i className="fa-solid fa-check text-[7px]" />;
+        case "failed":
+            return <i className="fa-solid fa-xmark text-[7px]" />;
+        case "cancelled":
+            return <i className="fa-solid fa-minus text-[7px]" />;
+        case "running":
+            return <i className="fa-solid fa-spinner fa-spin text-[8px]" />;
+        default:
+            return null;
+    }
+}
+
+const TimelineStep = memo(
     ({
         entry,
         displayState,
         runtimeState,
         expandedOutputSteps,
         onToggleExpanded,
+        isLast,
     }: {
         entry: TaskChainStepEntry;
         displayState: TaskChainDisplayState;
         runtimeState?: AgentRuntimeSnapshot["state"];
         expandedOutputSteps: Record<string, boolean>;
         onToggleExpanded: (stepId: string) => void;
+        isLast: boolean;
     }) => {
         const { group, groupIndex: index } = entry;
         const step = group.primary;
@@ -719,64 +837,129 @@ const TaskChainStepGroup = memo(
             }
         };
 
+        const dotColor = getStepDotColor(step.status, isActive);
+        const stepIcon = getStepIcon(step.status, isActive);
+
         return (
             <div
                 data-toolcallid={step.id}
                 ref={(el) => WaveAIModel.getInstance()?.registerScrollTarget(step.id, el)}
             >
-                {entry.narrativeBefore && <CommandNarrativeBlock title={t.message.executionIntent} text={entry.narrativeBefore} />}
-                <div
-                    className={cn(
-                        "flex items-center gap-1.5 rounded-sm px-1 py-px",
-                        hasExpandableOutput && "cursor-pointer hover:bg-white/[0.03]",
-                        isActive && "bg-lime-300/[0.04]",
-                        animateStep && "animate-pulse"
-                    )}
-                    onClick={hasExpandableOutput ? handleToggle : undefined}
-                >
-                    <span className="shrink-0 text-[10px] text-zinc-500 tabular-nums w-3 text-right">{index + 1}.</span>
-                    {isCommandStep ? (
-                        <code className="text-[11px] text-zinc-200 truncate flex-1 min-w-0" style={{ fontFamily: AI_CODE_FONT_FAMILY }}>{commandText}</code>
-                    ) : (
-                        <span className="text-[11px] text-zinc-300 truncate flex-1 min-w-0">{commandText}</span>
-                    )}
-                    {step.status === "running" && (
-                        <span className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-                    )}
-                    {step.status === "failed" && (
-                        <i className="shrink-0 fa-solid fa-circle-xmark text-[9px] text-red-400" />
-                    )}
-                    {(step.duplicateCount ?? 1) > 1 && (
-                        <span className="shrink-0 text-[9px] text-zinc-500">×{step.duplicateCount}</span>
-                    )}
-                    {hasExpandableOutput && !isOutputExpanded && outputDisplay && (
-                        <span className="shrink-0 text-[10px] text-zinc-500">▸ {outputDisplay.lineCount}</span>
-                    )}
-                    {hasExpandableOutput && isOutputExpanded && (
-                        <span className="shrink-0 text-[10px] text-zinc-500">▾</span>
-                    )}
-                    {durationLabel && (
-                        <span className="shrink-0 text-[10px] text-zinc-500">{durationLabel}</span>
-                    )}
-                    {exitCodeLabel && (
-                        <span className="shrink-0 text-[9px] text-zinc-400">{exitCodeLabel}</span>
-                    )}
-                </div>
-                {hasExpandableOutput && isOutputExpanded && outputStep!.detail && (
-                    <div className="ml-4 mt-0.5">
-                        <pre
-                            className={cn(
-                                "whitespace-pre-wrap break-all rounded bg-black/15 px-1.5 py-1 text-[11px] leading-[18px]",
-                                isActive ? "text-zinc-100/85" : "text-zinc-200/80"
-                            )}
-                            style={{ fontFamily: AI_CODE_FONT_FAMILY }}
-                        >
-                            {outputDisplay?.expandedText}
-                        </pre>
+                {entry.narrativeBefore && (
+                    <div className="ml-5 mb-1">
+                        <CommandNarrativeBlock title={t.message.executionIntent} text={entry.narrativeBefore} />
                     </div>
                 )}
+                <div className="flex items-start gap-2.5">
+                    <div className="flex shrink-0 flex-col items-center pt-1">
+                        <div className={cn(
+                            "flex h-4 w-4 items-center justify-center rounded-full",
+                            isActive ? "bg-white/[0.06]" : "bg-white/[0.03]"
+                        )}>
+                            <div className={cn("flex h-2 w-2 items-center justify-center rounded-full", dotColor)}>
+                                {stepIcon && <span className="text-white/90">{stepIcon}</span>}
+                            </div>
+                        </div>
+                        {!isLast && (
+                            <div className="mt-0.5 h-full min-h-3 w-px bg-white/[0.04]" />
+                        )}
+                    </div>
+                    <div className="min-w-0 flex-1 pb-1.5">
+                        {isCommandStep ? (
+                            <div
+                                className={cn(
+                                    "rounded bg-black/25 px-2.5 py-1.5",
+                                    hasExpandableOutput && "cursor-pointer hover:bg-black/35",
+                                    animateStep && "animate-pulse"
+                                )}
+                                onClick={hasExpandableOutput ? handleToggle : undefined}
+                            >
+                                <div className="flex items-center gap-1.5">
+                                    <span className="shrink-0 text-[13px] text-emerald-400/60" style={{ fontFamily: AI_CODE_FONT_FAMILY }}>$</span>
+                                    <code className="text-[13px] text-zinc-200 truncate flex-1 min-w-0" style={{ fontFamily: AI_CODE_FONT_FAMILY }}>{commandText}</code>
+                                    {step.status === "running" && (
+                                        <span className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                                    )}
+                                    {step.status === "failed" && (
+                                        <span className="shrink-0 text-[10px] text-red-400">✖</span>
+                                    )}
+                                    {step.status === "completed" && (
+                                        <span className="shrink-0 text-[10px] text-emerald-400/60">✓</span>
+                                    )}
+                                    {(step.duplicateCount ?? 1) > 1 && (
+                                        <span className="shrink-0 text-[9px] text-zinc-500">×{step.duplicateCount}</span>
+                                    )}
+                                    {hasExpandableOutput && !isOutputExpanded && outputDisplay && (
+                                        <span className="shrink-0 text-[10px] text-zinc-500">▸ {outputDisplay.lineCount}</span>
+                                    )}
+                                    {hasExpandableOutput && isOutputExpanded && (
+                                        <span className="shrink-0 text-[10px] text-zinc-500">▾</span>
+                                    )}
+                                    {durationLabel && (
+                                        <span className="shrink-0 text-[10px] text-zinc-500">{durationLabel}</span>
+                                    )}
+                                    {exitCodeLabel && (
+                                        <span className={cn(
+                                            "shrink-0 text-[9px]",
+                                            (step.exitCode ?? secondary?.exitCode) !== 0 ? "text-red-400/80" : "text-zinc-500"
+                                        )}>{exitCodeLabel}</span>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div
+                                className={cn(
+                                    "flex items-center gap-1.5 rounded-sm px-1 py-px",
+                                    hasExpandableOutput && "cursor-pointer hover:bg-white/[0.03]",
+                                    isActive && "bg-white/[0.02]",
+                                    animateStep && "animate-pulse"
+                                )}
+                                onClick={hasExpandableOutput ? handleToggle : undefined}
+                            >
+                                <span className="text-[10px] text-zinc-500 shrink-0">{step.title}</span>
+                                {step.detail && !isCommandStep && (
+                                    <span className="text-[10px] text-zinc-400 truncate flex-1 min-w-0">{step.detail}</span>
+                                )}
+                                {step.status === "running" && (
+                                    <span className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                                )}
+                                {step.status === "failed" && (
+                                    <i className="shrink-0 fa-solid fa-circle-xmark text-[9px] text-red-400" />
+                                )}
+                                {(step.duplicateCount ?? 1) > 1 && (
+                                    <span className="shrink-0 text-[9px] text-zinc-500">×{step.duplicateCount}</span>
+                                )}
+                                {hasExpandableOutput && !isOutputExpanded && outputDisplay && (
+                                    <span className="shrink-0 text-[10px] text-zinc-500">▸ {outputDisplay.lineCount}</span>
+                                )}
+                                {hasExpandableOutput && isOutputExpanded && (
+                                    <span className="shrink-0 text-[10px] text-zinc-500">▾</span>
+                                )}
+                                {durationLabel && (
+                                    <span className="shrink-0 text-[10px] text-zinc-500">{durationLabel}</span>
+                                )}
+                                {exitCodeLabel && (
+                                    <span className="shrink-0 text-[9px] text-zinc-400">{exitCodeLabel}</span>
+                                )}
+                            </div>
+                        )}
+                        {hasExpandableOutput && isOutputExpanded && outputStep!.detail && (
+                            <div className="mt-0.5 ml-0">
+                                <pre
+                                    className={cn(
+                                        "whitespace-pre-wrap break-all rounded bg-black/25 px-2 py-1.5 text-[12px] leading-5",
+                                        isActive ? "text-zinc-100/85" : "text-zinc-200/80"
+                                    )}
+                                    style={{ fontFamily: AI_CODE_FONT_FAMILY }}
+                                >
+                                    {outputDisplay?.expandedText}
+                                </pre>
+                            </div>
+                        )}
+                    </div>
+                </div>
                 {entry.narrativeAfter && (
-                    <div className="mt-0.5 ml-4">
+                    <div className="ml-5 mt-0.5">
                         <CommandNarrativeBlock title={t.message.resultJudgment} text={entry.narrativeAfter} />
                     </div>
                 )}
@@ -785,7 +968,7 @@ const TaskChainStepGroup = memo(
     }
 );
 
-TaskChainStepGroup.displayName = "TaskChainStepGroup";
+TimelineStep.displayName = "TimelineStep";
 
 export const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRuntimeSnapshot | null }) => {
     const [expandedOutputSteps, setExpandedOutputSteps] = useState<Record<string, boolean>>({});
@@ -809,27 +992,27 @@ export const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: Age
     return (
         <div
             className={cn(
-                "group relative mt-1.5 overflow-hidden rounded-xl border px-2 py-1.5 transition-colors duration-200",
-                "bg-white/[0.02]",
+                "group relative mt-1.5 overflow-hidden rounded-lg px-2 py-1.5 transition-colors duration-200",
+                "bg-white/[0.015]",
                 displayState.toneClassName
             )}
         >
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium tracking-[0.06em]">
-                        <span className="text-zinc-200">{t.message.executionSteps}</span>
+                        <span className="text-zinc-300">{t.message.executionSteps}</span>
                         {displayState.statusLabel && (
-                            <span className="rounded-full border border-white/[0.06] bg-white/[0.04] px-1.5 py-px text-[9px] font-normal tracking-[0.1em] text-zinc-300 uppercase">
+                            <span className="rounded-full bg-white/[0.04] px-1.5 py-px text-[9px] font-normal tracking-[0.1em] text-zinc-400 uppercase">
                                 {displayState.statusLabel}
                             </span>
                         )}
                         {toolUseCount > 0 && (
-                            <span className="rounded-full border border-lime-300/15 bg-lime-300/[0.06] px-1.5 py-px text-[10px] font-normal tracking-normal text-lime-200/80">
+                            <span className="rounded-full bg-lime-300/[0.06] px-1.5 py-px text-[10px] font-normal tracking-normal text-lime-200/70">
                                 {t.message.callCount(toolUseCount)}
                             </span>
                         )}
                         {isThinkingPhaseLabel(displayState.statusLabel) && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-px text-[10px] font-normal tracking-normal text-zinc-300/70">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.03] px-1.5 py-px text-[10px] font-normal tracking-normal text-zinc-400/70">
                                 <i className="fa-solid fa-spinner fa-spin text-[8px]" />
                                 Thinking
                             </span>
@@ -838,20 +1021,23 @@ export const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: Age
                 </div>
             </div>
             {shouldRenderTaskChainBlockedReason(displayState.blockedReason) && (
-                <div className="mt-0.5 text-[11px] text-zinc-200/70">{displayState.blockedReason}</div>
+                <div className="mt-0.5 text-[11px] text-zinc-400/70">{displayState.blockedReason}</div>
             )}
-            <div className="mt-0.5 space-y-px">
-                {flowEntries.map((entry) =>
+            <div className="mt-1">
+                {flowEntries.map((entry, entryIndex) =>
                     entry.type === "narrative" ? (
                         <NarrativeBlock key={entry.id} text={entry.text} />
+                    ) : entry.type === "thinking" ? (
+                        <ThinkingInlineBlock key={entry.id} text={entry.text} isStreaming={turn.isStreaming} />
                     ) : (
-                        <TaskChainStepGroup
+                        <TimelineStep
                             key={entry.id}
                             entry={entry}
                             displayState={displayState}
                             runtimeState={runtime?.state}
                             expandedOutputSteps={expandedOutputSteps}
                             onToggleExpanded={toggleExpandedOutputStep}
+                            isLast={entryIndex === flowEntries.length - 1 || (entryIndex < flowEntries.length - 1 && flowEntries[entryIndex + 1].type === "narrative")}
                         />
                     )
                 )}
@@ -897,7 +1083,7 @@ export const TaskChainApprovalActions = memo(({ turn }: { turn: TaskTurn }) => {
     const label = pendingApprovals.length > 1 ? t.message.approvalCount(pendingApprovals.length) : t.message.waitingApproval;
 
     return (
-        <div className="mt-3 rounded-xl border border-amber-300/15 bg-amber-300/[0.05] px-3 py-2 text-amber-100">
+        <div className="mt-3 rounded-lg border-l-2 border-amber-300/20 bg-amber-300/[0.03] px-3 py-2 text-amber-100">
             <div className="flex items-center gap-2 text-[11px] font-medium">
                 <i className="fa-solid fa-triangle-exclamation text-amber-300/70" />
                 <span>{label}</span>
@@ -908,14 +1094,14 @@ export const TaskChainApprovalActions = memo(({ turn }: { turn: TaskTurn }) => {
                     ref={approveButtonRef}
                     type="button"
                     onClick={handleApproveAll}
-                    className="cursor-pointer rounded-lg border border-emerald-300/15 bg-emerald-300/[0.06] px-2.5 py-1 text-[11px] text-emerald-100 transition hover:border-emerald-200/25 hover:bg-emerald-300/10"
+                    className="cursor-pointer rounded-lg bg-emerald-300/[0.06] px-2.5 py-1 text-[11px] text-emerald-100 transition hover:bg-emerald-300/10"
                 >
                     Approve
                 </button>
                 <button
                     type="button"
                     onClick={handleDenyAll}
-                    className="cursor-pointer rounded-lg border border-red-300/15 bg-red-300/[0.06] px-2.5 py-1 text-[11px] text-red-100 transition hover:border-red-200/25 hover:bg-red-300/10"
+                    className="cursor-pointer rounded-lg bg-red-300/[0.06] px-2.5 py-1 text-[11px] text-red-100 transition hover:bg-red-300/10"
                 >
                     Deny
                 </button>

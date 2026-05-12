@@ -183,7 +183,7 @@ export function TaskProgressPanel({
     };
 
     return (
-        <div className={cn(className ?? "mx-3 mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3")}>
+        <div className={cn(className ?? "mx-3 mb-2 border-b border-white/[0.04] bg-white/[0.015] px-3 py-3")}>
             <div className="flex items-center justify-between gap-3">
                 <div>
                     <div className="text-xs text-zinc-400">{compact ? t.taskProgress.currentTask : t.taskProgress.taskPlan}</div>
@@ -275,7 +275,7 @@ export function TaskProgressPanel({
                     </div>
 
                     {viewModel.securityBlocked && (
-                        <div className="mt-3 rounded-lg border border-red-500/12 bg-red-500/[0.04] px-3 py-2 text-xs text-red-300/70">
+                        <div className="mt-3 rounded-lg border-l-2 border-red-500/20 bg-red-500/[0.03] px-3 py-2 text-xs text-red-300/70">
                             <i className="fa-solid fa-shield-halved mr-1.5" />
                             {t.taskProgress.commandBlockedBySecurity}
                         </div>
