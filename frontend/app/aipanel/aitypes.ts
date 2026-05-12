@@ -222,12 +222,6 @@ export type UIChatSessionMeta = {
     archived?: boolean;
     deleted?: boolean;
     isempty?: boolean;
-    cheatsheet?: {
-        currentwork?: string;
-        completed?: string;
-        blockedby?: string;
-        nextstep?: string;
-    };
     taskstate?: AgentTaskState;
     backgroundjobs?: ChatBackgroundJobDetail[];
 };

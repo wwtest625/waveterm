@@ -64,7 +64,7 @@ export type TaskChainFlowEntry =
 export type TaskChainStepEntry = Extract<TaskChainFlowEntry, { type: "step" }>;
 
 export const RAW_OUTPUT_COLLAPSE_LINES = 5;
-export const TASK_CHAIN_OUTPUT_COLLAPSE_LINES = 3;
+export const TASK_CHAIN_OUTPUT_COLLAPSE_LINES = 0;
 const COMMAND_OUTPUT_STEP_TOOL = "command_output";
 
 const cancellationReasonLabels: Record<string, string> = {
@@ -644,9 +644,9 @@ const CommandNarrativeBlock = memo(({ title, text }: { title: string; text: stri
     const model = WaveAIModel.getInstance();
 
     return (
-        <div className="mb-2 rounded-lg border border-emerald-300/10 bg-emerald-300/[0.035] px-2.5 py-2">
-            <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium tracking-[0.1em] text-emerald-200/65 uppercase">
-                <i className="fa-solid fa-sparkles text-[9px]" />
+        <div className="mb-1 rounded border border-emerald-300/10 bg-emerald-300/[0.035] px-1.5 py-1">
+            <div className="mb-0.5 flex items-center gap-1 text-[9px] font-medium tracking-[0.1em] text-emerald-200/65 uppercase">
+                <i className="fa-solid fa-sparkles text-[8px]" />
                 <span>{title}</span>
             </div>
             <WaveStreamdown
@@ -667,8 +667,8 @@ const NarrativeBlock = memo(({ text }: { text: string }) => {
     const model = WaveAIModel.getInstance();
 
     return (
-        <div className="rounded-xl border border-emerald-300/12 bg-emerald-300/[0.035] px-3 py-2">
-            <div className="mb-1 text-[10px] uppercase tracking-[0.12em] text-emerald-200/60">{t.message.aiDescription}</div>
+        <div className="rounded-lg border border-emerald-300/12 bg-emerald-300/[0.035] px-2 py-1">
+            <div className="mb-0.5 text-[9px] uppercase tracking-[0.12em] text-emerald-200/60">{t.message.aiDescription}</div>
             <WaveStreamdown
                 text={text}
                 parseIncompleteMarkdown={true}
@@ -702,92 +702,81 @@ const TaskChainStepGroup = memo(
         const secondary = group.secondary;
         const isActive = displayState.activeStepId === step.id || displayState.activeStepId === secondary?.id;
         const animateStep = shouldAnimateTaskStep(isActive, step.status, secondary?.status, runtimeState);
-        const durationLabel = step.durationLabel ?? secondary?.durationLabel;
+
+        const outputStep = secondary && isOutputLikeStep(secondary) ? secondary : isOutputLikeStep(step) ? step : null;
+        const hasExpandableOutput = outputStep != null && !!outputStep.detail;
+        const isOutputExpanded = hasExpandableOutput && expandedOutputSteps[outputStep.id] === true;
+        const outputDisplay = hasExpandableOutput ? getRawOutputDisplayState(outputStep!.detail!.trimEnd(), TASK_CHAIN_OUTPUT_COLLAPSE_LINES) : null;
+
+        const isCommandStep = step.toolName === "wave_run_command";
+        const commandText = step.detail || step.title;
         const exitCodeLabel = formatExitCodeLabel(step.exitCode ?? secondary?.exitCode);
-        const iconClass =
-            step.status === "completed"
-                ? "fa-circle-check text-emerald-400"
-                : step.status === "failed"
-                  ? "fa-circle-xmark text-red-400"
-                  : step.status === "running"
-                    ? "fa-spinner fa-spin text-yellow-400"
-                    : "fa-circle text-zinc-500";
-        const titleClass =
-            step.status === "failed" ? "text-red-300" : step.status === "completed" ? "text-zinc-100" : "text-zinc-300";
-        const stepToneClass = isActive ? "border-lime-300/15 bg-lime-300/[0.05]" : "border-transparent bg-transparent";
+        const durationLabel = step.durationLabel ?? secondary?.durationLabel;
+
+        const handleToggle = () => {
+            if (outputStep) {
+                onToggleExpanded(outputStep.id);
+            }
+        };
 
         return (
             <div
                 data-toolcallid={step.id}
                 ref={(el) => WaveAIModel.getInstance()?.registerScrollTarget(step.id, el)}
-                className={cn(
-                    "rounded-lg border px-2.5 py-2 transition-all duration-200",
-                    "border-white/[0.05] bg-black/[0.08] hover:bg-white/[0.055]",
-                    isActive
-                        ? `${stepToneClass} ${animateStep ? "animate-pulse" : ""}`
-                        : "border-transparent bg-transparent"
-                )}
             >
                 {entry.narrativeBefore && <CommandNarrativeBlock title={t.message.executionIntent} text={entry.narrativeBefore} />}
-                <div className="flex items-center gap-2 text-[13px]">
-                    <span className="inline-flex w-5 justify-end text-zinc-500">{index + 1}.</span>
-                    <i className={`fa ${iconClass} w-4 text-center ${animateStep ? "animate-pulse" : ""}`}></i>
-                    <span className={titleClass}>{step.title}</span>
-                    {(step.duplicateCount ?? 1) > 1 && (
-                        <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
-                            ×{step.duplicateCount}
-                        </span>
+                <div
+                    className={cn(
+                        "flex items-center gap-1.5 rounded-sm px-1 py-px",
+                        hasExpandableOutput && "cursor-pointer hover:bg-white/[0.03]",
+                        isActive && "bg-lime-300/[0.04]",
+                        animateStep && "animate-pulse"
                     )}
-                    {step.status === "running" && isOutputLikeStep(step) && (
-                        <span className="rounded-full border border-yellow-400/15 bg-yellow-400/[0.05] px-2 py-0.5 text-[10px] font-medium tracking-[0.06em] text-yellow-200/70">
-                            {t.message.backgroundRefreshing}
-                        </span>
+                    onClick={hasExpandableOutput ? handleToggle : undefined}
+                >
+                    <span className="shrink-0 text-[10px] text-zinc-500 tabular-nums w-3 text-right">{index + 1}.</span>
+                    {isCommandStep ? (
+                        <code className="text-[11px] text-zinc-200 truncate flex-1 min-w-0" style={{ fontFamily: AI_CODE_FONT_FAMILY }}>{commandText}</code>
+                    ) : (
+                        <span className="text-[11px] text-zinc-300 truncate flex-1 min-w-0">{commandText}</span>
+                    )}
+                    {step.status === "running" && (
+                        <span className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                    )}
+                    {step.status === "failed" && (
+                        <i className="shrink-0 fa-solid fa-circle-xmark text-[9px] text-red-400" />
+                    )}
+                    {(step.duplicateCount ?? 1) > 1 && (
+                        <span className="shrink-0 text-[9px] text-zinc-500">×{step.duplicateCount}</span>
+                    )}
+                    {hasExpandableOutput && !isOutputExpanded && outputDisplay && (
+                        <span className="shrink-0 text-[10px] text-zinc-500">▸ {outputDisplay.lineCount}</span>
+                    )}
+                    {hasExpandableOutput && isOutputExpanded && (
+                        <span className="shrink-0 text-[10px] text-zinc-500">▾</span>
+                    )}
+                    {durationLabel && (
+                        <span className="shrink-0 text-[10px] text-zinc-500">{durationLabel}</span>
+                    )}
+                    {exitCodeLabel && (
+                        <span className="shrink-0 text-[9px] text-zinc-400">{exitCodeLabel}</span>
                     )}
                 </div>
-                <TaskChainStepDetail
-                    step={step}
-                    isActive={isActive}
-                    isExpanded={expandedOutputSteps[step.id] === true}
-                    onToggleExpanded={onToggleExpanded}
-                />
-                {(durationLabel || exitCodeLabel) && !secondary && (
-                    <div className="mt-1 flex flex-wrap items-center gap-2 pl-5 text-[11px] text-zinc-400">
-                        {durationLabel && <span>{durationLabel}</span>}
-                        {exitCodeLabel && (
-                            <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
-                                {exitCodeLabel}
-                            </span>
-                        )}
-                    </div>
-                )}
-                {secondary && (
-                    <div className="mt-1 py-1">
-                        <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.08em] text-zinc-300">
-                            <span className="inline-flex w-5"></span>
-                            <i className="fa-solid fa-reply w-4 text-center text-emerald-300/80" />
-                            <span>{secondary.title}</span>
-                        </div>
-                        <TaskChainStepDetail
-                            step={secondary}
-                            isActive={false}
-                            isExpanded={expandedOutputSteps[secondary.id] === true}
-                            onToggleExpanded={onToggleExpanded}
-                            secondary={true}
-                        />
-                        {(secondary.durationLabel || formatExitCodeLabel(secondary.exitCode)) && (
-                            <div className="mt-0.5 flex flex-wrap items-center gap-2 pl-5 text-[11px] text-zinc-400">
-                                {secondary.durationLabel && <span>{secondary.durationLabel}</span>}
-                                {formatExitCodeLabel(secondary.exitCode) && (
-                                    <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
-                                        {formatExitCodeLabel(secondary.exitCode)}
-                                    </span>
-                                )}
-                            </div>
-                        )}
+                {hasExpandableOutput && isOutputExpanded && outputStep!.detail && (
+                    <div className="ml-4 mt-0.5">
+                        <pre
+                            className={cn(
+                                "whitespace-pre-wrap break-all rounded bg-black/15 px-1.5 py-1 text-[11px] leading-[18px]",
+                                isActive ? "text-zinc-100/85" : "text-zinc-200/80"
+                            )}
+                            style={{ fontFamily: AI_CODE_FONT_FAMILY }}
+                        >
+                            {outputDisplay?.expandedText}
+                        </pre>
                     </div>
                 )}
                 {entry.narrativeAfter && (
-                    <div className="mt-2 pl-5">
+                    <div className="mt-0.5 ml-4">
                         <CommandNarrativeBlock title={t.message.resultJudgment} text={entry.narrativeAfter} />
                     </div>
                 )}
@@ -797,124 +786,6 @@ const TaskChainStepGroup = memo(
 );
 
 TaskChainStepGroup.displayName = "TaskChainStepGroup";
-
-const TaskChainStepDetail = memo(
-    ({
-        step,
-        isActive,
-        isExpanded,
-        onToggleExpanded,
-        secondary = false,
-    }: {
-        step: TaskChainStep;
-        isActive: boolean;
-        isExpanded: boolean;
-        onToggleExpanded: (stepId: string) => void;
-        secondary?: boolean;
-    }) => {
-        if (!step.detail) {
-            return null;
-        }
-
-        const language = getTaskChainDetailLanguage(step);
-        const outputDisplay = getRawOutputDisplayState(step.detail.trimEnd(), TASK_CHAIN_OUTPUT_COLLAPSE_LINES);
-        const displayedText = isExpanded ? outputDisplay.expandedText : outputDisplay.collapsedText;
-        if (language === "bash") {
-            return (
-                <div className={cn("mt-1 pl-5 text-[12px] leading-5", isActive ? "text-lime-100" : "text-zinc-200")}>
-                    <div className="relative">
-                        <WaveStreamdown
-                            text={`\`\`\`bash\n${displayedText}\n\`\`\``}
-                            parseIncompleteMarkdown={false}
-                            codeFontFamily={AI_CODE_FONT_FAMILY}
-                            codeClassName="text-[14px]"
-                            className={cn(
-                                "text-[14px]",
-                                "[&_.markdown-content]:mx-0",
-                                "[&_.markdown-content]:overflow-visible",
-                                "[&_.markdown-content]:max-w-full",
-                                "[&_pre]:whitespace-pre-wrap [&_pre]:break-all [&_pre]:overflow-x-hidden",
-                                "[&_pre]:rounded-md [&_pre]:bg-black [&_pre]:px-2.5 [&_pre]:py-2",
-                                "[&_code]:whitespace-pre-wrap [&_code]:break-all"
-                            )}
-                        />
-                        {outputDisplay.shouldCollapse && (
-                            <TaskChainExpandButton
-                                isExpanded={isExpanded}
-                                className="right-10"
-                                onClick={() => onToggleExpanded(step.id)}
-                            />
-                        )}
-                    </div>
-                </div>
-            );
-        }
-        if (isOutputLikeStep(step)) {
-            return (
-                <div className="mt-1 pl-5">
-                    <div className="relative">
-                        <pre
-                            className={cn(
-                                "whitespace-pre-wrap break-all rounded-lg bg-black/15 px-2.5 py-2 pt-7 pr-20 text-[13px] leading-6",
-                                isActive || secondary ? "text-zinc-100/85" : "text-zinc-200/80"
-                            )}
-                            style={{ fontFamily: AI_CODE_FONT_FAMILY }}
-                        >
-                            {displayedText}
-                        </pre>
-                        {outputDisplay.shouldCollapse && (
-                            <TaskChainExpandButton
-                                isExpanded={isExpanded}
-                                className="right-2"
-                                onClick={() => onToggleExpanded(step.id)}
-                            />
-                        )}
-                    </div>
-                </div>
-            );
-        }
-        if (secondary) {
-            return (
-                <div className="mt-1 whitespace-pre-wrap break-words pl-5 text-[12px] leading-5 text-zinc-300/90">
-                    {step.detail}
-                </div>
-            );
-        }
-        return (
-            <div className={cn("mt-1 pl-5 text-[12px] leading-5", isActive ? "text-lime-100" : "text-zinc-200")}>
-                <WaveStreamdown
-                    text={step.detail}
-                    parseIncompleteMarkdown={true}
-                    codeFontFamily={AI_CODE_FONT_FAMILY}
-                    codeClassName="text-[14px]"
-                    className="text-zinc-100 [&_.markdown-content]:mx-0"
-                />
-            </div>
-        );
-    }
-);
-
-TaskChainStepDetail.displayName = "TaskChainStepDetail";
-
-const TaskChainExpandButton = memo(
-    ({ isExpanded, className, onClick }: { isExpanded: boolean; className: string; onClick: () => void }) => {
-        return (
-            <button
-                type="button"
-                className={cn(
-                    "absolute top-2 inline-flex items-center gap-1 rounded border border-white/[0.06] bg-black/20 px-1.5 py-0.5 text-[10px] text-zinc-400 transition hover:bg-black/35",
-                    className
-                )}
-                onClick={onClick}
-            >
-                <span>{t.message.more}</span>
-                <i className={cn("fa-solid text-[9px]", isExpanded ? "fa-chevron-up" : "fa-chevron-down")} />
-            </button>
-        );
-    }
-);
-
-TaskChainExpandButton.displayName = "TaskChainExpandButton";
 
 export const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRuntimeSnapshot | null }) => {
     const [expandedOutputSteps, setExpandedOutputSteps] = useState<Record<string, boolean>>({});
@@ -938,28 +809,28 @@ export const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: Age
     return (
         <div
             className={cn(
-                "group relative mt-2 overflow-hidden rounded-2xl border px-3 py-2.5 transition-colors duration-200",
+                "group relative mt-1.5 overflow-hidden rounded-xl border px-2 py-1.5 transition-colors duration-200",
                 "bg-white/[0.02]",
                 displayState.toneClassName
             )}
         >
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium tracking-[0.06em]">
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium tracking-[0.06em]">
                         <span className="text-zinc-200">{t.message.executionSteps}</span>
                         {displayState.statusLabel && (
-                            <span className="rounded-full border border-white/[0.06] bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-normal tracking-[0.1em] text-zinc-300 uppercase">
+                            <span className="rounded-full border border-white/[0.06] bg-white/[0.04] px-1.5 py-px text-[9px] font-normal tracking-[0.1em] text-zinc-300 uppercase">
                                 {displayState.statusLabel}
                             </span>
                         )}
                         {toolUseCount > 0 && (
-                            <span className="rounded-full border border-lime-300/15 bg-lime-300/[0.06] px-2 py-0.5 text-[11px] font-normal tracking-normal text-lime-200/80">
+                            <span className="rounded-full border border-lime-300/15 bg-lime-300/[0.06] px-1.5 py-px text-[10px] font-normal tracking-normal text-lime-200/80">
                                 {t.message.callCount(toolUseCount)}
                             </span>
                         )}
                         {isThinkingPhaseLabel(displayState.statusLabel) && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[11px] font-normal tracking-normal text-zinc-300/70">
-                                <i className="fa-solid fa-spinner fa-spin text-[9px]" />
+                            <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-px text-[10px] font-normal tracking-normal text-zinc-300/70">
+                                <i className="fa-solid fa-spinner fa-spin text-[8px]" />
                                 Thinking
                             </span>
                         )}
@@ -967,9 +838,9 @@ export const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: Age
                 </div>
             </div>
             {shouldRenderTaskChainBlockedReason(displayState.blockedReason) && (
-                <div className="mt-1 text-[11px] text-zinc-200/70">{displayState.blockedReason}</div>
+                <div className="mt-0.5 text-[11px] text-zinc-200/70">{displayState.blockedReason}</div>
             )}
-            <div className="mt-2 space-y-2">
+            <div className="mt-0.5 space-y-px">
                 {flowEntries.map((entry) =>
                     entry.type === "narrative" ? (
                         <NarrativeBlock key={entry.id} text={entry.text} />

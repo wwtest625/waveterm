@@ -1,12 +1,11 @@
 import { cn } from "@/util/util";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { Popover, PopoverButton, PopoverContent } from "../element/popover";
 import { computeContextUsageStats, escapeMarkdown } from "./ai-context-estimation";
 import { isInternalAssistantToolName } from "./aitypes";
 import {
     formatHistoryGroupLabel,
     getSessionSortTs,
-    getHorizontalSessionTabs,
     type SessionHistoryGroup,
 } from "./ai-session-utils";
 import { t } from "./aipanel-i18n";
@@ -27,12 +26,6 @@ export const AISessionToolbar = memo(({ messages, onRename, onDelete }: AISessio
     const hiddenSessionIds = useAtomValue(model.hiddenSessionIdsAtom);
     const activeChatId = useAtomValue(model.chatId);
     const [query, setQuery] = useState("");
-    const [cheatsheetDraft, setCheatsheetDraft] = useState({
-        currentwork: "",
-        completed: "",
-        blockedby: "",
-        nextstep: "",
-    });
     const currentMode = useAtomValue(model.currentAIMode);
     const aiModeConfigs = useAtomValue(model.aiModeConfigs);
     const currentModelName = aiModeConfigs?.[currentMode]?.["ai:model"];
@@ -44,22 +37,6 @@ export const AISessionToolbar = memo(({ messages, onRename, onDelete }: AISessio
         () => computeContextUsageStats(messages, currentModelName),
         [messages, currentModelName]
     );
-
-    useEffect(() => {
-        const cheatsheet = activeSession?.cheatsheet;
-        setCheatsheetDraft({
-            currentwork: cheatsheet?.currentwork ?? "",
-            completed: cheatsheet?.completed ?? "",
-            blockedby: cheatsheet?.blockedby ?? "",
-            nextstep: cheatsheet?.nextstep ?? "",
-        });
-    }, [
-        activeSession?.chatid,
-        activeSession?.cheatsheet?.blockedby,
-        activeSession?.cheatsheet?.completed,
-        activeSession?.cheatsheet?.currentwork,
-        activeSession?.cheatsheet?.nextstep,
-    ]);
 
     const filteredSessions = sessions.filter((session) => {
         if (hiddenSessionIds.includes(session.chatid)) {
@@ -194,100 +171,6 @@ export const AISessionToolbar = memo(({ messages, onRename, onDelete }: AISessio
                     >
                         <i className="fa-solid fa-download text-[10px]" />
                     </button>
-                    <Popover placement="bottom-end">
-                        <PopoverButton
-                            className="ghost grey flex items-center justify-center cursor-pointer transition-opacity hover:opacity-80 w-5 h-5 rounded text-zinc-500 border-none"
-                            as="div"
-                            aria-label={t.aipanel.sessionCheatSheet}
-                        >
-                            <i className="fa-solid fa-note-sticky text-[10px]" />
-                        </PopoverButton>
-                        <PopoverContent className="flex min-h-0 w-[360px] max-w-[calc(100vw-24px)] flex-col gap-0 rounded-xl border border-white/10 bg-zinc-900/96 p-3 shadow-2xl backdrop-blur">
-                            <div className="mb-3">
-                                <div className="text-sm font-medium text-white">{t.aipanel.sessionCheatSheet}</div>
-                                <div className="mt-1 text-[11px] text-zinc-400">
-                                    {t.aipanel.cheatSheetHint}
-                                </div>
-                            </div>
-                            <div className="space-y-3">
-                                <label className="block">
-                                    <div className="mb-1 text-[11px] text-zinc-400">{t.aipanel.currentTask}</div>
-                                    <input
-                                        value={cheatsheetDraft.currentwork}
-                                        onChange={(e) =>
-                                            setCheatsheetDraft((prev) => ({ ...prev, currentwork: e.target.value }))
-                                        }
-                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                        placeholder={t.aipanel.currentTaskPlaceholder}
-                                    />
-                                </label>
-                                <label className="block">
-                                    <div className="mb-1 text-[11px] text-zinc-400">{t.aipanel.completedTask}</div>
-                                    <input
-                                        value={cheatsheetDraft.completed}
-                                        onChange={(e) =>
-                                            setCheatsheetDraft((prev) => ({ ...prev, completed: e.target.value }))
-                                        }
-                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                        placeholder={t.aipanel.completedTaskPlaceholder}
-                                    />
-                                </label>
-                                <label className="block">
-                                    <div className="mb-1 text-[11px] text-zinc-400">{t.aipanel.blockers}</div>
-                                    <input
-                                        value={cheatsheetDraft.blockedby}
-                                        onChange={(e) =>
-                                            setCheatsheetDraft((prev) => ({ ...prev, blockedby: e.target.value }))
-                                        }
-                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                        placeholder={t.aipanel.blockersPlaceholder}
-                                    />
-                                </label>
-                                <label className="block">
-                                    <div className="mb-1 text-[11px] text-zinc-400">{t.aipanel.nextSteps}</div>
-                                    <input
-                                        value={cheatsheetDraft.nextstep}
-                                        onChange={(e) =>
-                                            setCheatsheetDraft((prev) => ({ ...prev, nextstep: e.target.value }))
-                                        }
-                                        className="w-full rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-                                        placeholder={t.aipanel.nextStepsPlaceholder}
-                                    />
-                                </label>
-                            </div>
-                            <div className="mt-3 flex w-full shrink-0 justify-end gap-2 border-t border-white/8 pt-3">
-                                <button
-                                    type="button"
-                                    onClick={() =>
-                                        setCheatsheetDraft({
-                                            currentwork: activeSession?.cheatsheet?.currentwork ?? "",
-                                            completed: activeSession?.cheatsheet?.completed ?? "",
-                                            blockedby: activeSession?.cheatsheet?.blockedby ?? "",
-                                            nextstep: activeSession?.cheatsheet?.nextstep ?? "",
-                                        })
-                                    }
-                                    className="inline-flex h-9 min-w-16 items-center justify-center rounded-lg border border-white/8 bg-white/5 px-3 py-1.5 text-xs text-zinc-300 whitespace-nowrap hover:bg-white/8"
-                                >
-                                    {t.aipanel.reset}
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={!activeSession?.chatid}
-                                    onClick={() =>
-                                        void model.updateSessionCheatsheet(activeSession?.chatid ?? "", cheatsheetDraft)
-                                    }
-                                    className={cn(
-                                        "inline-flex h-9 min-w-16 items-center justify-center rounded-lg px-3 py-1.5 text-xs whitespace-nowrap",
-                                        activeSession?.chatid
-                                            ? "bg-cyan-300/15 text-cyan-100 hover:bg-cyan-300/20"
-                                            : "bg-white/5 text-zinc-500"
-                                    )}
-                                >
-                                    {t.aipanel.save}
-                                </button>
-                            </div>
-                        </PopoverContent>
-                    </Popover>
                     <Popover className="min-w-0" placement="bottom-end" onDismiss={() => setQuery("")}>
                         <PopoverButton
                             className="ghost grey flex items-center justify-center cursor-pointer transition-opacity hover:opacity-80 w-5 h-5 rounded text-zinc-500 border-none"

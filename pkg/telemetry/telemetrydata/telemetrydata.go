@@ -174,8 +174,6 @@ type TEventProps struct {
 	WaveAIRequestCount             int            `json:"waveai:requestcount,omitempty"`
 	WaveAIToolUseCount             int            `json:"waveai:toolusecount,omitempty"`
 	WaveAIToolUseErrorCount        int            `json:"waveai:tooluseerrorcount,omitempty"`
-	WaveAICheatsheetRefreshCount   int            `json:"waveai:cheatsheetrefreshcount,omitempty"`
-	WaveAICheatsheetModelCallCount int            `json:"waveai:cheatsheetmodelcallcount,omitempty"`
 	WaveAITabStateRefreshCount     int            `json:"waveai:tabstaterefreshcount,omitempty"`
 	WaveAIToolDetail               map[string]int `json:"waveai:tooldetail,omitempty"`
 	WaveAIPremiumReq               int            `json:"waveai:premiumreq,omitempty"`

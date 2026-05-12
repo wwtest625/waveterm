@@ -376,16 +376,16 @@ const AIToolApprovalButtons = memo(({ count, onApprove, onDeny }: AIToolApproval
     const denyText = count > 1 ? "Deny All" : "Deny";
 
     return (
-        <div className="mt-2 flex gap-2">
+        <div className="mt-1.5 flex gap-1.5">
             <button
                 onClick={onApprove}
-                className="px-3 py-1 border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white text-sm rounded cursor-pointer transition-colors"
+                className="px-2 py-0.5 border border-gray-600/50 text-gray-300 hover:border-gray-500 hover:text-white text-xs rounded cursor-pointer transition-colors"
             >
                 {approveText}
             </button>
             <button
                 onClick={onDeny}
-                className="px-3 py-1 border border-gray-600 text-gray-300 hover:border-gray-500 hover:text-white text-sm rounded cursor-pointer transition-colors"
+                className="px-2 py-0.5 border border-gray-600/50 text-gray-300 hover:border-gray-500 hover:text-white text-xs rounded cursor-pointer transition-colors"
             >
                 {denyText}
             </button>
@@ -481,10 +481,10 @@ const AIToolUseBatch = memo(({ parts, isStreaming, onSendApproval }: AIToolUseBa
     };
 
     return (
-        <div className="flex items-start gap-2 p-2 rounded bg-zinc-800/60 border border-zinc-700">
+        <div className="flex items-start gap-1.5 py-1 px-1.5 rounded bg-zinc-800/40 border border-zinc-700/60">
             <div className="flex-1">
-                <div className="font-semibold">{batchTitle}</div>
-                <div className="mt-1 space-y-0.5">
+                <div className="font-medium text-[12px] text-zinc-100">{batchTitle}</div>
+                <div className="mt-0.5 space-y-0.5">
                     {parts.map((part, idx) => (
                         <AIToolUseBatchItem key={idx} part={part} effectiveApproval={effectiveApproval} />
                     ))}
@@ -649,15 +649,15 @@ const AIToolUse = memo(({ part, isStreaming, onSendApproval }: AIToolUseProps) =
 
     return (
         <div
-            className={cn("flex flex-col gap-1 p-2 rounded bg-zinc-800/60 border border-zinc-700", statusColor)}
+            className={cn("flex flex-col gap-0.5 py-1 px-1.5 rounded bg-zinc-800/40 border border-zinc-700/60", statusColor)}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
         >
-            <div className="flex items-center gap-2">
-                <span className={cn("font-bold", (toolData.status === "running" || (toolData.partial === true && toolData.status === "pending")) && "animate-spin")}>{statusIcon}</span>
-                <div className="font-semibold">{toolData.toolname}</div>
+            <div className="flex items-center gap-1.5">
+                <span className={cn("font-bold text-[11px]", (toolData.status === "running" || (toolData.partial === true && toolData.status === "pending")) && "animate-spin")}>{statusIcon}</span>
+                <div className="font-medium text-[12px] text-zinc-100">{toolData.toolname}</div>
                 {toolData.durationms != null && toolData.durationms > 0 && (
-                    <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] text-zinc-300">
+                    <span className="rounded-full border border-white/10 bg-white/[0.06] px-1.5 py-px text-[10px] text-zinc-300/70">
                         {t.tool.durationFormatted(formatCommandDuration(toolData.durationms))}
                     </span>
                 )}
@@ -672,28 +672,28 @@ const AIToolUse = memo(({ part, isStreaming, onSendApproval }: AIToolUseProps) =
                                 recordTEvent("waveai:revertfile", { "waveai:action": "revertfile:open" });
                                 model.openRestoreBackupModal(toolData.toolcallid);
                             }}
-                            className="flex-shrink-0 px-1.5 py-0.5 border border-zinc-600 hover:border-zinc-500 hover:bg-zinc-700 rounded cursor-pointer transition-colors flex items-center gap-1 text-zinc-400"
+                            className="flex-shrink-0 px-1.5 py-px border border-zinc-600/50 hover:border-zinc-500 hover:bg-zinc-700/50 rounded cursor-pointer transition-colors flex items-center gap-1 text-zinc-400/80"
                             title="Restore backup file"
                         >
-                            <span className="text-xs">Revert File</span>
-                            <i className="fa fa-clock-rotate-left text-xs"></i>
+                            <span className="text-[10px]">Revert File</span>
+                            <i className="fa fa-clock-rotate-left text-[10px]"></i>
                         </button>
                     )}
                 {isFileWriteTool && toolData.inputfilename && (
                     <button
                         onClick={handleToggleInlineDiff}
-                        className="flex-shrink-0 px-1.5 py-0.5 border border-zinc-600 hover:border-zinc-500 hover:bg-zinc-700 rounded cursor-pointer transition-colors flex items-center gap-1 text-zinc-400"
+                        className="flex-shrink-0 px-1.5 py-px border border-zinc-600/50 hover:border-zinc-500 hover:bg-zinc-700/50 rounded cursor-pointer transition-colors flex items-center gap-1 text-zinc-400/80"
                         title="Preview edits inline"
                     >
-                        <span className="text-xs">{inlineDiffOpen ? "Hide Changes" : "Show Changes"}</span>
-                        <i className={`fa ${inlineDiffOpen ? "fa-chevron-up" : "fa-chevron-down"} text-xs`}></i>
+                        <span className="text-[10px]">{inlineDiffOpen ? "Hide Changes" : "Show Changes"}</span>
+                        <i className={`fa ${inlineDiffOpen ? "fa-chevron-up" : "fa-chevron-down"} text-[10px]`}></i>
                     </button>
                 )}
             </div>
-            {toolData.tooldesc && <ToolDesc text={toolData.tooldesc} className="text-sm text-gray-400 pl-6" />}
+            {toolData.tooldesc && <ToolDesc text={toolData.tooldesc} className="text-xs text-gray-400/80 pl-5" />}
             {inlineDiffOpen && (
-                <div className="pl-6">
-                    <div className="mt-1 rounded border border-white/10 bg-black/35">
+                <div className="pl-5">
+                    <div className="mt-0.5 rounded border border-white/10 bg-black/35">
                         <div className="border-b border-white/8 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
                             {t.tool.changePreview}
                         </div>
@@ -708,7 +708,7 @@ const AIToolUse = memo(({ part, isStreaming, onSendApproval }: AIToolUseProps) =
                 </div>
             )}
             {(toolData.errormessage || effectiveApproval === "timeout") && (
-                <div className="pl-6">
+                <div className="pl-5">
                     <div className="text-sm text-red-300">{toolData.errormessage || "Not approved"}</div>
                     <button
                         type="button"
@@ -720,7 +720,7 @@ const AIToolUse = memo(({ part, isStreaming, onSendApproval }: AIToolUseProps) =
                 </div>
             )}
             {effectiveApproval === "needs-approval" && (
-                <div className="pl-6">
+                <div className="pl-5">
                     <AIToolApprovalButtons count={1} onApprove={handleApprove} onDeny={handleDeny} />
                 </div>
             )}
@@ -739,15 +739,15 @@ const AIToolProgress = memo(({ part }: AIToolProgressProps) => {
     const progressData = part.data;
 
     return (
-        <div className="flex flex-col gap-1 p-2 rounded bg-zinc-800/60 border border-zinc-700">
-            <div className="flex items-center gap-2">
-                <i className="fa fa-spinner fa-spin text-gray-400"></i>
-                <div className="font-semibold">{progressData.toolname}</div>
+        <div className="flex flex-col gap-0.5 py-1 px-1.5 rounded bg-zinc-800/40 border border-zinc-700/60">
+            <div className="flex items-center gap-1.5">
+                <i className="fa fa-spinner fa-spin text-[11px] text-gray-400"></i>
+                <div className="font-medium text-[12px] text-zinc-100">{progressData.toolname}</div>
             </div>
             {!shouldHideProgressStatusLines(progressData.toolname) &&
                 progressData.statuslines &&
                 progressData.statuslines.length > 0 && (
-                    <ToolDesc text={progressData.statuslines} className="text-sm text-gray-400 pl-6 space-y-0.5" />
+                    <ToolDesc text={progressData.statuslines} className="text-xs text-gray-400/80 pl-5 space-y-0.5" />
                 )}
         </div>
     );
@@ -847,9 +847,9 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
     }, [groupStateKey, groupSummary.defaultExpanded]);
 
     return (
-        <div className={cn("mt-2 rounded-xl border px-3 py-2", groupSummary.toneClassName)}>
-            <div className="flex items-start gap-3">
-                <i className={cn("fa mt-0.5 text-sm", groupSummary.icon, groupSummary.iconClassName)}></i>
+        <div className={cn("mt-1.5 rounded-xl border px-2.5 py-1.5", groupSummary.toneClassName)}>
+            <div className="flex items-start gap-2">
+                <i className={cn("fa mt-0.5 text-xs", groupSummary.icon, groupSummary.iconClassName)}></i>
                 <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -861,7 +861,7 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
                         {groupSummary.hasDetails && (
                             <button
                                 type="button"
-                                className="shrink-0 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500 cursor-pointer"
+                                className="shrink-0 rounded border border-zinc-700/50 px-1.5 py-0.5 text-[11px] text-zinc-300/80 hover:border-zinc-500 hover:text-zinc-100 cursor-pointer"
                                 onClick={() => setDetailsOpen((open) => !open)}
                             >
                                 {detailsOpen ? t.tool.collapseDetails : t.tool.viewDetails}
@@ -869,10 +869,10 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
                         )}
                     </div>
                     {groupSummary.canRetry && (
-                        <div className="mt-2">
+                        <div className="mt-1">
                             <button
                                 type="button"
-                                className="rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-200 hover:border-zinc-400 cursor-pointer"
+                                className="rounded border border-zinc-600/50 px-1.5 py-0.5 text-[11px] text-zinc-200/80 hover:border-zinc-400 hover:text-zinc-100 cursor-pointer"
                                 onClick={() => void model.retryLastAction("step")}
                             >
                                 Retry this step
@@ -880,23 +880,23 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
                         </div>
                     )}
                     {detailsOpen && (
-                        <div className="mt-3 border-t border-zinc-800/80 pt-3">
+                        <div className="mt-2 border-t border-zinc-800/60 pt-1.5">
                             {groupedItems.map((item, idx) => {
                                 if (item.type === "batch") {
                                     return (
-                                        <div key={idx} className={idx === 0 ? "" : "mt-2"}>
+                                        <div key={idx} className={idx === 0 ? "" : "mt-1.5"}>
                                             <AIToolUseBatch parts={item.parts} isStreaming={isStreaming} onSendApproval={sendApproval} />
                                         </div>
                                     );
                                 } else if (item.type === "progress") {
                                     return (
-                                        <div key={idx} className={idx === 0 ? "" : "mt-2"}>
+                                        <div key={idx} className={idx === 0 ? "" : "mt-1.5"}>
                                             <AIToolProgress part={item.part} />
                                         </div>
                                     );
                                 } else {
                                     return (
-                                        <div key={idx} className={idx === 0 ? "" : "mt-2"}>
+                                        <div key={idx} className={idx === 0 ? "" : "mt-1.5"}>
                                             <AIToolUse part={item.part} isStreaming={isStreaming} onSendApproval={sendApproval} />
                                         </div>
                                     );

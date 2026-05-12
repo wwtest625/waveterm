@@ -6,8 +6,6 @@ package chatstore
 import (
 	"fmt"
 	"testing"
-
-	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 )
 
 func TestChatStore_GetContextWindowKeepsRecentUserTurns(t *testing.T) {
@@ -71,26 +69,5 @@ func TestChatStore_GetContextWindowKeepsFullHistoryWhenShorterThanLimit(t *testi
 	}
 	if got := windowed.NativeMessages[0].GetMessageId(); got != "user-1" {
 		t.Fatalf("expected history to start at first message, got %q", got)
-	}
-}
-
-func TestChatStore_UpsertSessionMetaStoresCheatsheet(t *testing.T) {
-	cs := newTestChatStore()
-	opts := newTestAIOpts()
-
-	meta := cs.UpsertSessionMeta("chat-1", opts, uctypes.UIChatSessionMetaUpdate{
-		Cheatsheet: &uctypes.SessionCheatsheet{
-			CurrentWork: "修复 SSH 登录失败",
-			Completed:   "已确认网络可达",
-			BlockedBy:   "密码提示未识别",
-			NextStep:    "补充交互检测",
-		},
-	})
-
-	if meta == nil || meta.Cheatsheet == nil {
-		t.Fatal("expected cheatsheet to be stored")
-	}
-	if meta.Cheatsheet.CurrentWork != "修复 SSH 登录失败" {
-		t.Fatalf("expected cheatsheet current work, got %#v", meta.Cheatsheet)
 	}
 }

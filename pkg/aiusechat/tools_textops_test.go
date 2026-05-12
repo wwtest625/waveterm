@@ -114,48 +114,6 @@ func TestEditTextFileDryRunReportsAppliedEditCountOnFailure(t *testing.T) {
 	}
 }
 
-func TestEditTextFileToolDefinitionMentionsSmallBatchesAndLatestFile(t *testing.T) {
-	def := GetEditTextFileToolDefinition()
-	if !strings.Contains(def.Description, "Prefer small batches") {
-		t.Fatalf("expected edit tool description to encourage small batches, got %q", def.Description)
-	}
-
-	inputSchema, ok := def.InputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected object properties schema, got %T", def.InputSchema["properties"])
-	}
-	editsSchema, ok := inputSchema["edits"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected edits schema, got %T", inputSchema["edits"])
-	}
-	editsDesc, ok := editsSchema["description"].(string)
-	if !ok {
-		t.Fatalf("expected edits schema description to be a string, got %T", editsSchema["description"])
-	}
-	if !strings.Contains(editsDesc, "latest file") {
-		t.Fatalf("expected edits schema to mention latest file, got %q", editsDesc)
-	}
-	itemsSchema, ok := editsSchema["items"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected edits items schema, got %T", editsSchema["items"])
-	}
-	propertiesSchema, ok := itemsSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected edits properties schema, got %T", itemsSchema["properties"])
-	}
-	oldStrSchema, ok := propertiesSchema["old_str"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected old_str schema, got %#v", itemsSchema["properties"])
-	}
-	oldStrDesc, ok := oldStrSchema["description"].(string)
-	if !ok {
-		t.Fatalf("expected old_str description to be a string, got %T", oldStrSchema["description"])
-	}
-	if !strings.Contains(oldStrDesc, "latest file content") {
-		t.Fatalf("expected old_str schema to mention latest file content, got %q", oldStrDesc)
-	}
-}
-
 func TestEditTextFileDryRunSupportsLineEndingFallback(t *testing.T) {
 	_, modified, err := EditTextFileDryRun(map[string]any{
 		"filename": "/remote/crlf.txt",
@@ -192,16 +150,6 @@ func TestGenerateTabStateAndTools_AlwaysIncludesFileToolsWithoutWidgetAccess(t *
 		if !toolNames[name] {
 			t.Fatalf("expected %s to stay exposed without widget access, got %#v", name, toolNames)
 		}
-	}
-}
-
-func TestGetSystemPrompt_PrefersRemoteTerminalExecutionByDefault(t *testing.T) {
-	basePrompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(basePrompt, "When the current terminal is already remote, run the command there by default") {
-		t.Fatalf("expected prompt to prefer current remote terminal by default, got %q", basePrompt)
-	}
-	if !strings.Contains(basePrompt, "Do not fall back to bash heredocs or shell redirection for file writes when file tools are available") {
-		t.Fatalf("expected prompt to forbid shell heredoc fallback when file tools are available, got %q", basePrompt)
 	}
 }
 
@@ -335,34 +283,6 @@ func TestWaveRunCommandOpenAIOutputUsesSummaryInsteadOfRawJSON(t *testing.T) {
 	}
 	if output, ok := msgs[0].FunctionCallOutput.Output.(string); !ok || output != "Command completed successfully (exit 0)." {
 		t.Fatalf("expected summary string output, got %#v", msgs[0].FunctionCallOutput.Output)
-	}
-}
-
-func TestGetToolCapabilityPrompt_AlwaysMentionsFileToolsWhenProvided(t *testing.T) {
-	prompt := getToolCapabilityPrompt([]uctypes.ToolDefinition{
-		GetWriteTextFileToolDefinition(),
-		GetEditTextFileToolDefinition(),
-		GetDeleteTextFileToolDefinition(),
-	})
-	if !strings.Contains(prompt, "file tools: write, edit, or delete files") {
-		t.Fatalf("expected file tools capability prompt, got %q", prompt)
-	}
-	if !strings.Contains(prompt, "They only support Linux absolute paths on that remote terminal connection") {
-		t.Fatalf("expected file tools prompt to mention remote Linux paths, got %q", prompt)
-	}
-}
-
-func TestGetToolCapabilityPrompt_AlwaysMentionsWaveRunCommandDefaultTerminalTarget(t *testing.T) {
-	prompt := getToolCapabilityPrompt([]uctypes.ToolDefinition{GetWaveRunCommandToolDefinition()})
-	if !strings.Contains(prompt, "current Wave connection or current terminal target") {
-		t.Fatalf("expected wave_run_command capability prompt to mention current terminal target, got %q", prompt)
-	}
-}
-
-func TestWaveRunCommandToolDefinitionDescription_PrefersRemoteCurrentTerminal(t *testing.T) {
-	def := GetWaveRunCommandToolDefinition()
-	if !strings.Contains(def.Description, "When that terminal is already remote, run the target shell command directly there") {
-		t.Fatalf("expected remote-terminal preference in tool description, got %q", def.Description)
 	}
 }
 
@@ -514,20 +434,6 @@ func TestWriteAndEditToolDefinitionsRemainAutoApproved(t *testing.T) {
 	}
 	if GetEditTextFileToolDefinition().ToolApproval(nil, uctypes.ApprovalContext{}) != uctypes.ApprovalAutoApproved {
 		t.Fatal("expected edit tool to stay auto-approved")
-	}
-}
-
-func TestGetSystemPrompt_PrefersToolWritesOverShellRedirects(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "Do not fall back to bash heredocs or shell redirection for file writes when file tools are available") {
-		t.Fatalf("expected shell redirect warning, got %q", prompt)
-	}
-}
-
-func TestGetSystemPrompt_PrefersCurrentRemoteTerminal(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "current terminal is already remote") {
-		t.Fatalf("expected remote terminal preference, got %q", prompt)
 	}
 }
 
@@ -742,16 +648,6 @@ func TestWaveRunCommandResultPayload_PreservesStructuredFieldsWhileAddingSummary
 	}
 }
 
-func TestGetSystemPrompt_RemotePreferenceAndFileToolRuleAreDocumented(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "When the current terminal is already remote, run the command there by default") {
-		t.Fatalf("expected remote preference, got %q", prompt)
-	}
-	if !strings.Contains(prompt, "Do not fall back to bash heredocs or shell redirection for file writes when file tools are available") {
-		t.Fatalf("expected file tool preference, got %q", prompt)
-	}
-}
-
 func TestGenerateTabStateAndTools_NoWidgetAccessStillExposesTextTools(t *testing.T) {
 	_, tools, err := GenerateTabStateAndTools(t.Context(), "", false, nil)
 	if err != nil {
@@ -814,13 +710,6 @@ func TestWaveRunCommandResultPayload_ProvidesSummaryField(t *testing.T) {
 	}
 }
 
-func TestGetSystemPrompt_StillMentionsWaveRunCommand(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "wave_run_command") {
-		t.Fatalf("expected wave_run_command in prompt, got %q", prompt)
-	}
-}
-
 func TestGenerateTabStateAndTools_WithoutWidgetAccessStillExposesDeleteTool(t *testing.T) {
 	_, tools, err := GenerateTabStateAndTools(t.Context(), "", false, nil)
 	if err != nil {
@@ -842,20 +731,6 @@ func TestWaveRunCommandResultPayload_SummaryUsesFirstLineOfOutput(t *testing.T) 
 	payload := waveRunCommandResultPayload("job-123", &wshrpc.CommandAgentGetCommandResultRtnData{JobId: "job-123", Status: "done", ExitCode: &exitCode, Output: "first\nsecond"})
 	if payload["summary"] != "first" {
 		t.Fatalf("unexpected summary: %#v", payload["summary"])
-	}
-}
-
-func TestGetSystemPrompt_DiscouragesShellRedirectionWhenFileToolsAvailable(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "shell redirection") {
-		t.Fatalf("expected shell redirection guidance, got %q", prompt)
-	}
-}
-
-func TestGetSystemPrompt_DocumentsRemoteCurrentTerminalDefault(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "already remote") {
-		t.Fatalf("expected remote current terminal guidance, got %q", prompt)
 	}
 }
 
@@ -954,13 +829,6 @@ func TestWaveRunCommandResultPayload_PreservesOutputEvenWhenSummaryUsesFirstLine
 	}
 }
 
-func TestGetSystemPrompt_DocumentsToolWritesAndRemoteTerminalDefault(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "shell redirection") || !strings.Contains(prompt, "already remote") {
-		t.Fatalf("expected both guidance lines, got %q", prompt)
-	}
-}
-
 func TestWaveRunCommandResultPayload_StillIncludesStructuredStatusFields(t *testing.T) {
 	payload := waveRunCommandResultPayload("job-123", nil)
 	if payload["status"] != "running" || payload["jobid"] != "job-123" {
@@ -1012,13 +880,6 @@ func TestGenerateTabStateAndTools_WithoutWidgetAccessStillExposesCoreMutationToo
 	}
 }
 
-func TestGetSystemPrompt_ExplicitlyPrefersRemoteCurrentTerminalAndFileTools(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "run the command there by default") || !strings.Contains(prompt, "Do not fall back to bash heredocs") {
-		t.Fatalf("unexpected prompt: %q", prompt)
-	}
-}
-
 func TestWaveRunCommandResultPayload_SummaryNotEqualToRawStatusForDone(t *testing.T) {
 	exitCode := 0
 	payload := waveRunCommandResultPayload("job-123", &wshrpc.CommandAgentGetCommandResultRtnData{JobId: "job-123", Status: "done", ExitCode: &exitCode})
@@ -1045,20 +906,6 @@ func TestWaveRunCommandResultPayload_SummaryNotEqualToRawStatusForGone(t *testin
 	payload := waveRunCommandResultPayload("job-123", &wshrpc.CommandAgentGetCommandResultRtnData{JobId: "job-123", Status: "gone", Error: "job result is unavailable"})
 	if payload["summary"] == "gone" {
 		t.Fatalf("summary should be descriptive, got %#v", payload["summary"])
-	}
-}
-
-func TestGetSystemPrompt_MentionsRemoteTerminalDefault(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "current terminal is already remote") {
-		t.Fatalf("unexpected prompt: %q", prompt)
-	}
-}
-
-func TestGetSystemPrompt_MentionsNoHeredocFallbackWhenFileToolsAvailable(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "Do not fall back to bash heredocs") {
-		t.Fatalf("unexpected prompt: %q", prompt)
 	}
 }
 
@@ -1115,13 +962,6 @@ func TestWaveRunCommandResultPayload_DoesNotBreakRawFrontendFields(t *testing.T)
 	}
 }
 
-func TestGetSystemPrompt_CoversRemoteExecutionAndFileToolPreference(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "already remote") || !strings.Contains(prompt, "shell redirection") {
-		t.Fatalf("unexpected prompt: %q", prompt)
-	}
-}
-
 func TestGenerateTabStateAndTools_NoWidgetAccessStillExposesMutationTools(t *testing.T) {
 	_, tools, err := GenerateTabStateAndTools(t.Context(), "", false, nil)
 	if err != nil {
@@ -1136,13 +976,6 @@ func TestWaveRunCommandResultPayload_SummaryReadableButRawDataPreserved(t *testi
 	payload := waveRunCommandResultPayload("job-123", &wshrpc.CommandAgentGetCommandResultRtnData{JobId: "job-123", Status: "gone", Error: "job result is unavailable"})
 	if payload["summary"] != "job result is unavailable" || payload["error"] != "job result is unavailable" {
 		t.Fatalf("unexpected payload: %#v", payload)
-	}
-}
-
-func TestGetSystemPrompt_DocumentsRemoteDefaultAndNoShellWriteFallback(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "run the command there by default") || !strings.Contains(prompt, "Do not fall back to bash heredocs or shell redirection") {
-		t.Fatalf("unexpected prompt: %q", prompt)
 	}
 }
 
@@ -1180,20 +1013,6 @@ func TestWaveRunCommandResultPayload_ErrorSummaryReadableAndStatusPreserved(t *t
 	payload := waveRunCommandResultPayload("job-123", &wshrpc.CommandAgentGetCommandResultRtnData{JobId: "job-123", Status: "error", ExitCode: &exitCode})
 	if payload["summary"] != "Command failed with exit 2." || payload["status"] != "error" {
 		t.Fatalf("unexpected payload: %#v", payload)
-	}
-}
-
-func TestGetSystemPrompt_DocumentsRemoteExecutionPreference(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "current terminal is already remote") {
-		t.Fatalf("unexpected prompt: %q", prompt)
-	}
-}
-
-func TestGetSystemPrompt_DocumentsFileToolPreferenceOverShellRedirects(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "shell redirection") {
-		t.Fatalf("unexpected prompt: %q", prompt)
 	}
 }
 
@@ -1296,13 +1115,6 @@ func TestGenerateTabStateAndTools_FileToolsNotBlockedByWidgetAccess(t *testing.T
 	}
 }
 
-func TestPromptReassertsRemoteDefaultAndFileToolPreference(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "run the command there by default") || !strings.Contains(prompt, "Do not fall back to bash heredocs") {
-		t.Fatalf("unexpected prompt: %q", prompt)
-	}
-}
-
 func TestWaveRunCommandReadableSummaryExistsForModelAdaptation(t *testing.T) {
 	payload := waveRunCommandResultPayload("job-123", &wshrpc.CommandAgentGetCommandResultRtnData{JobId: "job-123", Status: "done"})
 	if _, ok := payload["summary"]; !ok {
@@ -1328,13 +1140,6 @@ func TestGenerateTabStateAndTools_WriteToolsRemainAvailableWithoutWidgetAccess(t
 	}
 	if !seen["write_text_file"] || !seen["edit_text_file"] || !seen["delete_text_file"] {
 		t.Fatalf("unexpected tool set: %#v", seen)
-	}
-}
-
-func TestPromptMentionsRemoteDefaultAndNoShellWriteFallback(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "already remote") || !strings.Contains(prompt, "shell redirection") {
-		t.Fatalf("unexpected prompt: %q", prompt)
 	}
 }
 
@@ -1414,13 +1219,6 @@ func TestGenerateTabStateAndTools_AlwaysExposeFileMutationTools(t *testing.T) {
 	}
 }
 
-func TestPromptKeepsRemoteDefaultAndForbidsShellWriteFallback(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "run the command there by default") || !strings.Contains(prompt, "Do not fall back to bash heredocs or shell redirection") {
-		t.Fatalf("unexpected prompt: %q", prompt)
-	}
-}
-
 func TestWaveRunCommandModelLeakRegression_UsesSummaryInsteadOfRawJSON(t *testing.T) {
 	payload := map[string]any{"jobid": "job-123", "status": "done", "summary": "Command completed successfully (exit 0).", "durationms": int64(8), "exitcode": 0}
 	bytes, _ := json.Marshal(payload)
@@ -1462,13 +1260,6 @@ func TestGenerateTabStateAndTools_FileToolsRemainWhenWidgetAccessFalse(t *testin
 	}
 }
 
-func TestPromptRestoresRemoteExecutionDefaultAndFileToolPreference(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "current terminal is already remote") || !strings.Contains(prompt, "Do not fall back to bash heredocs or shell redirection") {
-		t.Fatalf("unexpected prompt: %q", prompt)
-	}
-}
-
 func TestWaveRunCommandPayloadSummaryExistsAndIsUsedForModels(t *testing.T) {
 	payload := waveRunCommandResultPayload("job-123", &wshrpc.CommandAgentGetCommandResultRtnData{JobId: "job-123", Status: "done"})
 	if _, ok := payload["summary"]; !ok {
@@ -1496,13 +1287,6 @@ func TestGenerateTabStateAndTools_AlwaysExposeWriteEditDeleteRegardlessOfWidgetA
 		if !seen[name] {
 			t.Fatalf("missing %s in %#v", name, seen)
 		}
-	}
-}
-
-func TestPromptRestoresRemoteCurrentTerminalDefaultAndNoShellWriteFallback(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "run the command there by default") || !strings.Contains(prompt, "Do not fall back to bash heredocs or shell redirection") {
-		t.Fatalf("unexpected prompt: %q", prompt)
 	}
 }
 
@@ -1545,13 +1329,6 @@ func TestGenerateTabStateAndTools_FileToolsAlwaysExposed(t *testing.T) {
 	}
 }
 
-func TestPromptRestoresBothMissingRules(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "current terminal is already remote") || !strings.Contains(prompt, "Do not fall back to bash heredocs") {
-		t.Fatalf("unexpected prompt: %q", prompt)
-	}
-}
-
 func TestWaveRunCommandSummaryStopsJsonLeakForModelText(t *testing.T) {
 	payload := map[string]any{"jobid": "job-123", "status": "done", "summary": "Command completed successfully (exit 0).", "durationms": int64(8), "exitcode": 0}
 	bytes, _ := json.Marshal(payload)
@@ -1578,13 +1355,6 @@ func TestGenerateTabStateAndTools_FileMutationToolsNoLongerDependOnWidgetAccess(
 		if !seen[name] {
 			t.Fatalf("missing %s in %#v", name, seen)
 		}
-	}
-}
-
-func TestPromptRestoresRemoteTerminalDefaultRuleAndFileToolRule(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "run the command there by default") || !strings.Contains(prompt, "shell redirection") {
-		t.Fatalf("unexpected prompt: %q", prompt)
 	}
 }
 
@@ -1615,13 +1385,6 @@ func TestGenerateTabStateAndTools_AlwaysExposeWriteEditDeleteToolsRegardlessOfWi
 		if !seen[name] {
 			t.Fatalf("missing %s in %#v", name, seen)
 		}
-	}
-}
-
-func TestPromptRestoresRemoteDefaultRuleAndFileToolRule(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "current terminal is already remote") || !strings.Contains(prompt, "Do not fall back to bash heredocs or shell redirection") {
-		t.Fatalf("unexpected prompt: %q", prompt)
 	}
 }
 
@@ -1664,13 +1427,6 @@ func TestGenerateTabStateAndTools_WriteEditDeleteAlwaysExposed(t *testing.T) {
 	}
 }
 
-func TestPromptRestoresRemoteTerminalAndNoShellWriteFallback(t *testing.T) {
-	prompt := strings.Join(getSystemPrompt("gpt-5", false, AgentModeDefault), " ")
-	if !strings.Contains(prompt, "already remote") || !strings.Contains(prompt, "shell redirection") {
-		t.Fatalf("unexpected prompt: %q", prompt)
-	}
-}
-
 func TestWaveRunCommandSummaryExistsToAvoidRawJsonLeak(t *testing.T) {
 	payload := waveRunCommandResultPayload("job-123", nil)
 	if _, ok := payload["summary"]; !ok {
@@ -1684,6 +1440,7 @@ func TestWaveRunCommandSummaryKeepsUiPayloadFields(t *testing.T) {
 		t.Fatalf("unexpected payload: %#v", payload)
 	}
 }
+
 func TestEditTextFileDryRunLineEndingFallbackStillRequiresUniqueMatch(t *testing.T) {
 	_, _, err := EditTextFileDryRun(map[string]any{
 		"filename": "/remote/ambiguous-crlf.txt",

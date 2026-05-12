@@ -175,7 +175,7 @@ func getSystemPrompt(model string, isBuilder bool, agentMode AgentMode) []string
 	}
 	modelLower := strings.ToLower(model)
 	needsStrictToolAddOn, _ := regexp.MatchString(`(?i)\b(mistral|o?llama|qwen|mixtral|yi|phi|deepseek)\b`, modelLower)
-	basePrompt := strings.TrimSpace(SystemPromptText_OpenAI + " " + SystemPromptText_EditWorkflowAddOn)
+	basePrompt := strings.TrimSpace(SystemPromptText_OpenAI)
 	if !needsStrictToolAddOn {
 		basePrompt = strings.TrimSpace(basePrompt + " " + SystemPromptText_ExecutionPolicyAddOn)
 	}
@@ -389,16 +389,6 @@ func GetChatUsage(chat *uctypes.AIChat) uctypes.AIUsage {
 func updateToolUseDataInChat(backend UseChatBackend, chatOpts uctypes.WaveChatOpts, toolCallID string, toolUseData uctypes.UIMessageDataToolUse) {
 	if err := backend.UpdateToolUseData(chatOpts.ChatId, toolCallID, toolUseData); err != nil {
 		log.Printf("failed to update tool use data in chat: %v\n", err)
-	}
-}
-
-func applyCheatsheetRefreshMetrics(metrics *uctypes.AIMetrics, stats SessionCheatsheetRefreshStats) {
-	if metrics == nil || !stats.Refreshed {
-		return
-	}
-	metrics.CheatsheetRefreshCount++
-	if stats.UsedModel {
-		metrics.CheatsheetModelCallCount++
 	}
 }
 
@@ -1313,7 +1303,6 @@ func processAllToolCalls(ctx context.Context, backend UseChatBackend, stopReason
 			}
 		}
 	}
-	applyCheatsheetRefreshMetrics(metrics, refreshSessionCheatsheet(backend, chatOpts))
 }
 
 func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseChatBackend, chatOpts uctypes.WaveChatOpts) (*uctypes.AIMetrics, error) {
@@ -1347,7 +1336,7 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 	tabStateDirty := true
 	var cont *uctypes.WaveContinueResponse
 	for {
-		chatOpts.SystemPrompt = composeSystemPromptWithCheatsheet(baseSystemPrompt, chatstore.DefaultChatStore.GetSession(chatOpts.ChatId))
+		chatOpts.SystemPrompt = baseSystemPrompt
 		if chatOpts.TabStateGenerator != nil && tabStateDirty {
 			metrics.TabStateRefreshCount++
 			tabState, tabTools, tabId, tabErr := chatOpts.TabStateGenerator()
@@ -1355,6 +1344,9 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 				chatOpts.TabState = tabState
 				chatOpts.TabTools = tabTools
 				chatOpts.TabId = tabId
+			}
+			if strings.Contains(chatOpts.TabState, "Active Remote Session:") {
+				chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, "The user is currently working on a remote terminal connection. Prioritize the remote environment for file operations and command execution.")
 			}
 			tabStateDirty = false
 		}
@@ -1427,7 +1419,6 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 				}
 			}
 		}
-		applyCheatsheetRefreshMetrics(metrics, refreshSessionCheatsheet(backend, chatOpts))
 		firstStep = false
 		if stopReason != nil && stopReason.Kind == uctypes.StopKindPremiumRateLimit && chatOpts.Config.APIType == uctypes.APIType_OpenAIResponses && chatOpts.Config.Model == uctypes.PremiumOpenAIModel {
 			log.Printf("Premium rate limit hit with %s, switching to %s\n", uctypes.PremiumOpenAIModel, uctypes.DefaultOpenAIModel)
@@ -1545,12 +1536,6 @@ func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, me
 		LastState: "executing",
 	})
 
-	userMessageText := message.GetContent()
-	existingSession := chatstore.DefaultChatStore.GetSession(chatOpts.ChatId)
-	if ShouldCreateTodo(userMessageText) && (existingSession == nil || existingSession.TaskState == nil || len(existingSession.TaskState.Tasks) == 0) {
-		chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, "⚠️ Detected a complex task. Use waveai_todo_write to create a task list to track execution progress.")
-	}
-
 	metrics, err := RunAIChat(ctx, sseHandler, backend, chatOpts)
 	sessionState := "completed"
 	if err != nil {
@@ -1559,9 +1544,7 @@ func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, me
 	chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
 		LastState: sessionState,
 	})
-	postRunCheatsheetStats := refreshSessionCheatsheet(backend, chatOpts)
 	if metrics != nil {
-		applyCheatsheetRefreshMetrics(metrics, postRunCheatsheetStats)
 		metrics.RequestDuration = int(time.Since(startTime).Milliseconds())
 		for _, part := range message.Parts {
 			if part.Type == uctypes.AIMessagePartTypeText {
@@ -1577,8 +1560,8 @@ func WaveAIPostMessageWrap(ctx context.Context, sseHandler *sse.SSEHandlerCh, me
 				}
 			}
 		}
-		log.Printf("WaveAI call metrics: requests=%d tools=%d cheatsheet_refresh=%d cheatsheet_model=%d tabstate_refresh=%d premium=%d proxy=%d images=%d pdfs=%d textdocs=%d textlen=%d duration=%dms error=%v\n",
-			metrics.RequestCount, metrics.ToolUseCount, metrics.CheatsheetRefreshCount, metrics.CheatsheetModelCallCount, metrics.TabStateRefreshCount,
+		log.Printf("WaveAI call metrics: requests=%d tools=%d tabstate_refresh=%d premium=%d proxy=%d images=%d pdfs=%d textdocs=%d textlen=%d duration=%dms error=%v\n",
+			metrics.RequestCount, metrics.ToolUseCount, metrics.TabStateRefreshCount,
 			metrics.PremiumReqCount, metrics.ProxyReqCount,
 			metrics.ImageCount, metrics.PDFCount, metrics.TextDocCount, metrics.TextLen, metrics.RequestDuration, metrics.HadError)
 
@@ -1599,8 +1582,6 @@ func sendAIMetricsTelemetry(ctx context.Context, metrics *uctypes.AIMetrics) {
 		WaveAIRequestCount:             metrics.RequestCount,
 		WaveAIToolUseCount:             metrics.ToolUseCount,
 		WaveAIToolUseErrorCount:        metrics.ToolUseErrorCount,
-		WaveAICheatsheetRefreshCount:   metrics.CheatsheetRefreshCount,
-		WaveAICheatsheetModelCallCount: metrics.CheatsheetModelCallCount,
 		WaveAITabStateRefreshCount:     metrics.TabStateRefreshCount,
 		WaveAIToolDetail:               metrics.ToolDetail,
 		WaveAIPremiumReq:               metrics.PremiumReqCount,
@@ -1903,9 +1884,9 @@ func generateBuilderAppData(appId string) (string, string, string, error) {
 
 	platformInfo := wavebase.GetSystemSummary()
 	if currentUser, userErr := user.Current(); userErr == nil && currentUser.Username != "" {
-		platformInfo = fmt.Sprintf("Local Machine: %s, User: %s", platformInfo, currentUser.Username)
+		platformInfo = fmt.Sprintf("Host Machine: %s, User: %s", platformInfo, currentUser.Username)
 	} else {
-		platformInfo = fmt.Sprintf("Local Machine: %s", platformInfo)
+		platformInfo = fmt.Sprintf("Host Machine: %s", platformInfo)
 	}
 
 	return appGoFile, staticFilesJSON, platformInfo, nil

@@ -183,7 +183,7 @@ func TestTodoWriteTool_AllPendingReminder(t *testing.T) {
 	state := buildTodoTaskState(parsed)
 	reminder := buildTodoWriteReminder(state, parsed)
 	if reminder == "" {
-		t.Fatalf("expected reminder for all-pending tasks with ≥3 items")
+		t.Fatalf("expected reminder for all-pending tasks")
 	}
 }
 

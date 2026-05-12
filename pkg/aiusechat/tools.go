@@ -169,9 +169,32 @@ func GenerateCurrentTabStatePrompt(blocks []*waveobj.Block, widgetAccess bool) s
 	prompt.WriteString("<current_tab_state>\n")
 	systemInfo := wavebase.GetSystemSummary()
 	if currentUser, err := user.Current(); err == nil && currentUser.Username != "" {
-		prompt.WriteString(fmt.Sprintf("Local Machine: %s, User: %s\n", systemInfo, currentUser.Username))
+		prompt.WriteString(fmt.Sprintf("Host Machine: %s, User: %s\n", systemInfo, currentUser.Username))
 	} else {
-		prompt.WriteString(fmt.Sprintf("Local Machine: %s\n", systemInfo))
+		prompt.WriteString(fmt.Sprintf("Host Machine: %s\n", systemInfo))
+	}
+	var activeRemoteConnection string
+	var activeRemoteCwd string
+	for _, block := range blocks {
+		if block.Meta == nil {
+			continue
+		}
+		if viewType, ok := block.Meta["view"].(string); ok && viewType == "term" {
+			if conn, ok := block.Meta["connection"].(string); ok && conn != "" {
+				activeRemoteConnection = conn
+				if cwd, ok := block.Meta["cmd:cwd"].(string); ok && cwd != "" {
+					activeRemoteCwd = cwd
+				}
+				break
+			}
+		}
+	}
+	if activeRemoteConnection != "" {
+		prompt.WriteString(fmt.Sprintf("Active Remote Session: connected to %q", activeRemoteConnection))
+		if activeRemoteCwd != "" {
+			prompt.WriteString(fmt.Sprintf(", working directory %q", activeRemoteCwd))
+		}
+		prompt.WriteString("\n")
 	}
 	if len(widgetDescriptions) == 0 {
 		prompt.WriteString("No widgets open\n")
@@ -223,6 +246,7 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 		tools = append(tools, GetTodoWriteToolDefinition(chatOpts.ChatId, &chatOpts.Config))
 		tools = append(tools, GetTodoReadToolDefinition(chatOpts.ChatId, &chatOpts.Config))
 		tools = append(tools, GetAskUserToolDefinition())
+		tools = append(tools, GetThinkToolDefinition())
 	}
 	if hasEnabledSkills() {
 		tools = append(tools, GetUseSkillToolDefinition())

@@ -227,7 +227,7 @@ func buildTodoWriteReminder(state *uctypes.UITaskProgressState, input todoWriteI
 			break
 		}
 	}
-	if allPending && len(state.Tasks) >= 3 {
+	if allPending && len(state.Tasks) > 0 {
 		if isChinese {
 			return "提醒：已创建任务列表但所有任务仍为 pending。请立即将第一个任务设为 in_progress 并开始执行。"
 		}
@@ -240,7 +240,7 @@ func GetTodoWriteToolDefinition(chatId string, aiOpts *uctypes.AIOptsType) uctyp
 	return uctypes.ToolDefinition{
 		Name:        "waveai_todo_write",
 		DisplayName: "Todo Write",
-		Description: "Create and manage structured task lists. Each task must include content (title) and description (detailed steps). Use ONLY for tasks with ≥3 concrete steps; for 1-2 steps, act directly. State flow: pending → in_progress → completed.",
+		Description: "Create and manage structured task lists. Each task must include content (title) and description (detailed steps). You may use this for any task that benefits from structured tracking. State flow: pending → in_progress → completed. You may dynamically append new tasks as work progresses.",
 		ToolLogName: "wave:todowrite",
 		Strict:      true,
 		InputSchema: map[string]any{
@@ -313,7 +313,7 @@ func GetTodoReadToolDefinition(chatId string, aiOpts *uctypes.AIOptsType) uctype
 	return uctypes.ToolDefinition{
 		Name:        "waveai_todo_read",
 		DisplayName: "Todo Read",
-		Description: "Read the current task list. Returns all tasks with their status, focus chain state, and context usage. If fewer than 3 tasks exist, suggests executing directly instead of maintaining a list.",
+		Description: "Read the current task list. Returns all tasks with their status, focus chain state, and context usage.",
 		ToolLogName: "wave:todoread",
 		Strict:      true,
 		InputSchema: map[string]any{
@@ -328,7 +328,7 @@ func GetTodoReadToolDefinition(chatId string, aiOpts *uctypes.AIOptsType) uctype
 			if meta == nil || meta.TaskState == nil || len(meta.TaskState.Tasks) == 0 {
 				return map[string]any{
 					"todos": []any{},
-					"hint":  "No task list exists. Use waveai_todo_write to create one for complex multi-step tasks (≥3 steps).",
+					"hint":  "No task list exists. Use waveai_todo_write to create one if structured tracking helps.",
 				}, nil
 			}
 			state := meta.TaskState.Clone()

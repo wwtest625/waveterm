@@ -77,7 +77,7 @@ export function shouldRenderStreamingPlainText(isStreaming: boolean, text: strin
     return isStreaming && Boolean(text.trim());
 }
 
-const UserPromptCard = memo(({ message }: { message?: WaveUIMessage }) => {
+export const UserPromptCard = memo(({ message }: { message?: WaveUIMessage }) => {
     if (!message) {
         return null;
     }

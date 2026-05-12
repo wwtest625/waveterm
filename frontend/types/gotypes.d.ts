@@ -814,7 +814,6 @@ declare global {
         tabid?: string;
         title?: string;
         summary?: string;
-        cheatsheet?: SessionCheatsheet;
         favorite?: boolean;
         archived?: boolean;
         deleted?: boolean;
@@ -1603,14 +1602,6 @@ declare global {
         optional: boolean;
     };
 
-    // uctypes.SessionCheatsheet
-    type SessionCheatsheet = {
-        currentwork?: string;
-        completed?: string;
-        blockedby?: string;
-        nextstep?: string;
-    };
-
     // wconfig.SettingsType
     type SettingsType = {
         "app:*"?: boolean;
@@ -1881,8 +1872,6 @@ declare global {
         "waveai:requestcount"?: number;
         "waveai:toolusecount"?: number;
         "waveai:tooluseerrorcount"?: number;
-        "waveai:cheatsheetrefreshcount"?: number;
-        "waveai:cheatsheetmodelcallcount"?: number;
         "waveai:tabstaterefreshcount"?: number;
         "waveai:tooldetail"?: {[key: string]: number};
         "waveai:premiumreq"?: number;
@@ -2220,7 +2209,6 @@ declare global {
         tabid?: string;
         title?: string;
         summary?: string;
-        cheatsheet?: SessionCheatsheet;
         taskstate?: UITaskProgressState;
         backgroundjobs?: UIChatBackgroundJobInfo[];
         createdts?: number;

@@ -16,7 +16,7 @@ import { AskUserCard } from "./askusercard";
 import { t } from "./aipanel-i18n";
 import { TaskProgressPanel } from "./taskprogresspanel";
 import { WaveAIModel } from "./waveai-model";
-import { AssistantOutputCard } from "./ai-assistant-output";
+import { AssistantOutputCard, UserPromptCard } from "./ai-assistant-output";
 import { type TaskTurn, getTurnTaskPlan } from "./ai-taskturn-utils";
 import {
     shouldFollowLatestOutput,
@@ -145,7 +145,8 @@ const TaskTurnCard = memo(
             return null;
         }
         return (
-            <div className="space-y-4" data-turnid={turn.id} ref={(el) => WaveAIModel.getInstance()?.registerScrollTarget(turn.id, el)}>
+            <div className="space-y-2" data-turnid={turn.id} ref={(el) => WaveAIModel.getInstance()?.registerScrollTarget(turn.id, el)}>
+                <UserPromptCard message={turn.userMessage} />
                 {shouldShowTurnTaskChain(turn) && <TaskChain turn={turn} runtime={isLatestTurn ? runtime : null} />}
                 <AssistantOutputCard turn={turn} fallbackOutput={fallbackOutput} />
                 {taskPlan && (
@@ -261,7 +262,7 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
     return (
         <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-2" onContextMenu={onContextMenu}>
             <PanelHero />
-            <div className="space-y-6">
+            <div className="space-y-4">
                 {turns.map((turn, index) => {
                     const isLastTurn = index === turns.length - 1;
                     const fallbackOutput = resolveTurnFallbackOutput(turn, isLastTurn, runtimeLastToolStdout);

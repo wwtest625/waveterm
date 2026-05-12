@@ -302,7 +302,6 @@ type UIChatSessionMeta struct {
 	TabId          string                    `json:"tabid,omitempty"`
 	Title          string                    `json:"title,omitempty"`
 	Summary        string                    `json:"summary,omitempty"`
-	Cheatsheet     *SessionCheatsheet        `json:"cheatsheet,omitempty"`
 	TaskState      *UITaskProgressState      `json:"taskstate,omitempty"`
 	BackgroundJobs []UIChatBackgroundJobInfo `json:"backgroundjobs,omitempty"`
 	CreatedTs      int64                     `json:"createdts,omitempty"`
@@ -318,10 +317,6 @@ func (m *UIChatSessionMeta) Clone() *UIChatSessionMeta {
 		return nil
 	}
 	copied := *m
-	if m.Cheatsheet != nil {
-		cheatsheetCopy := *m.Cheatsheet
-		copied.Cheatsheet = &cheatsheetCopy
-	}
 	if m.TaskState != nil {
 		copied.TaskState = m.TaskState.Clone()
 	}
@@ -352,19 +347,11 @@ type UIChatBackgroundJobInfo struct {
 	TurnId           string `json:"turnid,omitempty"`
 }
 
-type SessionCheatsheet struct {
-	CurrentWork string `json:"currentwork,omitempty"`
-	Completed   string `json:"completed,omitempty"`
-	BlockedBy   string `json:"blockedby,omitempty"`
-	NextStep    string `json:"nextstep,omitempty"`
-}
-
 type UIChatSessionMetaUpdate struct {
-	TabId      string               `json:"tabid,omitempty"`
-	Title      *string              `json:"title,omitempty"`
-	Summary    *string              `json:"summary,omitempty"`
-	Cheatsheet *SessionCheatsheet   `json:"cheatsheet,omitempty"`
-	TaskState  *UITaskProgressState `json:"taskstate,omitempty"`
+	TabId     string               `json:"tabid,omitempty"`
+	Title     *string              `json:"title,omitempty"`
+	Summary   *string              `json:"summary,omitempty"`
+	TaskState *UITaskProgressState `json:"taskstate,omitempty"`
 	Favorite   *bool                `json:"favorite,omitempty"`
 	LastState  string               `json:"laststate,omitempty"`
 	Archived   *bool                `json:"archived,omitempty"`
@@ -633,8 +620,6 @@ type AIMetrics struct {
 	ToolUseCount             int            `json:"toolusecount"`
 	ToolUseErrorCount        int            `json:"tooluseerrorcount"`
 	ToolDetail               map[string]int `json:"tooldetail,omitempty"`
-	CheatsheetRefreshCount   int            `json:"cheatsheetrefreshcount"`
-	CheatsheetModelCallCount int            `json:"cheatsheetmodelcallcount"`
 	TabStateRefreshCount     int            `json:"tabstaterefreshcount"`
 	PremiumReqCount          int            `json:"premiumreqcount"`
 	ProxyReqCount            int            `json:"proxyreqcount"`

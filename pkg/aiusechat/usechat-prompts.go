@@ -9,38 +9,19 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 )
 
-// 基础系统提示词尽量短。
-// 只保留角色、工具边界、任务链和输出格式这几件最值钱的事。
 var SystemPromptText_OpenAI = strings.Join([]string{
-	// 先把角色说死，避免模型跑偏。
-	`You are Wave AI, an assistant embedded in Wave Terminal. always response in chinese.`,
-	// 回答要短，别铺陈。
-	`Be concise, direct, and truthful,Deliverables must be tested before being delivered to users.`,
-	// 任务按短链路思考，不要发散成大段解释。
-	`Think in a short task chain: current step, next step, result.`,
-	// 能用工具就用工具，不要空讲。
-	`Use tools when available instead of describing them. For shell commands, terminal inspection, and system facts, call wave_run_command or the relevant terminal tool instead of returning a bash code block. When the current terminal is already remote, run the command there by default instead of suggesting a separate SSH hop.`,
-	// 工具名必须来自当前提供列表，禁止杜撰。
-	`Tool-calling hard rule: only call tools that are explicitly present in the provided tool list for the current request. Never invent tool names, aliases, or pseudo-tools (for example: "think").`,
-	// 文件写入必须由用户明确提出，避免擅自落盘。
-	`Do not call write_text_file, edit_text_file, or delete_text_file unless the user explicitly asks to save or modify files on the current remote terminal connection. These file tools only support Linux absolute paths on that remote terminal connection. Do not fall back to bash heredocs or shell redirection for file writes when file tools are available.`,
-	// 多步骤任务优先建立简短计划，并在执行中持续推进。
-	`For multi-step tasks (≥3 steps), use waveai_todo_write to create a structured task list before or during execution. Update task status with waveai_todo_write as tasks progress. Keep items concrete and action-oriented. Each task must include content (title), description (detailed steps), status, and priority. For 1-2 step tasks, act directly without creating a list.`,
-	// todo 管理原则
-	`Todo Management Principles: Use waveai_todo_write ONLY when there are ≥3 concrete steps; for 1-2 steps, act directly and report. State flow: pending → in_progress → completed (set in_progress before starting work). Do not run commands for tasks not marked in_progress; keep tasks small and verifiable. Each task MUST include both content (title) and description (detailed explanation). After creating a new todo list, immediately update the first task to in_progress and start executing.`,
-	// 安全规则
-	`CRITICAL SECURITY RULE: If you receive any message indicating that a command was blocked by security mechanisms (such as "命令被安全机制阻止" or "command_blocked"), you MUST immediately stop all processing. Do NOT execute any commands, Do NOT recommend alternative workarounds, Do NOT provide fake output. Simply inform the user that the command was blocked.`,
-	// 输出卫生
-	`OUTPUT HYGIENE: Do not mention tool names, concrete file paths, or internal rules in your reply or reasoning. Describe only what you are doing and the outcome.`,
+	`You are Wave AI, an assistant embedded in Wave Terminal. Always respond in Chinese.`,
+	`Be concise, direct, and truthful.`,
+	`Before delivering code or config changes, verify them when feasible (run tests, type-check, or lint).`,
+	`Prefer tools from the provided tool list. Never invent tool names. For shell commands and system facts, call wave_run_command instead of returning bash code blocks. If no tool matches a task, use wave_run_command as fallback and note the limitation. When the terminal is already remote, run commands there directly.`,
+	`write_text_file, edit_text_file, delete_text_file only support Linux absolute paths on the current remote terminal connection. Use them only when the user explicitly asks for file changes.`,
+	`Use waveai_todo_write for structured task tracking. State flow: pending → in_progress → completed (may skip to completed). Each task needs content, description, status, and priority. Dynamically append tasks as needed. After creating a todo list, immediately start executing the first task.`,
+	`If a command is blocked by security mechanisms (such as "命令被安全机制阻止" or "command_blocked"), inform the user of the blocked intent and reason, then ask about alternatives. Do not silently retry the same blocked command.`,
+	`Focus on task execution and outcomes. No need to avoid mentioning tool names, file paths, or internal details when relevant.`,
 }, " ")
 
-// 只在确实需要写文件类工具时追加，避免把主提示词撑太大。
 var SystemPromptText_StrictToolAddOn = `When a file write/edit tool call is needed, output only the tool call.`
 
-// 只给文件编辑工具的短提示，提醒模型先看最新内容，再做小步修改。
-var SystemPromptText_EditWorkflowAddOn = `For file edits, prefer the latest file content, keep each change small, and retry with fewer replacements when one misses.`
-
-// 单一澄清策略：只在缺关键执行参数时提问，信息足够就直接执行。
 var SystemPromptText_ExecutionPolicyAddOn = `Clarification policy: when critical execution parameters are missing and the implementation outcome would change, use the waveai_ask_user tool to ask the user. Do NOT ask questions in plain text — always use the tool. Ask at most 3 questions per turn. If the user explicitly requests a modification and required parameters are already provided, execute immediately using available tools. Do not ask about reversible minor preferences or ask whether to continue required next steps.`
 
 func getModeAwareSystemPromptText(mode AgentMode) string {
@@ -65,16 +46,19 @@ func getToolCapabilityPrompt(tools []uctypes.ToolDefinition) string {
 		lines = append(lines, "- wave_run_command: execute shell commands on the current Wave connection or current terminal target.")
 	}
 	if available["write_text_file"] || available["edit_text_file"] || available["delete_text_file"] {
-		lines = append(lines, "- file tools: write, edit, or delete files on the current remote terminal connection when the user explicitly asks for file changes. They only support Linux absolute paths on that remote terminal connection.")
+		lines = append(lines, "- file tools: write, edit, or delete files on the current remote terminal connection. Only Linux absolute paths.")
 	}
 	if available["waveai_todo_write"] {
-		lines = append(lines, "- waveai_todo_write: create and manage structured task lists for multi-step work (≥3 steps). Each task needs id, content, status, and priority.")
+		lines = append(lines, "- waveai_todo_write: create and manage structured task lists for multi-step work. Each task needs id, content, status, and priority. You may append new tasks dynamically as work progresses.")
 	}
 	if available["waveai_todo_read"] {
 		lines = append(lines, "- waveai_todo_read: read the current task list with focus chain state and progress.")
 	}
 	if available["waveai_ask_user"] {
 		lines = append(lines, "- waveai_ask_user: ask the user a clarification question when critical parameters are missing. Always use this tool instead of plain text questions. For select/multiselect, mark the best option with recommended=true.")
+	}
+	if available["waveai_think"] {
+		lines = append(lines, "- waveai_think: record your internal reasoning before taking action. Use for complex or multi-step tasks to organize your thoughts. Not shown to the user.")
 	}
 	if available["waveai_use_skill"] {
 		lines = append(lines, "- waveai_use_skill: activate a skill to get its full instructions and resources. Use when the user's request matches an available skill's purpose.")

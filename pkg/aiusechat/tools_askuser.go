@@ -13,7 +13,7 @@ func GetAskUserToolDefinition() uctypes.ToolDefinition {
 	return uctypes.ToolDefinition{
 		Name:        "waveai_ask_user",
 		DisplayName: "Ask User",
-		Description: "Ask the user a clarification question when critical execution parameters are missing. Use this tool instead of asking in plain text. The tool will pause execution until the user responds. Ask at most 3 questions per turn.",
+		Description: "Ask the user a clarification question when critical execution parameters are missing. Use this tool instead of asking in plain text. The tool will pause execution until the user responds.",
 		ToolLogName: "wave:askuser",
 		Strict:      true,
 		InputSchema: map[string]any{
