@@ -560,18 +560,12 @@ export const getFilteredAIModeConfigs = (
         .filter((config) => config["ai:provider"] !== "wave")
         .sort(sortByDisplayOrder);
 
-    const hasCustomModels = otherProviderConfigs.length > 0;
-    const isCurrentModeCloud = currentMode?.startsWith("waveai@") ?? false;
-    const shouldShowCloudModes = showCloudModes || !hasCustomModels || isCurrentModeCloud;
-
-    const waveProviderConfigs = shouldShowCloudModes
-        ? allConfigs.filter((config) => config["ai:provider"] === "wave").sort(sortByDisplayOrder)
-        : [];
+    const waveProviderConfigs: Array<{ mode: string } & AIModeConfigType> = [];
 
     return {
         waveProviderConfigs,
         otherProviderConfigs,
-        shouldShowCloudModes,
+        shouldShowCloudModes: false,
     };
 };
 

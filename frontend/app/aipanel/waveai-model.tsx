@@ -205,15 +205,17 @@ export class WaveAIModel {
 
         this.defaultModeAtom = jotai.atom((get) => {
             const aiModeConfigs = get(this.aiModeConfigs);
-            const hasPremium = get(this.hasPremiumAtom);
-            const waveFallback = hasPremium ? "waveai@balanced" : "waveai@quick";
-            let mode = get(getSettingsKeyAtom("waveai:defaultmode")) ?? waveFallback;
-            if (!hasPremium && mode.startsWith("waveai@")) {
-                mode = "waveai@quick";
+            const byokConfigs = Object.entries(aiModeConfigs ?? {})
+                .filter(([, config]) => config["ai:provider"] !== "wave")
+                .sort(([, a], [, b]) => (a["display:order"] ?? 0) - (b["display:order"] ?? 0));
+            const firstByokMode = byokConfigs.length > 0 ? byokConfigs[0][0] : null;
+            let mode = get(getSettingsKeyAtom("waveai:defaultmode")) ?? firstByokMode ?? "waveai@quick";
+            if (mode.startsWith("waveai@") && firstByokMode) {
+                mode = firstByokMode;
             }
             const modeExists = aiModeConfigs != null && mode in aiModeConfigs;
             if (!modeExists) {
-                mode = waveFallback;
+                mode = firstByokMode ?? "waveai@quick";
             }
             return mode;
         });
@@ -593,8 +595,6 @@ export class WaveAIModel {
                 lasttaskstate: "idle",
             });
         }
-
-        this.getChatSetMessages()?.([]);
     }
 
     setError(message: string) {
@@ -805,6 +805,7 @@ export class WaveAIModel {
     }
 
     async cancelGeneration() {
+        const chatIdAtEntry = globalStore.get(this.chatId);
         this.dispatchAgentEvent({ type: "CANCEL_GENERATION" });
         this.getChatStop()?.();
         const cancelPollInterval = 100;
@@ -814,12 +815,21 @@ export class WaveAIModel {
             await new Promise((resolve) => setTimeout(resolve, cancelPollInterval));
         }
 
+        if (globalStore.get(this.chatId) !== chatIdAtEntry) {
+            return;
+        }
+
         const chatIdValue = globalStore.get(this.chatId);
         if (!chatIdValue) {
             return;
         }
         try {
             const messages = await this.reloadChatFromBackend(chatIdValue);
+
+            if (globalStore.get(this.chatId) !== chatIdAtEntry) {
+                return;
+            }
+
             this.getChatSetMessages()?.(messages);
         } catch (error) {
             console.error("Failed to reload chat after stop:", error);
