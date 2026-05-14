@@ -5,6 +5,7 @@ import { WaveAIModel } from "@/app/aipanel/waveai-model";
 import { BlockNodeModel } from "@/app/block/blocktypes";
 import { appHandleKeyDown } from "@/app/store/keymodel";
 import { modalsModel } from "@/app/store/modalmodel";
+import { showPromptModal } from "@/app/modals/promptmodal";
 import type { TabModel } from "@/app/store/tab-model";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -225,9 +226,13 @@ export class TermViewModel implements ViewModel {
         });
     }
 
-    promptForCustomCompletionNotificationThreshold() {
+    async promptForCustomCompletionNotificationThreshold() {
         const currentValue = String(this.getCompletionNotificationThresholdMs());
-        const response = window.prompt("完成通知阈值（毫秒）", currentValue);
+        const response = await showPromptModal({
+            title: "完成通知阈值（毫秒）",
+            defaultValue: currentValue,
+            placeholder: "请输入大于等于 0 的毫秒数",
+        });
         if (response == null) {
             return;
         }

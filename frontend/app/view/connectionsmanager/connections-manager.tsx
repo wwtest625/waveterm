@@ -6,6 +6,7 @@ import { Button } from "@/app/element/button";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
+import { showConfirmModal } from "@/app/modals/promptmodal";
 import type { TabModel } from "@/app/store/tab-model";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atoms, getConnStatusAtom } from "@/store/global";
@@ -510,7 +511,10 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     }
 
     async function handleSoftDelete(host: string) {
-        if (!window.confirm(`是否将连接 "${host}" 从列表中隐藏？`)) {
+        const confirmed = await showConfirmModal({
+            title: `是否将连接 "${host}" 从列表中隐藏？`,
+        });
+        if (!confirmed) {
             return;
         }
         try {

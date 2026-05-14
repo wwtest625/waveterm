@@ -39,6 +39,12 @@ window.MonacoEnvironment = {
     },
 };
 
+window.addEventListener("unhandledrejection", (event) => {
+    if (event.reason?.message?.includes("resetSchema")) {
+        event.preventDefault();
+    }
+});
+
 export function loadMonaco() {
     if (monacoConfigured) {
         return;
@@ -64,12 +70,15 @@ export function loadMonaco() {
             focusBorder: "#00000000",
         },
     });
-    configureMonacoYaml(monaco, {
-        validate: true,
-        schemas: [],
-    });
+    try {
+        configureMonacoYaml(monaco, {
+            validate: true,
+            schemas: [],
+        });
+    } catch (e) {
+        console.warn("monaco-yaml configuration failed (known compatibility issue with monaco-editor 0.55+):", e);
+    }
     monaco.editor.setTheme("wave-theme-dark");
-    // Disable default validation errors for typescript and javascript
     monaco.typescript.typescriptDefaults.setDiagnosticsOptions({
         noSemanticValidation: true,
     });

@@ -461,10 +461,7 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                 <div className={panelClass}>
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                            <div className="text-lg font-semibold text-zinc-100">容器管理</div>
-                            <div className="text-sm text-zinc-400">
-                                当前连接：{connection === "" ? "本机" : connection}
-                            </div>
+                            <div className="text-lg font-semibold text-zinc-100">容器管理 ：{connection === "" ? "本机" : connection}</div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                             <DockerTabButton
@@ -487,8 +484,7 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                     <div key="docker-containers-panel" className={panelClass}>
                         <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <div>
-                                <div className="text-base font-semibold text-zinc-100">容器列表</div>
-                                <div className="text-sm text-zinc-500">按容器名和镜像ID分别筛选</div>
+                                <div className="text-base font-semibold text-zinc-100">列表</div>
                             </div>
                             <div className="flex w-full max-w-xl flex-col gap-2 sm:flex-row">
                                 <input
@@ -662,7 +658,6 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                         <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             <div>
                                 <div className="text-base font-semibold text-zinc-100">镜像列表</div>
-                                <div className="text-sm text-zinc-500">按名称或标签搜索</div>
                             </div>
                             <div className="flex w-full max-w-2xl flex-col gap-2 sm:flex-row">
                                 <input
