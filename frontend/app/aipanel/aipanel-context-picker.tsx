@@ -74,15 +74,12 @@ export const ContextPicker = memo(forwardRef<ContextPickerHandle, ContextPickerP
             setIsLoading(true);
             setError(null);
             const effectiveQuery = searchQuery.length > 0 ? searchQuery : "*";
-            console.log("[KB-DEBUG] ContextPicker: searching KB files, query=", effectiveQuery);
             const timer = setTimeout(() => {
                 fireAndForget(async () => {
                     try {
                         const result = await RpcApi.SearchKBFilesCommand(TabRpcClient, { query: effectiveQuery });
-                        console.log("[KB-DEBUG] ContextPicker: search result", result?.length, "items", result);
                         setKbResults(result || []);
                     } catch (e) {
-                        console.error("[KB-DEBUG] ContextPicker: search error", e);
                         setKbResults([]);
                         setError(e instanceof Error ? e.message : String(e));
                     } finally {

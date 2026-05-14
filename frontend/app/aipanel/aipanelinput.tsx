@@ -53,16 +53,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     const canSubmit = Boolean(input.trim()) || contextItems.length > 0;
 
     useEffect(() => {
-        console.log("[KB-DEBUG] aipanelinput: calling kbEnsureRoot...");
-        kbEnsureRoot()
-            .then(() => {
-                console.log("[KB-DEBUG] aipanelinput: kbEnsureRoot succeeded, setting kbEnabled=true");
-                setKbEnabled(true);
-            })
-            .catch((err) => {
-                console.error("[KB-DEBUG] aipanelinput: kbEnsureRoot failed", err);
-                setKbEnabled(false);
-            });
+        kbEnsureRoot().then(() => setKbEnabled(true)).catch(() => setKbEnabled(false));
     }, []);
 
     let placeholder: string;

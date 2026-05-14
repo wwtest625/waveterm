@@ -2289,19 +2289,13 @@ func (ws *WshServer) GetSkillDefinitionCommand(ctx context.Context, data wshrpc.
 }
 
 func (ws *WshServer) SearchKBFilesCommand(ctx context.Context, data wshrpc.CommandSearchKBFilesData) ([]wshrpc.KBFileSearchResult, error) {
-	log.Printf("[KB-DEBUG] SearchKBFilesCommand: query=%q", data.Query)
 	if err := knowledgebase.EnsureRoot(); err != nil {
-		log.Printf("[KB-DEBUG] SearchKBFilesCommand: EnsureRoot failed: %v", err)
 		return nil, fmt.Errorf("error initializing knowledge base: %w", err)
 	}
-	kbRoot := knowledgebase.GetKbRoot()
-	log.Printf("[KB-DEBUG] SearchKBFilesCommand: kbRoot=%s", kbRoot)
 	results, err := knowledgebase.Search(data.Query)
 	if err != nil {
-		log.Printf("[KB-DEBUG] SearchKBFilesCommand: Search error: %v", err)
 		return nil, fmt.Errorf("error searching kb files: %w", err)
 	}
-	log.Printf("[KB-DEBUG] SearchKBFilesCommand: found %d results", len(results))
 	var result []wshrpc.KBFileSearchResult
 	for _, r := range results {
 		result = append(result, wshrpc.KBFileSearchResult{
