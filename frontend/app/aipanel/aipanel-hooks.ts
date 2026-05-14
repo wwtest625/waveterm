@@ -1,4 +1,4 @@
-import { formatFileSizeError, isAcceptableFile, validateFileSize } from "./ai-utils";
+import { createImagePreview, formatFileSizeError, isAcceptableFile, resizeImage, validateFileSize } from "./ai-utils";
 import { atoms, getFocusedBlockId, recordTEvent } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import * as jotai from "jotai";
@@ -11,6 +11,7 @@ import {
     type AgentRuntimeState,
     type AskUserData,
     type CommandInteractionState,
+    type FileContextData,
     type WaveUIMessage,
     coalesceMessageParts,
     getLatestAskPart,
@@ -80,7 +81,26 @@ export function useFileDragDrop(model: WaveAIModel, containerRef: React.RefObjec
                 model.setError(formatFileSizeError(sizeError));
                 return;
             }
-            await model.addFile(file);
+            const processedFile = await resizeImage(file);
+            let previewUrl: string | undefined;
+            if (processedFile.type.startsWith("image/")) {
+                const preview = await createImagePreview(processedFile);
+                if (preview) previewUrl = preview;
+            }
+            model.addContextItem({
+                id: crypto.randomUUID(),
+                type: "file",
+                label: processedFile.name,
+                icon: "fa-file",
+                data: {
+                    path: processedFile.name,
+                    connName: "local",
+                    size: processedFile.size,
+                    mimetype: processedFile.type,
+                    file: processedFile,
+                    previewUrl,
+                } as FileContextData,
+            });
         }
         if (acceptableFiles.length < files.length) {
             const rejectedCount = files.length - acceptableFiles.length;

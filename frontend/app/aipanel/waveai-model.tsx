@@ -10,6 +10,12 @@ import {
     AskUserData,
     ChatBackgroundJobDetail,
     CommandInteractionState,
+    ContextItem,
+    ContextItemContent,
+    ContextItemType,
+    FileContextData,
+    KBContextData,
+    SkillContextData,
     ToolCallEnvelope,
     ToolResultEnvelope,
     UseChatSendMessageType,
@@ -103,6 +109,7 @@ export class WaveAIModel {
     // ─── Message Input & Queue ─────────────────────────────────────────────────
     inputAtom: jotai.PrimitiveAtom<string> = jotai.atom("");
     queuedSubmissionsAtom: jotai.PrimitiveAtom<QueuedSubmission[]> = jotai.atom([]);
+    contextItemsAtom: jotai.PrimitiveAtom<ContextItem[]> = jotai.atom([]);
 
     // ─── Sub-Modules ───────────────────────────────────────────────────────────
     readonly agentRuntime: AgentRuntimeModule;
@@ -301,6 +308,9 @@ export class WaveAIModel {
             case "SET_RESTORE_BACKUP_ERROR":
                 globalStore.set(this.restoreBackupError, action.error);
                 break;
+            case "SET_CONTEXT_ITEMS":
+                globalStore.set(this.contextItemsAtom, action.items);
+                break;
             case "CLEAR_CHAT_STATE":
                 globalStore.set(this.isChatEmptyAtom, true);
                 globalStore.set(this.backgroundJobsAtom, []);
@@ -363,12 +373,11 @@ export class WaveAIModel {
     }
 
     private findReusableNewChatSession(): WaveChatSessionMeta | null {
-        const tabId = this.getSessionTabId();
         const currentChatId = globalStore.get(this.chatId);
         const sessions = globalStore.get(this.sessionsAtom);
         const candidates = sessions.filter(
             (session) =>
-                session.tabid === tabId && this.isReusableNewChatSession(session) && session.chatid !== currentChatId
+                this.isReusableNewChatSession(session) && session.chatid !== currentChatId
         );
         if (candidates.length === 0) {
             return null;
@@ -423,11 +432,47 @@ export class WaveAIModel {
         this.fileService.clearFiles();
     }
 
+    addContextItem(item: ContextItem) {
+        const current = globalStore.get(this.contextItemsAtom);
+        this.dispatch({ type: "SET_CONTEXT_ITEMS", items: [...current, item] });
+    }
+
+    removeContextItem(id: string) {
+        const current = globalStore.get(this.contextItemsAtom);
+        this.dispatch({ type: "SET_CONTEXT_ITEMS", items: current.filter((item) => item.id !== id) });
+    }
+
+    clearContextItems() {
+        this.dispatch({ type: "SET_CONTEXT_ITEMS", items: [] });
+    }
+
+    async resolveContextContent(item: ContextItem): Promise<ContextItemContent> {
+        if (item.type === "skill") {
+            const skillData = item.data as SkillContextData;
+            const result = await RpcApi.GetSkillDefinitionCommand(TabRpcClient, { skillId: skillData.skillId });
+            return { text: result.definition, identifier: skillData.skillName, type: "skill" };
+        }
+        if (item.type === "kb") {
+            const kbData = item.data as KBContextData;
+            const result = await RpcApi.ReadKBFileCommand(TabRpcClient, { path: kbData.path });
+            return { text: result.content, identifier: kbData.path, type: "kb" };
+        }
+        if (item.type === "file") {
+            const fileData = item.data as FileContextData;
+            if (fileData.file) {
+                const text = await fileData.file.text();
+                return { text, identifier: fileData.path, type: "file" };
+            }
+            return { text: "", identifier: fileData.path, type: "file" };
+        }
+        return { text: "", identifier: "", type: item.type };
+    }
+
     async loadSessions(opts?: { includeArchived?: boolean; includeDeleted?: boolean }): Promise<WaveChatSessionMeta[]> {
         const sessions = await RpcApi.ListWaveAISessionsCommand(
             TabRpcClient,
             {
-                tabid: this.getSessionTabId(),
+                tabid: "",
                 includearchived: opts?.includeArchived,
                 includedeleted: opts?.includeDeleted,
             },
@@ -1685,7 +1730,6 @@ export class WaveAIModel {
 
     async handleSubmit() {
         const input = globalStore.get(this.inputAtom);
-        const droppedFiles = globalStore.get(this.droppedFiles);
 
         if (input.trim() === "/clear" || input.trim() === "/new") {
             this.clearChat();
@@ -1693,18 +1737,54 @@ export class WaveAIModel {
             return;
         }
 
-        if (!this.hasSubmittableContent(input, droppedFiles)) {
+        const contextItems = globalStore.get(this.contextItemsAtom);
+        const fileContextItems = contextItems.filter((item) => item.type === "file");
+        const otherContextItems = contextItems.filter((item) => item.type !== "file");
+
+        const contextDroppedFiles: DroppedFile[] = fileContextItems
+            .filter((item) => (item.data as FileContextData).file != null)
+            .map((item) => {
+                const fileData = item.data as FileContextData;
+                return {
+                    id: item.id,
+                    file: fileData.file!,
+                    name: item.label,
+                    type: fileData.mimetype || "application/octet-stream",
+                    size: fileData.size,
+                    previewUrl: fileData.previewUrl,
+                };
+            });
+
+        const atomDroppedFiles = globalStore.get(this.droppedFiles);
+        const allDroppedFiles = [...contextDroppedFiles, ...atomDroppedFiles];
+
+        if (!this.hasSubmittableContent(input, allDroppedFiles) && otherContextItems.length === 0) {
             return;
         }
+
+        let contextPrefix = "";
+        if (otherContextItems.length > 0) {
+            const resolvedParts: string[] = [];
+            for (const item of otherContextItems) {
+                const resolved = await this.resolveContextContent(item);
+                if (resolved.text) {
+                    resolvedParts.push(`--- ${resolved.type}: ${resolved.identifier} ---\n${resolved.text}\n--- End ${resolved.type} ---`);
+                }
+            }
+            contextPrefix = resolvedParts.join("\n\n") + "\n\n";
+        }
+
+        const finalInput = contextPrefix + input;
 
         if (this.isChatBusy()) {
-            this.enqueueSubmission(input, droppedFiles);
-            return;
+            this.enqueueSubmission(finalInput, allDroppedFiles);
+        } else {
+            await this.sendSubmission(finalInput, allDroppedFiles);
         }
 
-        await this.sendSubmission(input, droppedFiles);
         this.dispatch({ type: "SET_INPUT", value: "" });
         this.clearFiles();
+        this.clearContextItems();
     }
 
     async uiLoadInitialChat() {

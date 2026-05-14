@@ -9,7 +9,6 @@ import { checkKeyPressed, keydownWrapper } from "@/util/keyutil";
 import { cn } from "@/util/util";
 import * as jotai from "jotai";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { AIDroppedFiles } from "./aidroppedfiles";
 import { CommandInteractionInput } from "./aicommandinteraction";
 import { AIBlockMask, AIDragOverlay, AIErrorMessage, AIWelcomeMessage, ConfigChangeModeFixer } from "./aiminorcomponents";
 import { AISessionToolbar } from "./aisessiontoolbar";
@@ -226,7 +225,6 @@ const AIPanelComponentInner = memo(() => {
                     />
                 )}
                 <AIErrorMessage />
-                <AIDroppedFiles model={model} />
                 <CommandInteractionInput />
                 <QueuedMessageCard model={model} />
                 <AIPanelInput onSubmit={handleSubmit} status={status} model={model} />

@@ -108,6 +108,51 @@ export type AgentFocusChainTransition = {
     contextusageattransition?: number;
 };
 
+export type ContextItemType = "skill" | "kb" | "file" | "terminal" | "folder" | "git" | "web";
+
+export interface SkillContextData {
+    skillName: string;
+    skillId: string;
+    description: string;
+}
+
+export interface KBContextData {
+    path: string;
+    fileName: string;
+    size: number;
+}
+
+export interface FileContextData {
+    path: string;
+    connName: string;
+    size: number;
+    mimetype: string;
+    file?: File;
+    previewUrl?: string;
+}
+
+export interface TerminalContextData {
+    blockId: string;
+    blockTitle: string;
+    lastCommand: string;
+}
+
+export type ContextItemData = SkillContextData | KBContextData | FileContextData | TerminalContextData;
+
+export interface ContextItem {
+    id: string;
+    type: ContextItemType;
+    label: string;
+    icon: string;
+    data: ContextItemData;
+}
+
+export interface ContextItemContent {
+    text: string;
+    identifier: string;
+    type: ContextItemType;
+}
+
 export type AgentFocusChainHandoff = {
     completedwork: string;
     currentstate: string;

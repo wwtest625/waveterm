@@ -5,6 +5,7 @@ import {
     AskUserData,
     ChatBackgroundJobDetail,
     CommandInteractionState,
+    ContextItem,
     WaveChatSessionMeta,
 } from "@/app/aipanel/aitypes";
 import type { DroppedFile, QueuedSubmission, TerminalTargetInfo } from "./waveai-model";
@@ -34,6 +35,7 @@ export type WaveAIAction =
     | { type: "SET_RESTORE_BACKUP_MODAL"; toolCallId: string | null }
     | { type: "SET_RESTORE_BACKUP_STATUS"; status: "idle" | "processing" | "success" | "error" }
     | { type: "SET_RESTORE_BACKUP_ERROR"; error: string | null }
+    | { type: "SET_CONTEXT_ITEMS"; items: ContextItem[] }
     | { type: "CLEAR_CHAT_STATE" };
 
 let actionLogEnabled = false;
