@@ -66,6 +66,12 @@ func getToolCapabilityPrompt(tools []uctypes.ToolDefinition) string {
 	if available["waveai_create_skill"] {
 		lines = append(lines, "- waveai_create_skill: create a new reusable skill from instructions. Use when the user asks to save a workflow or define a reusable procedure.")
 	}
+	if available["kb_search"] {
+		lines = append(lines, "- kb_search: search the local knowledge base by filename to find relevant documents and reference materials.")
+	}
+	if available["kb_read"] {
+		lines = append(lines, "- kb_read: read a file from the local knowledge base by its relative path. Use kb_search first to find relevant files.")
+	}
 	if available["waveai_use_skill"] {
 		mgr := getSkillsManager()
 		if mgr != nil {

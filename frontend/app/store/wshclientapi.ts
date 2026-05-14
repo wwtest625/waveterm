@@ -462,6 +462,11 @@ class RpcApiType {
         return client.wshRpcCall("getskillsuserpath", null, opts);
     }
 
+    // command "getskilldefinition" [call]
+    GetSkillDefinitionCommand(client: WshClient, data: CommandGetSkillDefinitionData, opts?: RpcOpts): Promise<SkillDefinition> {
+        return client.wshRpcCall("getskilldefinition", data, opts);
+    }
+
     // command "gettab" [call]
     GetTabCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<Tab> {
         return client.wshRpcCall("gettab", data, opts);
@@ -607,6 +612,11 @@ class RpcApiType {
         return client.wshRpcCall("listwaveaisessions", data, opts);
     }
 
+    // command "listskills" [call]
+    ListSkillsCommand(client: WshClient, opts?: RpcOpts): Promise<SkillListItem[]> {
+        return client.wshRpcCall("listskills", null, opts);
+    }
+
     // command "makedraftfromlocal" [call]
     MakeDraftFromLocalCommand(client: WshClient, data: CommandMakeDraftFromLocalData, opts?: RpcOpts): Promise<CommandMakeDraftFromLocalRtnData> {
         return client.wshRpcCall("makedraftfromlocal", data, opts);
@@ -670,6 +680,11 @@ class RpcApiType {
     // command "readskillcontent" [call]
     ReadSkillContentCommand(client: WshClient, data: CommandReadSkillContentData, opts?: RpcOpts): Promise<SkillContent> {
         return client.wshRpcCall("readskillcontent", data, opts);
+    }
+
+    // command "readkbfile" [call]
+    ReadKBFileCommand(client: WshClient, data: CommandReadKBFileData, opts?: RpcOpts): Promise<KBFileContent> {
+        return client.wshRpcCall("readkbfile", data, opts);
     }
 
     // command "recordtevent" [call]
@@ -815,6 +830,11 @@ class RpcApiType {
     // command "sendtelemetry" [call]
     SendTelemetryCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
         return client.wshRpcCall("sendtelemetry", null, opts);
+    }
+
+    // command "searchkbfiles" [call]
+    SearchKBFilesCommand(client: WshClient, data: CommandSearchKBFilesData, opts?: RpcOpts): Promise<KBFileSearchResult[]> {
+        return client.wshRpcCall("searchkbfiles", data, opts);
     }
 
     // command "setblockfocus" [call]

@@ -3,6 +3,7 @@
 
 import { Tooltip } from "@/app/element/tooltip";
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { modalsModel } from "@/app/store/modalmodel";
 import { uxCloseBlock } from "@/app/store/keymodel";
 import { getActiveTabModel, getTabModelByTabId } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -581,6 +582,18 @@ const Widgets = memo(() => {
                         <div className="flex-grow" />
                         <div className="grid grid-cols-2 gap-0 w-full">
                             <div
+                                className={clsx(
+                                    "flex flex-col justify-center items-center w-full py-1.5 pr-0.5 text-secondary text-sm overflow-hidden rounded-sm hover:bg-hoverbg hover:text-white cursor-pointer"
+                                )}
+                                onClick={() => modalsModel.pushModal("KnowledgeBaseModal")}
+                            >
+                                <Tooltip content="Knowledge Base" placement="left">
+                                    <div>
+                                        <i className={makeIconClass("book", true)}></i>
+                                    </div>
+                                </Tooltip>
+                            </div>
+                            <div
                                 ref={settingsButtonRef}
                                 className="flex flex-col justify-center items-center w-full py-1.5 pr-0.5 text-secondary text-sm overflow-hidden rounded-sm hover:bg-hoverbg hover:text-white cursor-pointer"
                                 onClick={() => setIsSettingsOpen(!isSettingsOpen)}
@@ -605,6 +618,18 @@ const Widgets = memo(() => {
                             />
                         ))}
                         <div className="flex-grow" />
+                        <div
+                            className={clsx(
+                                "flex flex-col justify-center items-center w-full py-1.5 pr-0.5 text-secondary text-lg overflow-hidden rounded-sm hover:bg-hoverbg hover:text-white cursor-pointer"
+                            )}
+                            onClick={() => modalsModel.pushModal("KnowledgeBaseModal")}
+                        >
+                            <Tooltip content="Knowledge Base" placement="left">
+                                <div>
+                                    <i className={makeIconClass("book", true)}></i>
+                                </div>
+                            </Tooltip>
+                        </div>
                         <div
                             ref={settingsButtonRef}
                             className="flex flex-col justify-center items-center w-full py-1.5 pr-0.5 text-secondary text-lg overflow-hidden rounded-sm hover:bg-hoverbg hover:text-white cursor-pointer"

@@ -35,6 +35,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/genconn"
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
+	"github.com/wavetermdev/waveterm/pkg/knowledgebase"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/remote"
 	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
@@ -2252,5 +2253,70 @@ func (ws *WshServer) ReadSkillContentCommand(ctx context.Context, data wshrpc.Co
 		Name:        skill.Metadata.Name,
 		Description: skill.Metadata.Description,
 		Content:     skill.Content,
+	}, nil
+}
+
+func (ws *WshServer) ListSkillsCommand(ctx context.Context) ([]wshrpc.SkillListItem, error) {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("skills manager not initialized")
+	}
+	allSkills := mgr.GetAllSkills()
+	var result []wshrpc.SkillListItem
+	for _, skill := range allSkills {
+		result = append(result, wshrpc.SkillListItem{
+			SkillId:   skill.Metadata.Name,
+			SkillName: skill.Metadata.Name,
+			SkillDesc: skill.Metadata.Description,
+		})
+	}
+	return result, nil
+}
+
+func (ws *WshServer) GetSkillDefinitionCommand(ctx context.Context, data wshrpc.CommandGetSkillDefinitionData) (*wshrpc.SkillDefinition, error) {
+	mgr := aiusechat.GetGlobalSkillsManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("skills manager not initialized")
+	}
+	skill := mgr.GetSkill(data.SkillId)
+	if skill == nil {
+		return nil, fmt.Errorf("skill %q not found", data.SkillId)
+	}
+	return &wshrpc.SkillDefinition{
+		SkillId:    skill.Metadata.Name,
+		Definition: skill.Content,
+	}, nil
+}
+
+func (ws *WshServer) SearchKBFilesCommand(ctx context.Context, data wshrpc.CommandSearchKBFilesData) ([]wshrpc.KBFileSearchResult, error) {
+	results, err := knowledgebase.Search(data.Query)
+	if err != nil {
+		return nil, fmt.Errorf("error searching kb files: %w", err)
+	}
+	var result []wshrpc.KBFileSearchResult
+	for _, r := range results {
+		result = append(result, wshrpc.KBFileSearchResult{
+			Path:     r.RelPath,
+			FileName: r.Name,
+			Size:     r.Size,
+		})
+	}
+	return result, nil
+}
+
+func (ws *WshServer) ReadKBFileCommand(ctx context.Context, data wshrpc.CommandReadKBFileData) (*wshrpc.KBFileContent, error) {
+	content, err := knowledgebase.ReadFile(data.Path)
+	if err != nil {
+		return nil, fmt.Errorf("error reading kb file: %w", err)
+	}
+	const maxContentLength = 100 * 1024
+	truncated := len(content.Content) > maxContentLength
+	fileContent := content.Content
+	if truncated {
+		fileContent = fileContent[:maxContentLength]
+	}
+	return &wshrpc.KBFileContent{
+		Content:   fileContent,
+		Truncated: truncated,
 	}, nil
 }

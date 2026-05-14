@@ -460,6 +460,11 @@ declare global {
         oref: ORef;
     };
 
+    // wshrpc.CommandGetSkillDefinitionData
+    type CommandGetSkillDefinitionData = {
+        skillId: string;
+    };
+
     // wshrpc.CommandGetTempDirData
     type CommandGetTempDirData = {
         filename?: string;
@@ -610,6 +615,11 @@ declare global {
         name: string;
     };
 
+    // wshrpc.CommandReadKBFileData
+    type CommandReadKBFileData = {
+        path: string;
+    };
+
     // wshrpc.CommandRemoteDisconnectFromJobManagerData
     type CommandRemoteDisconnectFromJobManagerData = {
         jobid: string;
@@ -723,6 +733,11 @@ declare global {
     // wshrpc.CommandRestartBuilderAndWaitData
     type CommandRestartBuilderAndWaitData = {
         builderid: string;
+    };
+
+    // wshrpc.CommandSearchKBFilesData
+    type CommandSearchKBFilesData = {
+        query: string;
     };
 
     // wshrpc.CommandSetMetaData
@@ -1244,6 +1259,19 @@ declare global {
         jobmanagerstatus: string;
     };
 
+    // wshrpc.KBFileContent
+    type KBFileContent = {
+        content: string;
+        truncated: boolean;
+    };
+
+    // wshrpc.KBFileSearchResult
+    type KBFileSearchResult = {
+        path: string;
+        fileName: string;
+        size: number;
+    };
+
     // waveobj.LayoutActionData
     type LayoutActionData = {
         actiontype: string;
@@ -1714,6 +1742,12 @@ declare global {
         content: string;
     };
 
+    // wshrpc.SkillDefinition
+    type SkillDefinition = {
+        skillId: string;
+        definition: string;
+    };
+
     // wshrpc.SkillImportResult
     type SkillImportResult = {
         success: boolean;
@@ -1730,6 +1764,13 @@ declare global {
         enabled: boolean;
         isbuiltin: boolean;
         isuser: boolean;
+    };
+
+    // wshrpc.SkillListItem
+    type SkillListItem = {
+        skillId: string;
+        skillName: string;
+        description: string;
     };
 
     // waveobj.StickerClickOptsType

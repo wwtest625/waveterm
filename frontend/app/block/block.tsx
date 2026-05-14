@@ -41,6 +41,7 @@ import { WebViewModel } from "@/view/webview/webview";
 import clsx from "clsx";
 import { atom, useAtomValue } from "jotai";
 import { memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { KbViewModel } from "@/app/knowledgebase/kb-view-model";
 import { ConnectionsManagerViewModel } from "../view/connectionsmanager/connections-manager";
 import { QuickTipsViewModel } from "../view/quicktipsview/quicktipsview";
 import { WaveConfigViewModel } from "../view/waveconfig/waveconfig-model";
@@ -66,6 +67,7 @@ BlockRegistry.set("transfer", TransferViewModel);
 BlockRegistry.set("docker", DockerViewModel);
 BlockRegistry.set("network", NetworkViewModel);
 BlockRegistry.set("tmux", TmuxViewModel);
+BlockRegistry.set("knowledgebase", KbViewModel);
 
 function makeViewModel(blockId: string, blockView: string, nodeModel: BlockNodeModel, tabModel: TabModel): ViewModel {
     const ctor = BlockRegistry.get(blockView);

@@ -46,6 +46,9 @@ export function blockViewToIcon(view: string): string {
     if (view == "network") {
         return "network-wired";
     }
+    if (view == "knowledgebase") {
+        return "book";
+    }
     return "square";
 }
 
@@ -85,6 +88,9 @@ export function blockViewToName(view: string): string {
     }
     if (view == "network") {
         return "网络";
+    }
+    if (view == "knowledgebase") {
+        return "Knowledge Base";
     }
     return view;
 }

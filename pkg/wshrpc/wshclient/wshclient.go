@@ -560,6 +560,12 @@ func GetSkillsUserPathCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, 
 	return resp, err
 }
 
+// command "getskilldefinition", wshserver.GetSkillDefinitionCommand
+func GetSkillDefinitionCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSkillDefinitionData, opts *wshrpc.RpcOpts) (*wshrpc.SkillDefinition, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.SkillDefinition](w, "getskilldefinition", data, opts)
+	return resp, err
+}
+
 // command "gettab", wshserver.GetTabCommand
 func GetTabCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (*waveobj.Tab, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.Tab](w, "gettab", data, opts)
@@ -734,6 +740,12 @@ func ListWaveAISessionsCommand(w *wshutil.WshRpc, data wshrpc.CommandListWaveAIS
 	return resp, err
 }
 
+// command "listskills", wshserver.ListSkillsCommand
+func ListSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.SkillListItem, error) {
+	resp, err := sendRpcRequestCallHelper[[]wshrpc.SkillListItem](w, "listskills", nil, opts)
+	return resp, err
+}
+
 // command "makedraftfromlocal", wshserver.MakeDraftFromLocalCommand
 func MakeDraftFromLocalCommand(w *wshutil.WshRpc, data wshrpc.CommandMakeDraftFromLocalData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMakeDraftFromLocalRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMakeDraftFromLocalRtnData](w, "makedraftfromlocal", data, opts)
@@ -809,6 +821,12 @@ func ReadAppFileCommand(w *wshutil.WshRpc, data wshrpc.CommandReadAppFileData, o
 // command "readskillcontent", wshserver.ReadSkillContentCommand
 func ReadSkillContentCommand(w *wshutil.WshRpc, data wshrpc.CommandReadSkillContentData, opts *wshrpc.RpcOpts) (*wshrpc.SkillContent, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.SkillContent](w, "readskillcontent", data, opts)
+	return resp, err
+}
+
+// command "readkbfile", wshserver.ReadKBFileCommand
+func ReadKBFileCommand(w *wshutil.WshRpc, data wshrpc.CommandReadKBFileData, opts *wshrpc.RpcOpts) (*wshrpc.KBFileContent, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.KBFileContent](w, "readkbfile", data, opts)
 	return resp, err
 }
 
@@ -980,6 +998,12 @@ func RouteUnannounceCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 func SendTelemetryCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "sendtelemetry", nil, opts)
 	return err
+}
+
+// command "searchkbfiles", wshserver.SearchKBFilesCommand
+func SearchKBFilesCommand(w *wshutil.WshRpc, data wshrpc.CommandSearchKBFilesData, opts *wshrpc.RpcOpts) ([]wshrpc.KBFileSearchResult, error) {
+	resp, err := sendRpcRequestCallHelper[[]wshrpc.KBFileSearchResult](w, "searchkbfiles", data, opts)
+	return resp, err
 }
 
 // command "setblockfocus", wshserver.SetBlockFocusCommand

@@ -248,6 +248,12 @@ type WshRpcInterface interface {
 	ReloadSkillsCommand(ctx context.Context) error
 	GetSkillsUserPathCommand(ctx context.Context) (string, error)
 	ReadSkillContentCommand(ctx context.Context, data CommandReadSkillContentData) (*SkillContent, error)
+
+	// ai context - skills & knowledge base
+	ListSkillsCommand(ctx context.Context) ([]SkillListItem, error)
+	GetSkillDefinitionCommand(ctx context.Context, data CommandGetSkillDefinitionData) (*SkillDefinition, error)
+	SearchKBFilesCommand(ctx context.Context, data CommandSearchKBFilesData) ([]KBFileSearchResult, error)
+	ReadKBFileCommand(ctx context.Context, data CommandReadKBFileData) (*KBFileContent, error)
 }
 
 // for frontend
@@ -654,7 +660,12 @@ type NetworkConfigureResponse struct {
 }
 
 const (
-	TimeSeries_Cpu = "cpu"
+	TimeSeries_Cpu       = "cpu"
+	TimeSeries_GpuUtil   = "gpu:util"
+	TimeSeries_GpuTemp   = "gpu:temp"
+	TimeSeries_GpuMemUsed  = "gpu:mem_used"
+	TimeSeries_GpuMemTotal = "gpu:mem_total"
+	TimeSeries_GpuPower  = "gpu:power"
 )
 
 type TimeSeriesData struct {
@@ -1308,4 +1319,38 @@ type CommandImportSkillZipData struct {
 
 type CommandReadSkillContentData struct {
 	Name string `json:"name"`
+}
+
+type SkillListItem struct {
+	SkillId    string `json:"skillId"`
+	SkillName  string `json:"skillName"`
+	SkillDesc  string `json:"description"`
+}
+
+type SkillDefinition struct {
+	SkillId    string `json:"skillId"`
+	Definition string `json:"definition"`
+}
+
+type CommandGetSkillDefinitionData struct {
+	SkillId string `json:"skillId"`
+}
+
+type KBFileSearchResult struct {
+	Path     string `json:"path"`
+	FileName string `json:"fileName"`
+	Size     int64  `json:"size"`
+}
+
+type CommandSearchKBFilesData struct {
+	Query string `json:"query"`
+}
+
+type KBFileContent struct {
+	Content   string `json:"content"`
+	Truncated bool   `json:"truncated"`
+}
+
+type CommandReadKBFileData struct {
+	Path string `json:"path"`
 }
