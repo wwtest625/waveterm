@@ -6,6 +6,7 @@ package wshremote
 import (
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -51,6 +52,16 @@ func generateSingleServerData(client *wshutil.WshRpc, connName string) {
 	values := make(map[string]float64)
 	getCpuData(values)
 	getMemData(values)
+	GetGpuData(values)
+	gpuKeyCount := 0
+	for k := range values {
+		if strings.HasPrefix(k, "gpu:") {
+			gpuKeyCount++
+		}
+	}
+	if gpuKeyCount > 0 {
+		log.Printf("sysinfo: conn=%s GPU data keys=%d total keys=%d\n", connName, gpuKeyCount, len(values))
+	}
 	tsData := wshrpc.TimeSeriesData{Ts: now.UnixMilli(), Values: values}
 	event := wps.WaveEvent{
 		Event:   wps.Event_SysInfo,

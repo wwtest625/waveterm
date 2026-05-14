@@ -3,8 +3,9 @@
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import type { TabModel } from "@/app/store/tab-model";
-import { getConnStatusAtom, globalStore, WOS } from "@/store/global";
+import { getBlockComponentModel, getConnStatusAtom, getFocusedBlockId, globalStore, WOS } from "@/store/global";
 import * as util from "@/util/util";
+import { getLayoutModelForStaticTab } from "@/layout/index";
 import * as Plot from "@observablehq/plot";
 import clsx from "clsx";
 import dayjs from "dayjs";
@@ -48,6 +49,50 @@ function defaultMemMeta(name: string, maxY: string): TimeSeriesMeta {
     };
 }
 
+function defaultGpuUtilMeta(idx: number): TimeSeriesMeta {
+    return {
+        name: `GPU ${idx} 利用率`,
+        label: "%",
+        miny: 0,
+        maxy: 100,
+        color: "var(--sysinfo-gpu-color)",
+        decimalPlaces: 0,
+    };
+}
+
+function defaultGpuTempMeta(idx: number): TimeSeriesMeta {
+    return {
+        name: `GPU ${idx} 温度`,
+        label: "°C",
+        miny: 0,
+        maxy: 120,
+        color: "var(--sysinfo-gpu-temp-color)",
+        decimalPlaces: 1,
+    };
+}
+
+function defaultGpuMemMeta(idx: number): TimeSeriesMeta {
+    return {
+        name: `GPU ${idx} 显存`,
+        label: "GB",
+        miny: 0,
+        maxy: `gpu:${idx}:mem_total`,
+        color: "var(--sysinfo-gpu-mem-color)",
+        decimalPlaces: 1,
+    };
+}
+
+function defaultGpuPowerMeta(idx: number): TimeSeriesMeta {
+    return {
+        name: `GPU ${idx} 功耗`,
+        label: "W",
+        miny: 0,
+        maxy: 500,
+        color: "var(--sysinfo-gpu-power-color)",
+        decimalPlaces: 0,
+    };
+}
+
 const PlotTypes: object = {
     CPU: function (dataItem: DataItem): Array<string> {
         return ["cpu"];
@@ -67,6 +112,42 @@ const PlotTypes: object = {
                 return valA - valB;
             });
     },
+    "GPU 利用率": function (dataItem: DataItem): Array<string> {
+        return Object.keys(dataItem)
+            .filter((item) => item.match(/^gpu:\d+:util$/))
+            .sort((a, b) => {
+                const valA = parseInt(a.split(":")[1]);
+                const valB = parseInt(b.split(":")[1]);
+                return valA - valB;
+            });
+    },
+    "GPU 温度": function (dataItem: DataItem): Array<string> {
+        return Object.keys(dataItem)
+            .filter((item) => item.match(/^gpu:\d+:temp$/))
+            .sort((a, b) => {
+                const valA = parseInt(a.split(":")[1]);
+                const valB = parseInt(b.split(":")[1]);
+                return valA - valB;
+            });
+    },
+    "GPU 显存": function (dataItem: DataItem): Array<string> {
+        return Object.keys(dataItem)
+            .filter((item) => item.match(/^gpu:\d+:mem_used$/))
+            .sort((a, b) => {
+                const valA = parseInt(a.split(":")[1]);
+                const valB = parseInt(b.split(":")[1]);
+                return valA - valB;
+            });
+    },
+    "GPU 功耗": function (dataItem: DataItem): Array<string> {
+        return Object.keys(dataItem)
+            .filter((item) => item.match(/^gpu:\d+:power$/))
+            .sort((a, b) => {
+                const valA = parseInt(a.split(":")[1]);
+                const valB = parseInt(b.split(":")[1]);
+                return valA - valB;
+            });
+    },
 };
 
 const DefaultPlotMeta = {
@@ -79,6 +160,13 @@ const DefaultPlotMeta = {
 for (let i = 0; i < 32; i++) {
     DefaultPlotMeta[`cpu:${i}`] = defaultCpuMeta(`核心 ${i}`);
 }
+for (let i = 0; i < 16; i++) {
+    DefaultPlotMeta[`gpu:${i}:util`] = defaultGpuUtilMeta(i);
+    DefaultPlotMeta[`gpu:${i}:temp`] = defaultGpuTempMeta(i);
+    DefaultPlotMeta[`gpu:${i}:mem_used`] = defaultGpuMemMeta(i);
+    DefaultPlotMeta[`gpu:${i}:mem_total`] = defaultGpuMemMeta(i);
+    DefaultPlotMeta[`gpu:${i}:power`] = defaultGpuPowerMeta(i);
+}
 
 function convertWaveEventToDataItem(event: Extract<WaveEvent, { event: "sysinfo" }>): DataItem {
     const eventData = event.data;
@@ -89,7 +177,35 @@ function convertWaveEventToDataItem(event: Extract<WaveEvent, { event: "sysinfo"
     for (const key in eventData.values) {
         dataItem[key] = eventData.values[key];
     }
+    const gpuKeys = Object.keys(dataItem).filter((k) => k.startsWith("gpu:"));
+    if (gpuKeys.length > 0) {
+        console.log("[sysinfo] GPU data received:", gpuKeys.join(", "), gpuKeys.map((k) => `${k}=${dataItem[k]}`).join(", "));
+    }
     return dataItem;
+}
+
+function getFocusedTermConnection(): string | null {
+    const focusedBlockId = getFocusedBlockId();
+    if (focusedBlockId == null) {
+        return null;
+    }
+    const bcm = getBlockComponentModel(focusedBlockId);
+    if (bcm?.viewModel?.viewType !== "term") {
+        const layoutModel = getLayoutModelForStaticTab();
+        const leafOrder = globalStore.get(layoutModel.leafOrder) ?? [];
+        for (const leaf of leafOrder) {
+            const leafBcm = getBlockComponentModel(leaf?.blockid);
+            if (leafBcm?.viewModel?.viewType === "term") {
+                const blockAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", leaf.blockid));
+                const blockData = globalStore.get(blockAtom);
+                return blockData?.meta?.connection ?? null;
+            }
+        }
+        return null;
+    }
+    const blockAtom = WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", focusedBlockId));
+    const blockData = globalStore.get(blockAtom);
+    return blockData?.meta?.connection ?? null;
 }
 
 class SysinfoViewModel implements ViewModel {
@@ -199,6 +315,9 @@ class SysinfoViewModel implements ViewModel {
                 const metrics = PlotTypes[plotType](plotData[plotData.length - 1]);
                 if (metrics == null || !Array.isArray(metrics)) {
                     return ["cpu"];
+                }
+                if (plotType.startsWith("GPU") && metrics.length === 0) {
+                    console.log("[sysinfo] GPU plot type selected but no GPU metrics found. plotType:", plotType, "lastDataItem keys:", plotData.length > 0 ? Object.keys(plotData[plotData.length - 1]).filter(k => k.startsWith("gpu:")) : "no data");
                 }
                 return metrics;
             } catch (e) {
@@ -349,6 +468,40 @@ function SysinfoView({ model, blockId }: SysinfoViewProps) {
     const connStatus = jotai.useAtomValue(model.connStatus);
     const addContinuousData = jotai.useSetAtom(model.addContinuousDataAtom);
     const loading = jotai.useAtomValue(model.loadingAtom);
+
+    React.useEffect(() => {
+        const focusedConn = getFocusedTermConnection();
+        if (focusedConn != null && focusedConn !== connName) {
+            RpcApi.SetMetaCommand(TabRpcClient, {
+                oref: WOS.makeORef("block", blockId),
+                meta: { connection: focusedConn },
+            }).catch((e) => {
+                console.log("[sysinfo] error auto-following terminal connection:", e);
+            });
+        }
+    }, []);
+
+    React.useEffect(() => {
+        const layoutModel = getLayoutModelForStaticTab();
+        if (layoutModel == null) return;
+        let lastFocusedConn = getFocusedTermConnection();
+        const unsub = globalStore.sub(layoutModel.focusedNode, () => {
+            const newFocusedConn = getFocusedTermConnection();
+            if (newFocusedConn != null && newFocusedConn !== lastFocusedConn) {
+                lastFocusedConn = newFocusedConn;
+                const currentConn = globalStore.get(model.connection);
+                if (newFocusedConn !== currentConn) {
+                    RpcApi.SetMetaCommand(TabRpcClient, {
+                        oref: WOS.makeORef("block", blockId),
+                        meta: { connection: newFocusedConn },
+                    }).catch((e) => {
+                        console.log("[sysinfo] error auto-following terminal connection:", e);
+                    });
+                }
+            }
+        });
+        return () => unsub();
+    }, [blockId]);
 
     React.useEffect(() => {
         if (connStatus?.status != "connected") {
@@ -549,6 +702,7 @@ const SysinfoViewInner = React.memo(({ model }: SysinfoViewProps) => {
             >
                 {plotData &&
                     plotData.length > 0 &&
+                    yvals.length > 0 &&
                     yvals.map((yval, idx) => {
                         return (
                             <SingleLinePlot
@@ -563,6 +717,11 @@ const SysinfoViewInner = React.memo(({ model }: SysinfoViewProps) => {
                             />
                         );
                     })}
+                {yvals.length === 0 && plotData && plotData.length > 0 && (
+                    <div className="flex items-center justify-center h-full text-[var(--muted-text-color)] text-sm">
+                        No GPU data available on this connection
+                    </div>
+                )}
             </div>
         </OverlayScrollbarsComponent>
     );

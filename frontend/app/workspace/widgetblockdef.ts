@@ -50,6 +50,12 @@ export function buildWidgetBlockDef(widget: WidgetConfigType, focusedBlock?: Foc
         }
     }
 
+    if (meta.view === "sysinfo" && focusedBlock?.view === "term") {
+        if (focusedBlock.connection != null && focusedBlock.connection !== "") {
+            meta.connection = focusedBlock.connection;
+        }
+    }
+
     return {
         ...source,
         meta,
