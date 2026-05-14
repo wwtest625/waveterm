@@ -3,19 +3,38 @@
 
 package kbservice
 
-import "github.com/wavetermdev/waveterm/pkg/knowledgebase"
+import (
+	"log"
+
+	"github.com/wavetermdev/waveterm/pkg/knowledgebase"
+)
 
 type KnowledgeBaseService struct{}
 
 func (kbs *KnowledgeBaseService) EnsureRoot() error {
+	log.Printf("[KB-DEBUG] kbservice.EnsureRoot: kbRoot=%s", knowledgebase.GetKbRoot())
 	return knowledgebase.EnsureRoot()
 }
 
 func (kbs *KnowledgeBaseService) ListDir(relDir string) ([]knowledgebase.KbEntry, error) {
-	return knowledgebase.ListDir(relDir)
+	if err := knowledgebase.EnsureRoot(); err != nil {
+		log.Printf("[KB-DEBUG] kbservice.ListDir: EnsureRoot failed: %v", err)
+		return nil, err
+	}
+	entries, err := knowledgebase.ListDir(relDir)
+	if err != nil {
+		log.Printf("[KB-DEBUG] kbservice.ListDir: error: %v", err)
+		return nil, err
+	}
+	log.Printf("[KB-DEBUG] kbservice.ListDir: relDir=%q, found %d entries", relDir, len(entries))
+	return entries, nil
 }
 
 func (kbs *KnowledgeBaseService) ReadFile(relPath string) (*knowledgebase.KbFileContent, error) {
+	if err := knowledgebase.EnsureRoot(); err != nil {
+		log.Printf("[KB-DEBUG] kbservice.ReadFile: EnsureRoot failed: %v", err)
+		return nil, err
+	}
 	return knowledgebase.ReadFile(relPath)
 }
 
@@ -56,5 +75,15 @@ func (kbs *KnowledgeBaseService) ImportFolder(srcAbsPath string, dstRelDir strin
 }
 
 func (kbs *KnowledgeBaseService) Search(query string) ([]knowledgebase.KbSearchResult, error) {
-	return knowledgebase.Search(query)
+	if err := knowledgebase.EnsureRoot(); err != nil {
+		log.Printf("[KB-DEBUG] kbservice.Search: EnsureRoot failed: %v", err)
+		return nil, err
+	}
+	results, err := knowledgebase.Search(query)
+	if err != nil {
+		log.Printf("[KB-DEBUG] kbservice.Search: error: %v", err)
+		return nil, err
+	}
+	log.Printf("[KB-DEBUG] kbservice.Search: query=%q, found %d results", query, len(results))
+	return results, nil
 }

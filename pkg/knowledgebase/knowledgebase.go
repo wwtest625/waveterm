@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,7 +58,8 @@ type KbSearchResult struct {
 }
 
 func GetKbRoot() string {
-	return filepath.Join(wavebase.GetWaveDataDir(), KbDirName)
+	root := filepath.Join(wavebase.GetWaveDataDir(), KbDirName)
+	return root
 }
 
 func ResolveKbPath(relPath string) (string, error) {
@@ -148,8 +150,10 @@ func uniqueName(dir string, name string) (string, error) {
 
 func EnsureRoot() error {
 	kbRoot := GetKbRoot()
+	log.Printf("[KB-DEBUG] EnsureRoot: kbRoot=%s", kbRoot)
 	info, err := os.Stat(kbRoot)
 	if os.IsNotExist(err) {
+		log.Printf("[KB-DEBUG] EnsureRoot: kbRoot does not exist, creating...")
 		err = os.MkdirAll(kbRoot, 0700)
 		if err != nil {
 			return fmt.Errorf("cannot create kb root: %w", err)
@@ -518,11 +522,19 @@ func ImportFolder(srcAbsPath string, dstRelDir string) (string, error) {
 
 func Search(query string) ([]KbSearchResult, error) {
 	kbRoot := GetKbRoot()
+	log.Printf("[KB-DEBUG] knowledgebase.Search: kbRoot=%s, query=%q", kbRoot, query)
+	kbRootInfo, statErr := os.Stat(kbRoot)
+	if statErr != nil {
+		log.Printf("[KB-DEBUG] knowledgebase.Search: kbRoot stat error: %v", statErr)
+	} else {
+		log.Printf("[KB-DEBUG] knowledgebase.Search: kbRoot isDir=%v", kbRootInfo.IsDir())
+	}
 	lowerQuery := strings.ToLower(query)
 	matchAll := lowerQuery == "" || lowerQuery == "*"
 	var results []KbSearchResult
 	err := filepath.WalkDir(kbRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			log.Printf("[KB-DEBUG] knowledgebase.Search: walkdir error at %q: %v", path, err)
 			return nil
 		}
 		name := d.Name()
@@ -552,6 +564,7 @@ func Search(query string) ([]KbSearchResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error searching: %w", err)
 	}
+	log.Printf("[KB-DEBUG] knowledgebase.Search: found %d results", len(results))
 	if results == nil {
 		results = []KbSearchResult{}
 	}

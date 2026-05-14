@@ -11,7 +11,7 @@ import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { ContextChips } from "./aipanel-context-chips";
-import { ContextPicker } from "./aipanel-context-picker";
+import { ContextPicker, type ContextPickerHandle } from "./aipanel-context-picker";
 import type { ContextItem, FileContextData } from "./aitypes";
 
 interface AIPanelInputProps {
@@ -49,10 +49,20 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     const [contextFilterText, setContextFilterText] = useState("");
     const [kbEnabled, setKbEnabled] = useState(false);
     const atTriggerRef = useRef<{ position: number } | null>(null);
+    const contextPickerRef = useRef<ContextPickerHandle>(null);
     const canSubmit = Boolean(input.trim()) || contextItems.length > 0;
 
     useEffect(() => {
-        kbEnsureRoot().then(() => setKbEnabled(true)).catch(() => setKbEnabled(false));
+        console.log("[KB-DEBUG] aipanelinput: calling kbEnsureRoot...");
+        kbEnsureRoot()
+            .then(() => {
+                console.log("[KB-DEBUG] aipanelinput: kbEnsureRoot succeeded, setting kbEnabled=true");
+                setKbEnabled(true);
+            })
+            .catch((err) => {
+                console.error("[KB-DEBUG] aipanelinput: kbEnsureRoot failed", err);
+                setKbEnabled(false);
+            });
     }, []);
 
     let placeholder: string;
@@ -61,7 +71,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     } else if (!isChatEmpty) {
         placeholder = "Continue...";
     } else {
-        placeholder = "Ask Wave AI anything...";
+        placeholder = "@ something";
     }
 
     const resizeTextarea = useCallback(() => {
@@ -104,17 +114,17 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
         if (contextPickerVisible) {
             if (e.key === "Escape") {
                 e.preventDefault();
-                setContextPickerVisible(false);
-                setContextFilterText("");
-                atTriggerRef.current = null;
+                contextPickerRef.current?.handlePickerKeyDown(e.key);
                 return;
             }
             if (e.key === "ArrowUp" || e.key === "ArrowDown") {
                 e.preventDefault();
+                contextPickerRef.current?.handlePickerKeyDown(e.key);
                 return;
             }
             if (e.key === "Enter" && !e.shiftKey && !isComposing) {
                 e.preventDefault();
+                contextPickerRef.current?.handlePickerKeyDown(e.key);
                 return;
             }
         }
@@ -335,6 +345,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                 </div>
                 <div className="relative">
                     <ContextPicker
+                        ref={contextPickerRef}
                         visible={contextPickerVisible}
                         onSelect={handleContextSelect}
                         onClose={() => {

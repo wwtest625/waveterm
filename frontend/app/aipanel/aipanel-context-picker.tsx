@@ -1,7 +1,7 @@
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { ContextItem, ContextItemType } from "./aitypes";
 
 interface ContextTypeOption {
@@ -16,6 +16,10 @@ const CONTEXT_TYPE_OPTIONS: ContextTypeOption[] = [
     { type: "kb", icon: "fa-book", label: "Knowledge Base", description: "引用知识库文件" },
 ];
 
+export interface ContextPickerHandle {
+    handlePickerKeyDown: (key: string) => void;
+}
+
 interface ContextPickerProps {
     visible: boolean;
     onSelect: (item: ContextItem) => void;
@@ -25,7 +29,7 @@ interface ContextPickerProps {
     kbEnabled?: boolean;
 }
 
-export const ContextPicker = memo(({ visible, onSelect, onClose, filterText, onFilterChange, kbEnabled }: ContextPickerProps) => {
+export const ContextPicker = memo(forwardRef<ContextPickerHandle, ContextPickerProps>(({ visible, onSelect, onClose, filterText, onFilterChange, kbEnabled }, ref) => {
     const [selectedType, setSelectedType] = useState<ContextItemType | null>(null);
     const [skills, setSkills] = useState<SkillListItem[]>([]);
     const [kbResults, setKbResults] = useState<KBFileSearchResult[]>([]);
@@ -66,15 +70,19 @@ export const ContextPicker = memo(({ visible, onSelect, onClose, filterText, onF
     }, [visible, selectedType]);
 
     useEffect(() => {
-        if (visible && selectedType === "kb" && searchQuery.length > 0) {
+        if (visible && selectedType === "kb") {
             setIsLoading(true);
             setError(null);
+            const effectiveQuery = searchQuery.length > 0 ? searchQuery : "*";
+            console.log("[KB-DEBUG] ContextPicker: searching KB files, query=", effectiveQuery);
             const timer = setTimeout(() => {
                 fireAndForget(async () => {
                     try {
-                        const result = await RpcApi.SearchKBFilesCommand(TabRpcClient, { query: searchQuery });
+                        const result = await RpcApi.SearchKBFilesCommand(TabRpcClient, { query: effectiveQuery });
+                        console.log("[KB-DEBUG] ContextPicker: search result", result?.length, "items", result);
                         setKbResults(result || []);
                     } catch (e) {
+                        console.error("[KB-DEBUG] ContextPicker: search error", e);
                         setKbResults([]);
                         setError(e instanceof Error ? e.message : String(e));
                     } finally {
@@ -83,9 +91,6 @@ export const ContextPicker = memo(({ visible, onSelect, onClose, filterText, onF
                 });
             }, 200);
             return () => clearTimeout(timer);
-        }
-        if (visible && selectedType === "kb" && searchQuery.length === 0) {
-            setKbResults([]);
         }
     }, [visible, selectedType, searchQuery]);
 
@@ -171,22 +176,18 @@ export const ContextPicker = memo(({ visible, onSelect, onClose, filterText, onF
         [selectedType, onSelect, handleSelectType]
     );
 
-    const handleKeyDown = useCallback(
-        (e: React.KeyboardEvent) => {
-            if (e.key === "ArrowDown") {
-                e.preventDefault();
+    const handlePickerKeyDown = useCallback(
+        (key: string) => {
+            if (key === "ArrowDown") {
                 setSelectedIndex((idx) => Math.min(idx + 1, currentItems.length - 1));
-            } else if (e.key === "ArrowUp") {
-                e.preventDefault();
+            } else if (key === "ArrowUp") {
                 setSelectedIndex((idx) => Math.max(idx - 1, 0));
-            } else if (e.key === "Enter") {
-                e.preventDefault();
+            } else if (key === "Enter") {
                 const item = currentItems[selectedIndex];
                 if (item) {
                     handleSelectItem(item);
                 }
-            } else if (e.key === "Escape") {
-                e.preventDefault();
+            } else if (key === "Escape") {
                 if (selectedType) {
                     setSelectedType(null);
                     setSearchQuery("");
@@ -198,6 +199,17 @@ export const ContextPicker = memo(({ visible, onSelect, onClose, filterText, onF
         },
         [currentItems, selectedIndex, selectedType, handleSelectItem, onClose]
     );
+
+    const handleKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            handlePickerKeyDown(e.key);
+        },
+        [handlePickerKeyDown]
+    );
+
+    useImperativeHandle(ref, () => ({
+        handlePickerKeyDown,
+    }), [handlePickerKeyDown]);
 
     const handleClickOutside = useCallback(
         (e: React.MouseEvent) => {
@@ -267,9 +279,7 @@ export const ContextPicker = memo(({ visible, onSelect, onClose, filterText, onF
                                 </div>
                             ) : currentItems.length === 0 ? (
                                 <div className="py-4 text-center text-xs text-zinc-500">
-                                    {selectedType === "kb" && !searchQuery
-                                        ? "Type to search knowledge base files"
-                                        : "No results found"}
+                                    No results found
                                 </div>
                             ) : (
                                 currentItems.map((item, index) => {
@@ -356,6 +366,6 @@ export const ContextPicker = memo(({ visible, onSelect, onClose, filterText, onF
             </div>
         </>
     );
-});
+}));
 
 ContextPicker.displayName = "ContextPicker";
