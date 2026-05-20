@@ -660,12 +660,10 @@ type NetworkConfigureResponse struct {
 }
 
 const (
-	TimeSeries_Cpu       = "cpu"
-	TimeSeries_GpuUtil   = "gpu:util"
-	TimeSeries_GpuTemp   = "gpu:temp"
-	TimeSeries_GpuMemUsed  = "gpu:mem_used"
+	TimeSeries_Cpu        = "cpu"
+	TimeSeries_GpuUtil    = "gpu:util"
+	TimeSeries_GpuMemUsed = "gpu:mem_used"
 	TimeSeries_GpuMemTotal = "gpu:mem_total"
-	TimeSeries_GpuPower  = "gpu:power"
 )
 
 type TimeSeriesData struct {

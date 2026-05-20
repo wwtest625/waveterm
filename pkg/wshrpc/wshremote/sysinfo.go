@@ -6,7 +6,6 @@ package wshremote
 import (
 	"log"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -20,20 +19,16 @@ import (
 const BYTES_PER_GB = 1073741824
 
 func getCpuData(values map[string]float64) {
-	percentArr, err := cpu.Percent(0, false)
-	if err != nil {
+	percentArr, err := cpu.Percent(0, true)
+	if err != nil || len(percentArr) == 0 {
 		return
 	}
-	if len(percentArr) > 0 {
-		values[wshrpc.TimeSeries_Cpu] = percentArr[0]
-	}
-	percentArr, err = cpu.Percent(0, true)
-	if err != nil {
-		return
-	}
+	var total float64
 	for idx, percent := range percentArr {
 		values[wshrpc.TimeSeries_Cpu+":"+strconv.Itoa(idx)] = percent
+		total += percent
 	}
+	values[wshrpc.TimeSeries_Cpu] = total / float64(len(percentArr))
 }
 
 func getMemData(values map[string]float64) {
@@ -53,15 +48,6 @@ func generateSingleServerData(client *wshutil.WshRpc, connName string) {
 	getCpuData(values)
 	getMemData(values)
 	GetGpuData(values)
-	gpuKeyCount := 0
-	for k := range values {
-		if strings.HasPrefix(k, "gpu:") {
-			gpuKeyCount++
-		}
-	}
-	if gpuKeyCount > 0 {
-		log.Printf("sysinfo: conn=%s GPU data keys=%d total keys=%d\n", connName, gpuKeyCount, len(values))
-	}
 	tsData := wshrpc.TimeSeriesData{Ts: now.UnixMilli(), Values: values}
 	event := wps.WaveEvent{
 		Event:   wps.Event_SysInfo,

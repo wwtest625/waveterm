@@ -60,17 +60,6 @@ function defaultGpuUtilMeta(idx: number): TimeSeriesMeta {
     };
 }
 
-function defaultGpuTempMeta(idx: number): TimeSeriesMeta {
-    return {
-        name: `GPU ${idx} 温度`,
-        label: "°C",
-        miny: 0,
-        maxy: 120,
-        color: "var(--sysinfo-gpu-temp-color)",
-        decimalPlaces: 1,
-    };
-}
-
 function defaultGpuMemMeta(idx: number): TimeSeriesMeta {
     return {
         name: `GPU ${idx} 显存`,
@@ -82,28 +71,20 @@ function defaultGpuMemMeta(idx: number): TimeSeriesMeta {
     };
 }
 
-function defaultGpuPowerMeta(idx: number): TimeSeriesMeta {
-    return {
-        name: `GPU ${idx} 功耗`,
-        label: "W",
-        miny: 0,
-        maxy: 500,
-        color: "var(--sysinfo-gpu-power-color)",
-        decimalPlaces: 0,
-    };
-}
+const DefaultGpuCount = 1;
+const GpuCountOptions = [1, 2, 4, 8, 16];
 
 const PlotTypes: object = {
-    CPU: function (dataItem: DataItem): Array<string> {
+    CPU: function (dataItem: DataItem, _gpuCount: number): Array<string> {
         return ["cpu"];
     },
-    "内存": function (dataItem: DataItem): Array<string> {
+    "内存": function (dataItem: DataItem, _gpuCount: number): Array<string> {
         return ["mem:used"];
     },
-    "CPU + 内存": function (dataItem: DataItem): Array<string> {
+    "CPU + 内存": function (dataItem: DataItem, _gpuCount: number): Array<string> {
         return ["cpu", "mem:used"];
     },
-    "所有 CPU 核心": function (dataItem: DataItem): Array<string> {
+    "所有 CPU 核心": function (dataItem: DataItem, _gpuCount: number): Array<string> {
         return Object.keys(dataItem)
             .filter((item) => item.startsWith("cpu") && item != "cpu")
             .sort((a, b) => {
@@ -112,42 +93,33 @@ const PlotTypes: object = {
                 return valA - valB;
             });
     },
-    "GPU 利用率": function (dataItem: DataItem): Array<string> {
+    "GPU 利用率": function (dataItem: DataItem, gpuCount: number): Array<string> {
         return Object.keys(dataItem)
-            .filter((item) => item.match(/^gpu:\d+:util$/))
+            .filter((item) => {
+                const match = item.match(/^gpu:(\d+):util$/);
+                if (!match) return false;
+                return parseInt(match[1]) < gpuCount;
+            })
             .sort((a, b) => {
                 const valA = parseInt(a.split(":")[1]);
                 const valB = parseInt(b.split(":")[1]);
                 return valA - valB;
             });
     },
-    "GPU 温度": function (dataItem: DataItem): Array<string> {
+    "GPU 显存": function (dataItem: DataItem, gpuCount: number): Array<string> {
         return Object.keys(dataItem)
-            .filter((item) => item.match(/^gpu:\d+:temp$/))
+            .filter((item) => {
+                const match = item.match(/^gpu:(\d+):mem_used$/);
+                if (!match) return false;
+                return parseInt(match[1]) < gpuCount;
+            })
             .sort((a, b) => {
                 const valA = parseInt(a.split(":")[1]);
                 const valB = parseInt(b.split(":")[1]);
                 return valA - valB;
             });
     },
-    "GPU 显存": function (dataItem: DataItem): Array<string> {
-        return Object.keys(dataItem)
-            .filter((item) => item.match(/^gpu:\d+:mem_used$/))
-            .sort((a, b) => {
-                const valA = parseInt(a.split(":")[1]);
-                const valB = parseInt(b.split(":")[1]);
-                return valA - valB;
-            });
-    },
-    "GPU 功耗": function (dataItem: DataItem): Array<string> {
-        return Object.keys(dataItem)
-            .filter((item) => item.match(/^gpu:\d+:power$/))
-            .sort((a, b) => {
-                const valA = parseInt(a.split(":")[1]);
-                const valB = parseInt(b.split(":")[1]);
-                return valA - valB;
-            });
-    },
+
 };
 
 const DefaultPlotMeta = {
@@ -162,10 +134,8 @@ for (let i = 0; i < 32; i++) {
 }
 for (let i = 0; i < 16; i++) {
     DefaultPlotMeta[`gpu:${i}:util`] = defaultGpuUtilMeta(i);
-    DefaultPlotMeta[`gpu:${i}:temp`] = defaultGpuTempMeta(i);
     DefaultPlotMeta[`gpu:${i}:mem_used`] = defaultGpuMemMeta(i);
     DefaultPlotMeta[`gpu:${i}:mem_total`] = defaultGpuMemMeta(i);
-    DefaultPlotMeta[`gpu:${i}:power`] = defaultGpuPowerMeta(i);
 }
 
 function convertWaveEventToDataItem(event: Extract<WaveEvent, { event: "sysinfo" }>): DataItem {
@@ -176,10 +146,6 @@ function convertWaveEventToDataItem(event: Extract<WaveEvent, { event: "sysinfo"
     const dataItem = { ts: eventData.ts };
     for (const key in eventData.values) {
         dataItem[key] = eventData.values[key];
-    }
-    const gpuKeys = Object.keys(dataItem).filter((k) => k.startsWith("gpu:"));
-    if (gpuKeys.length > 0) {
-        console.log("[sysinfo] GPU data received:", gpuKeys.join(", "), gpuKeys.map((k) => `${k}=${dataItem[k]}`).join(", "));
     }
     return dataItem;
 }
@@ -233,6 +199,7 @@ class SysinfoViewModel implements ViewModel {
     plotMetaAtom: jotai.PrimitiveAtom<Map<string, TimeSeriesMeta>>;
     endIconButtons: jotai.Atom<IconButtonDecl[]>;
     plotTypeSelectedAtom: jotai.Atom<string>;
+    gpuCount: jotai.Atom<number>;
 
     constructor(blockId: string, nodeModel: BlockNodeModel, tabModel: TabModel) {
         this.nodeModel = nodeModel;
@@ -311,13 +278,11 @@ class SysinfoViewModel implements ViewModel {
         this.metrics = jotai.atom((get) => {
             let plotType = get(this.plotTypeSelectedAtom);
             const plotData = get(this.dataAtom);
+            const gpuCount = get(this.gpuCount);
             try {
-                const metrics = PlotTypes[plotType](plotData[plotData.length - 1]);
+                const metrics = PlotTypes[plotType](plotData[plotData.length - 1], gpuCount);
                 if (metrics == null || !Array.isArray(metrics)) {
                     return ["cpu"];
-                }
-                if (plotType.startsWith("GPU") && metrics.length === 0) {
-                    console.log("[sysinfo] GPU plot type selected but no GPU metrics found. plotType:", plotType, "lastDataItem keys:", plotData.length > 0 ? Object.keys(plotData[plotData.length - 1]).filter(k => k.startsWith("gpu:")) : "no data");
                 }
                 return metrics;
             } catch (e) {
@@ -331,6 +296,14 @@ class SysinfoViewModel implements ViewModel {
                 return "CPU";
             }
             return plotType;
+        });
+        this.gpuCount = jotai.atom((get) => {
+            const blockData = get(this.blockAtom);
+            const metaGpuCount = blockData?.meta?.["sysinfo:gpu_count"];
+            if (metaGpuCount == null || typeof metaGpuCount != "number" || metaGpuCount <= 0) {
+                return DefaultGpuCount;
+            }
+            return metaGpuCount;
         });
         this.viewIcon = jotai.atom((get) => {
             return "chart-line"; // should not be hardcoded
@@ -407,8 +380,9 @@ class SysinfoViewModel implements ViewModel {
         if (plotData.length == 0) {
             submenu = [];
         } else {
+            const currentGpuCount = globalStore.get(this.gpuCount);
             submenu = Object.keys(PlotTypes).map((plotType) => {
-                const dataTypes = PlotTypes[plotType](plotData[plotData.length - 1]);
+                const dataTypes = PlotTypes[plotType](plotData[plotData.length - 1], currentGpuCount);
                 const currentlySelected = globalStore.get(this.plotTypeSelectedAtom);
                 const menuItem: ContextMenuItem = {
                     label: plotType,
@@ -429,6 +403,24 @@ class SysinfoViewModel implements ViewModel {
             label: "图表类型",
             submenu: submenu,
         });
+
+        const currentGpuCount = globalStore.get(this.gpuCount);
+        const gpuCountSubmenu: ContextMenuItem[] = GpuCountOptions.map((count) => ({
+            label: `${count} 卡`,
+            type: "radio",
+            checked: currentGpuCount === count,
+            click: async () => {
+                await RpcApi.SetMetaCommand(TabRpcClient, {
+                    oref: WOS.makeORef("block", this.blockId),
+                    meta: { "sysinfo:gpu_count": count },
+                });
+            },
+        }));
+        fullMenu.push({
+            label: "GPU 卡数",
+            submenu: gpuCountSubmenu,
+        });
+
         fullMenu.push({ type: "separator" });
         return fullMenu;
     }
@@ -531,7 +523,6 @@ function SysinfoView({ model, blockId }: SysinfoViewProps) {
                 }
             },
         });
-        console.log("subscribe to sysinfo", connName);
         return () => {
             unsubFn();
         };

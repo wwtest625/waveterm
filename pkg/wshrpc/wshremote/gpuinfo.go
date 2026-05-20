@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -28,7 +29,22 @@ type GpuDevice struct {
 var (
 	gpuDevicesCache []GpuDevice
 	gpuCacheMu      sync.RWMutex
+	gpuLogLimiter   sync.Map
 )
+
+const gpuLogInterval = 30 * time.Second
+
+func rateLimitedGpuLog(gpuIdx int, format string, args ...any) {
+	now := time.Now()
+	key := fmt.Sprintf("%d", gpuIdx)
+	if last, ok := gpuLogLimiter.Load(key); ok {
+		if now.Sub(last.(time.Time)) < gpuLogInterval {
+			return
+		}
+	}
+	gpuLogLimiter.Store(key, now)
+	log.Printf(format, args...)
+}
 
 func discoverGpuDevices() []GpuDevice {
 	gpuCacheMu.RLock()
@@ -47,10 +63,8 @@ func discoverGpuDevices() []GpuDevice {
 
 	entries, err := os.ReadDir(pciDevicesPath)
 	if err != nil {
-		log.Printf("gpuinfo: failed to read %s: %v\n", pciDevicesPath, err)
 		return nil
 	}
-	log.Printf("gpuinfo: scanning %s, found %d entries\n", pciDevicesPath, len(entries))
 
 	var busIds []string
 	for _, entry := range entries {
@@ -62,7 +76,6 @@ func discoverGpuDevices() []GpuDevice {
 		if err != nil || !info.IsDir() {
 			continue
 		}
-		log.Printf("gpuinfo: found GPU device at %s (smi dir: %s)\n", entry.Name(), smiPath)
 		busIds = append(busIds, entry.Name())
 	}
 
@@ -81,7 +94,6 @@ func discoverGpuDevices() []GpuDevice {
 	}
 
 	gpuDevicesCache = devices
-	log.Printf("gpuinfo: discovered %d GPU devices\n", len(devices))
 	return devices
 }
 
@@ -108,24 +120,6 @@ func parseKeyValueLine(line string) (string, float64, error) {
 		return key, 0, err
 	}
 	return key, val, nil
-}
-
-func getGpuTemp(smiDir string) float64 {
-	content, err := readSysfsFile(filepath.Join(smiDir, "showtemp"))
-	if err != nil {
-		return -1
-	}
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "hotspot:") {
-			_, val, err := parseKeyValueLine(line)
-			if err == nil {
-				return val / 100.0
-			}
-		}
-	}
-	return -1
 }
 
 func getGpuMemInfo(smiDir string) (usedGb float64, totalGb float64) {
@@ -155,32 +149,6 @@ func parseVisVram(content string) float64 {
 		}
 	}
 	return -1
-}
-
-func getGpuPower(smiDir string) float64 {
-	content, err := readSysfsFile(filepath.Join(smiDir, "showpower"))
-	if err != nil {
-		return -1
-	}
-
-	var socPower, corePower, hbmPower float64
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	for scanner.Scan() {
-		line := scanner.Text()
-		key, val, err := parseKeyValueLine(line)
-		if err != nil {
-			continue
-		}
-		switch key {
-		case "soc power":
-			socPower = val / 1000.0
-		case "core power":
-			corePower = val / 1000.0
-		case "hbm power":
-			hbmPower = val / 1000.0
-		}
-	}
-	return socPower + corePower + hbmPower
 }
 
 func getGpuUtil(smiDir string, gpuIdx int) float64 {
@@ -217,13 +185,6 @@ func GetGpuData(values map[string]float64) {
 	for _, dev := range devices {
 		prefix := fmt.Sprintf("gpu:%d", dev.Index)
 
-		temp := getGpuTemp(dev.SmiDir)
-		if temp >= 0 {
-			values[prefix+":temp"] = temp
-		} else {
-			log.Printf("gpuinfo: GPU %d temp read failed (smiDir=%s)\n", dev.Index, dev.SmiDir)
-		}
-
 		memUsed, memTotal := getGpuMemInfo(dev.SmiDir)
 		if memUsed >= 0 {
 			values[prefix+":mem_used"] = memUsed
@@ -232,22 +193,14 @@ func GetGpuData(values map[string]float64) {
 			values[prefix+":mem_total"] = memTotal
 		}
 		if memUsed < 0 || memTotal < 0 {
-			log.Printf("gpuinfo: GPU %d mem read failed used=%.2f total=%.2f (smiDir=%s)\n", dev.Index, memUsed, memTotal, dev.SmiDir)
-		}
-
-		power := getGpuPower(dev.SmiDir)
-		if power >= 0 {
-			values[prefix+":power"] = power
-		} else {
-			log.Printf("gpuinfo: GPU %d power read failed (smiDir=%s)\n", dev.Index, dev.SmiDir)
+			rateLimitedGpuLog(dev.Index, "gpuinfo: GPU %d mem read failed used=%.2f total=%.2f (smiDir=%s)\n", dev.Index, memUsed, memTotal, dev.SmiDir)
 		}
 
 		util := getGpuUtil(dev.SmiDir, dev.Index)
 		if util >= 0 {
 			values[prefix+":util"] = util
 		} else {
-			log.Printf("gpuinfo: GPU %d util read failed (smiDir=%s)\n", dev.Index, dev.SmiDir)
+			rateLimitedGpuLog(dev.Index, "gpuinfo: GPU %d util read failed (smiDir=%s)\n", dev.Index, dev.SmiDir)
 		}
 	}
-	log.Printf("gpuinfo: collected GPU data for %d devices, values count=%d\n", len(devices), len(values))
 }
