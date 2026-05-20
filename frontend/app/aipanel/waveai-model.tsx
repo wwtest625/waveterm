@@ -348,6 +348,26 @@ export class WaveAIModel {
         return `${getWebServerEndpoint()}/api/post-chat-message`;
     }
 
+    private persistWaveAIState(data: Record<string, any>): void {
+        RpcApi.SetRTInfoCommand(TabRpcClient, {
+            oref: this.orefContext,
+            data,
+        });
+        const metaUpdate: Record<string, any> = {};
+        if ("waveai:chatid" in data) {
+            metaUpdate["waveai:chatid"] = data["waveai:chatid"];
+        }
+        if ("waveai:mode" in data) {
+            metaUpdate["waveai:mode"] = data["waveai:mode"];
+        }
+        if (Object.keys(metaUpdate).length > 0) {
+            RpcApi.SetMetaCommand(TabRpcClient, {
+                oref: this.orefContext,
+                meta: metaUpdate,
+            });
+        }
+    }
+
     private getSessionTabId(): string {
         return globalStore.get(atoms.staticTabId);
     }
@@ -501,10 +521,7 @@ export class WaveAIModel {
         }
         this.dispatch({ type: "SET_CHAT_ID", chatId });
         this.dispatch({ type: "SET_COMMAND_INTERACTION", interaction: null });
-        await RpcApi.SetRTInfoCommand(TabRpcClient, {
-            oref: this.orefContext,
-            data: { "waveai:chatid": chatId },
-        });
+        this.persistWaveAIState({ "waveai:chatid": chatId });
         const messages = await this.reloadChatFromBackend(chatId);
         this.getChatSetMessages()?.(messages);
         this.scrollToBottom();
@@ -616,6 +633,7 @@ export class WaveAIModel {
         this.clearFiles();
         this.clearError();
         this.dispatch({ type: "CLEAR_CHAT_STATE" });
+        this.getChatSetMessages()?.([]);
         const reusableSession = this.findReusableNewChatSession();
         const newChatId = reusableSession?.chatid ?? crypto.randomUUID();
         this.dispatch({ type: "SET_CHAT_ID", chatId: newChatId });
@@ -628,10 +646,7 @@ export class WaveAIModel {
         };
         this.upsertLocalSession(newSession);
 
-        RpcApi.SetRTInfoCommand(TabRpcClient, {
-            oref: this.orefContext,
-            data: { "waveai:chatid": newChatId },
-        });
+        this.persistWaveAIState({ "waveai:chatid": newChatId });
         if (reusableSession) {
             void this.persistSessionUpdate({
                 chatid: newChatId,
@@ -714,8 +729,10 @@ export class WaveAIModel {
     }
 
     async reloadChatFromBackend(chatIdValue: string): Promise<WaveUIMessage[]> {
+        console.log("[WaveAI:reloadChatFromBackend] loading chatId =", chatIdValue);
         const chatData = await RpcApi.GetWaveAIChatCommand(TabRpcClient, { chatid: chatIdValue });
         const messages: UIMessage[] = chatData?.messages ?? [];
+        console.log("[WaveAI:reloadChatFromBackend] chatId =", chatIdValue, "messages count =", messages.length, "hasSessionMeta =", !!chatData?.sessionmeta, "chatData is null =", chatData == null);
         if (chatData?.sessionmeta) {
             this.upsertLocalSession(chatData.sessionmeta);
             this.setBackgroundJobs((chatData.sessionmeta as WaveChatSessionMeta).backgroundjobs ?? []);
@@ -1486,20 +1503,14 @@ export class WaveAIModel {
             this.setAIModeToDefault();
         } else {
             this.dispatch({ type: "SET_CURRENT_AI_MODE", mode });
-            RpcApi.SetRTInfoCommand(TabRpcClient, {
-                oref: this.orefContext,
-                data: { "waveai:mode": mode },
-            });
+            this.persistWaveAIState({ "waveai:mode": mode });
         }
     }
 
     setAIModeToDefault() {
         const defaultMode = globalStore.get(this.defaultModeAtom);
         this.dispatch({ type: "SET_CURRENT_AI_MODE", mode: defaultMode });
-        RpcApi.SetRTInfoCommand(TabRpcClient, {
-            oref: this.orefContext,
-            data: { "waveai:mode": null },
-        });
+        this.persistWaveAIState({ "waveai:mode": null });
     }
 
     async fixModeAfterConfigChange(): Promise<void> {
@@ -1524,17 +1535,22 @@ export class WaveAIModel {
             oref: this.orefContext,
         });
         let chatIdValue = rtInfo?.["waveai:chatid"];
+        console.log("[WaveAI:loadInitialChat] rtInfo waveai:chatid =", chatIdValue, "full rtInfo =", JSON.stringify(rtInfo));
+        if (!chatIdValue) {
+            const metaChatIdAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:chatid" as keyof MetaType);
+            chatIdValue = globalStore.get(metaChatIdAtom) as string | undefined;
+            console.log("[WaveAI:loadInitialChat] tab meta waveai:chatid =", chatIdValue);
+        }
         const sessions = await this.loadSessions();
+        console.log("[WaveAI:loadInitialChat] loaded sessions count =", sessions.length, "session chatIds =", sessions.map(s => s.chatid));
         if (!chatIdValue && sessions.length > 0) {
-            const reusableSession = sessions.find((session) => this.isReusableNewChatSession(session));
-            chatIdValue = reusableSession?.chatid ?? sessions[0].chatid;
+            const nonEmptySession = sessions.find((session) => !this.isReusableNewChatSession(session));
+            chatIdValue = nonEmptySession?.chatid ?? sessions[0].chatid;
+            console.log("[WaveAI:loadInitialChat] chatId was null, fallback to =", chatIdValue, "(nonEmpty =", nonEmptySession?.chatid, ", first =", sessions[0].chatid, ")");
         }
         if (chatIdValue == null) {
             chatIdValue = crypto.randomUUID();
-            RpcApi.SetRTInfoCommand(TabRpcClient, {
-                oref: this.orefContext,
-                data: { "waveai:chatid": chatIdValue },
-            });
+            console.log("[WaveAI:loadInitialChat] no chatId found, created new =", chatIdValue);
             this.upsertLocalSession({
                 chatid: chatIdValue,
                 tabid: this.getSessionTabId(),
@@ -1542,9 +1558,15 @@ export class WaveAIModel {
                 updatedts: Date.now(),
             });
         }
+        this.persistWaveAIState({ "waveai:chatid": chatIdValue });
+        console.log("[WaveAI:loadInitialChat] final chatId =", chatIdValue);
         this.dispatch({ type: "SET_CHAT_ID", chatId: chatIdValue });
 
-        const aiModeValue = rtInfo?.["waveai:mode"];
+        let aiModeValue = rtInfo?.["waveai:mode"];
+        if (!aiModeValue) {
+            const metaModeAtom = getOrefMetaKeyAtom(this.orefContext, "waveai:mode" as keyof MetaType);
+            aiModeValue = globalStore.get(metaModeAtom) as string | undefined;
+        }
         if (aiModeValue == null) {
             const defaultMode = globalStore.get(this.defaultModeAtom);
             this.dispatch({ type: "SET_CURRENT_AI_MODE", mode: defaultMode });
