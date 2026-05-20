@@ -1293,9 +1293,11 @@ func (ws *WshServer) WaveAIEnableTelemetryCommand(ctx context.Context) error {
 }
 
 func (ws *WshServer) GetWaveAIChatCommand(ctx context.Context, data wshrpc.CommandGetWaveAIChatData) (*uctypes.UIChat, error) {
+	log.Printf("[WaveAI:GetWaveAIChat] chatId=%s", data.ChatId)
 	aiChat := chatstore.DefaultChatStore.Get(data.ChatId)
 	if aiChat == nil {
 		session := chatstore.DefaultChatStore.GetSession(data.ChatId)
+		log.Printf("[WaveAI:GetWaveAIChat] chatId=%s aiChat=nil hasSession=%v", data.ChatId, session != nil)
 		if session == nil {
 			return nil, nil
 		}
@@ -1419,6 +1421,7 @@ func (ws *WshServer) refreshWaveAIBackgroundJobs(
 }
 
 func (ws *WshServer) ListWaveAISessionsCommand(ctx context.Context, data wshrpc.CommandListWaveAISessionsData) ([]*uctypes.UIChatSessionMeta, error) {
+	chatstore.DefaultChatStore.CleanupEmptySessions(1)
 	return chatstore.DefaultChatStore.ListSessions(data.TabId, uctypes.UIChatSessionListOpts{
 		IncludeArchived: data.IncludeArchived,
 		IncludeDeleted:  data.IncludeDeleted,

@@ -57,6 +57,8 @@ func RunChatStep(
 		messages = append(messages, *chatMsg.Message.clean())
 	}
 
+	messages = sanitizeToolCallMessages(messages)
+
 	req, err := buildChatHTTPRequest(ctx, messages, chatOpts)
 	if err != nil {
 		return nil, nil, nil, err
@@ -322,4 +324,64 @@ func extractPartialTextMessage(msgID string, text string) *StoredChatMessage {
 			Content: text,
 		},
 	}
+}
+
+func sanitizeToolCallMessages(messages []ChatRequestMessage) []ChatRequestMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+
+	toolResponseIDs := make(map[string]bool)
+	for _, msg := range messages {
+		if msg.Role == "tool" && msg.ToolCallID != "" {
+			toolResponseIDs[msg.ToolCallID] = true
+		}
+	}
+
+	assistantToolCallIDs := make(map[string]bool)
+	for _, msg := range messages {
+		if msg.Role == "assistant" {
+			for _, tc := range msg.ToolCalls {
+				assistantToolCallIDs[tc.ID] = true
+			}
+		}
+	}
+
+	var result []ChatRequestMessage
+	for _, msg := range messages {
+		if msg.Role == "tool" && msg.ToolCallID != "" {
+			if !assistantToolCallIDs[msg.ToolCallID] {
+				continue
+			}
+			result = append(result, msg)
+			continue
+		}
+
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			var validToolCalls []ToolCall
+			for _, tc := range msg.ToolCalls {
+				if toolResponseIDs[tc.ID] {
+					validToolCalls = append(validToolCalls, tc)
+				}
+			}
+			if len(validToolCalls) == len(msg.ToolCalls) {
+				result = append(result, msg)
+			} else if len(validToolCalls) > 0 {
+				fixedMsg := msg
+				fixedMsg.ToolCalls = validToolCalls
+				result = append(result, fixedMsg)
+			} else {
+				if msg.Content != "" || len(msg.ContentParts) > 0 {
+					fixedMsg := msg
+					fixedMsg.ToolCalls = nil
+					result = append(result, fixedMsg)
+				}
+			}
+			continue
+		}
+
+		result = append(result, msg)
+	}
+
+	return result
 }

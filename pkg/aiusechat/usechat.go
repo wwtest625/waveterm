@@ -1634,6 +1634,7 @@ func WaveAIPostMessageHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "chatid is required in request body", http.StatusBadRequest)
 		return
 	}
+	log.Printf("[WaveAI:PostMessage] chatId=%s aimode=%s agentmode=%s", req.ChatID, req.AIMode, req.AgentMode)
 	if _, err := uuid.Parse(req.ChatID); err != nil {
 		http.Error(w, "chatid must be a valid UUID", http.StatusBadRequest)
 		return

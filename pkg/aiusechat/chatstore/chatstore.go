@@ -85,6 +85,7 @@ func (cs *ChatStore) ensureLoaded() {
 					cs.sessions[chatId] = chat.SessionMeta.Clone()
 				}
 			}
+			log.Printf("[ChatStore:ensureLoaded] loaded from %s: %d chats, %d sessions", persistencePath, len(cs.chats), len(cs.sessions))
 			cs.persistenceLoaded = true
 			cs.lock.Unlock()
 			return
@@ -556,9 +557,11 @@ func (cs *ChatStore) GetContextWindow(chatId string, recentUserTurns int) *uctyp
 
 	chat := cs.chats[chatId]
 	if chat == nil {
+		log.Printf("[ChatStore:GetContextWindow] chatId=%s chat=nil totalChats=%d", chatId, len(cs.chats))
 		return nil
 	}
 
+	totalMsgs := len(chat.NativeMessages)
 	startIdx := 0
 	if recentUserTurns > 0 {
 		userCount := 0
@@ -575,6 +578,7 @@ func (cs *ChatStore) GetContextWindow(chatId string, recentUserTurns int) *uctyp
 	}
 
 	subset := chat.NativeMessages[startIdx:]
+	log.Printf("[ChatStore:GetContextWindow] chatId=%s totalMsgs=%d recentUserTurns=%d startIdx=%d contextMsgs=%d", chatId, totalMsgs, recentUserTurns, startIdx, len(subset))
 	copyChat := &uctypes.AIChat{
 		ChatId:         chat.ChatId,
 		APIType:        chat.APIType,
@@ -595,6 +599,50 @@ func (cs *ChatStore) Delete(chatId string) {
 	delete(cs.chats, chatId)
 	delete(cs.sessions, chatId)
 	cs.persistLocked()
+}
+
+func (cs *ChatStore) CleanupEmptySessions(keepCount int) int {
+	cs.ensureLoaded()
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
+	var emptySessions []*uctypes.UIChatSessionMeta
+	for _, session := range cs.sessions {
+		if session.Deleted || session.Archived {
+			continue
+		}
+		title := strings.TrimSpace(session.Title)
+		summary := strings.TrimSpace(session.Summary)
+		if title == "" || title == "New Chat" {
+			if summary == "" && len(session.BackgroundJobs) == 0 {
+				chat := cs.chats[session.ChatId]
+				if chat == nil || len(chat.NativeMessages) == 0 {
+					emptySessions = append(emptySessions, session.Clone())
+				}
+			}
+		}
+	}
+	slices.SortFunc(emptySessions, func(a, b *uctypes.UIChatSessionMeta) int {
+		if a.UpdatedTs != b.UpdatedTs {
+			if a.UpdatedTs > b.UpdatedTs {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.ChatId, b.ChatId)
+	})
+	deleted := 0
+	for i := keepCount; i < len(emptySessions); i++ {
+		chatId := emptySessions[i].ChatId
+		delete(cs.chats, chatId)
+		delete(cs.sessions, chatId)
+		deleted++
+	}
+	if deleted > 0 {
+		log.Printf("[ChatStore:CleanupEmptySessions] removed %d empty sessions (kept %d)", deleted, min(keepCount, len(emptySessions)))
+		cs.persistLocked()
+	}
+	return deleted
 }
 
 func (cs *ChatStore) CountUserMessages(chatId string) int {
