@@ -1,15 +1,10 @@
-// Copyright 2025, Command Plane Inc.
-// SPDX-License-Identifier: Apache-2.0
-
 import { MonacoCodeEditor } from "@/app/monaco/monaco-react";
 import { kbReadFile, kbWriteFile } from "@/app/store/kb-api";
 import type { KbFileContent } from "@/app/store/kb-model";
+import { KbWysiwygEditor } from "./kb-wysiwyg-editor";
 import type * as MonacoTypes from "monaco-editor";
 import { debounce } from "throttle-debounce";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
-import remarkGfm from "remark-gfm";
 import "./kb-editor.scss";
 
 interface KbEditorProps {
@@ -100,15 +95,6 @@ function getMimeTypeForImage(relPath: string): string {
     return mimeMap[ext] ?? "image/png";
 }
 
-function resolveKbImagePath(currentRelPath: string, imgSrc: string): string {
-    if (!imgSrc || imgSrc.startsWith("http://") || imgSrc.startsWith("https://") || imgSrc.startsWith("data:")) {
-        return imgSrc;
-    }
-    const dir = currentRelPath.includes("/") ? currentRelPath.substring(0, currentRelPath.lastIndexOf("/")) : "";
-    const resolved = dir ? `${dir}/${imgSrc}` : imgSrc;
-    return resolved.replace(/\/+/g, "/");
-}
-
 const DEFAULT_EDITOR_OPTIONS: MonacoTypes.editor.IEditorOptions = {
     scrollBeyondLastLine: false,
     fontSize: 13,
@@ -124,75 +110,6 @@ const DEFAULT_EDITOR_OPTIONS: MonacoTypes.editor.IEditorOptions = {
     wordWrap: "on",
     copyWithSyntaxHighlighting: false,
 };
-
-const kbImgCache = new Map<string, string>();
-
-interface KbMarkdownImgProps extends React.ImgHTMLAttributes<HTMLImageElement> {
-    relPath: string;
-}
-
-function KbMarkdownImg({ src, alt, relPath, ...rest }: KbMarkdownImgProps) {
-    const [resolvedSrc, setResolvedSrc] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (!src || src.startsWith("http://") || src.startsWith("https://") || src.startsWith("data:")) {
-            setResolvedSrc(src ?? null);
-            return;
-        }
-        const resolved = resolveKbImagePath(relPath, src);
-        if (kbImgCache.has(resolved)) {
-            setResolvedSrc(kbImgCache.get(resolved)!);
-            return;
-        }
-        let cancelled = false;
-        kbReadFile(resolved)
-            .then((result: KbFileContent) => {
-                if (cancelled) return;
-                if (result.isImage && result.content) {
-                    const mime = getMimeTypeForImage(resolved);
-                    const dataUrl = `data:${mime};base64,${result.content}`;
-                    kbImgCache.set(resolved, dataUrl);
-                    setResolvedSrc(dataUrl);
-                } else {
-                    setResolvedSrc(src);
-                }
-            })
-            .catch(() => {
-                if (!cancelled) setResolvedSrc(src);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [src, relPath]);
-
-    if (!resolvedSrc) {
-        return <span className="text-secondary text-sm">[loading image...]</span>;
-    }
-    return <img src={resolvedSrc} alt={alt} {...rest} className="max-w-full rounded" />;
-}
-
-function KbMarkdownPreview({ content, relPath }: { content: string; relPath: string }) {
-    const components = useMemo(
-        () => ({
-            img: (props: React.ImgHTMLAttributes<HTMLImageElement>) => (
-                <KbMarkdownImg {...props} relPath={relPath} />
-            ),
-        }),
-        [relPath]
-    );
-
-    return (
-        <div className="kb-markdown-preview">
-            <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeHighlight]}
-                components={components as any}
-            >
-                {content}
-            </ReactMarkdown>
-        </div>
-    );
-}
 
 function KbImagePreview({ imageDataUrl }: { imageDataUrl: string }) {
     const [scale, setScale] = useState(1);
@@ -273,33 +190,24 @@ function KbImagePreview({ imageDataUrl }: { imageDataUrl: string }) {
     );
 }
 
-export function KbEditor({ relPath, mode: initialMode }: KbEditorProps) {
+export function KbEditor({ relPath }: KbEditorProps) {
     const [content, setContent] = useState("");
     const [savedContent, setSavedContent] = useState("");
     const [isMarkdown, setIsMarkdown] = useState(false);
     const [isImage, setIsImage] = useState(false);
     const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
     const [language, setLanguage] = useState<string | undefined>(undefined);
-    const [activeMode, setActiveMode] = useState<"editor" | "preview">(initialMode ?? "editor");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const saveTimerRef = useRef<((...args: any[]) => any) & { cancel: () => void } | null>(null);
     const relPathRef = useRef(relPath);
 
-    const hasUnsavedChanges = content !== savedContent;
-
     useEffect(() => {
         setIsMarkdown(isMarkdownFile(relPath));
         setIsImage(isImageFile(relPath));
         setLanguage(detectLanguage(relPath));
     }, [relPath]);
-
-    useEffect(() => {
-        if (isMarkdown && initialMode === undefined) {
-            setActiveMode("preview");
-        }
-    }, [isMarkdown, initialMode]);
 
     useEffect(() => {
         let cancelled = false;
@@ -359,10 +267,6 @@ export function KbEditor({ relPath, mode: initialMode }: KbEditorProps) {
         }
     }, []);
 
-    const toggleMode = useCallback(() => {
-        setActiveMode((prev) => (prev === "editor" ? "preview" : "editor"));
-    }, []);
-
     const editorOptions = useMemo(() => DEFAULT_EDITOR_OPTIONS, []);
 
     if (loading) {
@@ -391,37 +295,25 @@ export function KbEditor({ relPath, mode: initialMode }: KbEditorProps) {
         );
     }
 
+    if (isMarkdown) {
+        return (
+            <div className="kb-editor">
+                <KbWysiwygEditor relPath={relPath} />
+            </div>
+        );
+    }
+
     return (
         <div className="kb-editor">
-            {isMarkdown && (
-                <div className="kb-editor-toolbar">
-                    <button
-                        className={`kb-mode-btn ${activeMode === "editor" ? "active" : ""}`}
-                        onClick={toggleMode}
-                        title={activeMode === "editor" ? "Switch to Preview" : "Switch to Editor"}
-                    >
-                        <i className={`fa-sharp fa-solid ${activeMode === "editor" ? "fa-eye" : "fa-pen"}`} />
-                    </button>
-                    {hasUnsavedChanges && (
-                        <span className="kb-unsaved-indicator" title="Unsaved changes">
-                            ●
-                        </span>
-                    )}
-                </div>
-            )}
             <div className="kb-editor-content">
-                {activeMode === "preview" && isMarkdown ? (
-                    <KbMarkdownPreview content={content} relPath={relPath} />
-                ) : (
-                    <MonacoCodeEditor
-                        text={content}
-                        readonly={false}
-                        language={language}
-                        onChange={handleEditorChange}
-                        path={`kb://${relPath}`}
-                        options={editorOptions}
-                    />
-                )}
+                <MonacoCodeEditor
+                    text={content}
+                    readonly={false}
+                    language={language}
+                    onChange={handleEditorChange}
+                    path={`kb://${relPath}`}
+                    options={editorOptions}
+                />
             </div>
         </div>
     );

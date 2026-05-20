@@ -254,6 +254,8 @@ func GenerateTabStateAndTools(ctx context.Context, tabid string, widgetAccess bo
 	}
 	tools = append(tools, GetKbSearchToolDefinition())
 	tools = append(tools, GetKbReadToolDefinition())
+	tools = append(tools, GetKbWriteToolDefinition())
+	tools = append(tools, GetKbDeleteToolDefinition())
 	if widgetAccess {
 		viewTypes := make(map[string]bool)
 		for _, block := range blocks {
