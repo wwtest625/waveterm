@@ -31,6 +31,7 @@ export class AgentRuntimeModule {
     readonly securityBlockedAtom: jotai.PrimitiveAtom<boolean>;
     readonly askUserAtom: jotai.PrimitiveAtom<AskUserData | null>;
     readonly errorMessage: jotai.PrimitiveAtom<string>;
+    readonly chatClearEpochAtom: jotai.PrimitiveAtom<number>;
 
     private lastExecutingRuntimeUpdateAt = 0;
     private readonly executingRuntimeThrottleMs = 250;
@@ -49,6 +50,7 @@ export class AgentRuntimeModule {
         this.securityBlockedAtom = jotai.atom(false);
         this.askUserAtom = jotai.atom(null) as jotai.PrimitiveAtom<AskUserData | null>;
         this.errorMessage = jotai.atom(null) as jotai.PrimitiveAtom<string>;
+        this.chatClearEpochAtom = jotai.atom(0) as jotai.PrimitiveAtom<number>;
     }
 
     setError(message: string) {

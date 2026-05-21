@@ -124,6 +124,7 @@ export class WaveAIModel {
     get securityBlockedAtom() { return this.agentRuntime.securityBlockedAtom; }
     get askUserAtom() { return this.agentRuntime.askUserAtom; }
     get errorMessage() { return this.agentRuntime.errorMessage; }
+    get chatClearEpochAtom() { return this.agentRuntime.chatClearEpochAtom; }
     get droppedFiles() { return this.fileService.droppedFiles; }
 
     // ─── Tool Execution & Command Interaction ──────────────────────────────────
@@ -634,6 +635,8 @@ export class WaveAIModel {
         this.clearError();
         this.dispatch({ type: "CLEAR_CHAT_STATE" });
         this.getChatSetMessages()?.([]);
+        const prevEpoch = globalStore.get(this.chatClearEpochAtom);
+        globalStore.set(this.chatClearEpochAtom, prevEpoch + 1);
         const reusableSession = this.findReusableNewChatSession();
         const newChatId = reusableSession?.chatid ?? crypto.randomUUID();
         this.dispatch({ type: "SET_CHAT_ID", chatId: newChatId });
@@ -731,6 +734,10 @@ export class WaveAIModel {
     async reloadChatFromBackend(chatIdValue: string): Promise<WaveUIMessage[]> {
         console.log("[WaveAI:reloadChatFromBackend] loading chatId =", chatIdValue);
         const chatData = await RpcApi.GetWaveAIChatCommand(TabRpcClient, { chatid: chatIdValue });
+        if (globalStore.get(this.chatId) !== chatIdValue) {
+            console.log("[WaveAI:reloadChatFromBackend] chatId changed during load, discarding data");
+            return [];
+        }
         const messages: UIMessage[] = chatData?.messages ?? [];
         console.log("[WaveAI:reloadChatFromBackend] chatId =", chatIdValue, "messages count =", messages.length, "hasSessionMeta =", !!chatData?.sessionmeta, "chatData is null =", chatData == null);
         if (chatData?.sessionmeta) {

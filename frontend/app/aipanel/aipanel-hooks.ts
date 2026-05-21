@@ -388,7 +388,8 @@ export function useMessageAnalysis(
     errorMessage: string | null | undefined,
     commandInteraction: CommandInteractionState | null,
     agentMode: AgentMode,
-    agentRuntimeSnapshot: { state: AgentRuntimeState; activeJobIds?: string[] }
+    agentRuntimeSnapshot: { state: AgentRuntimeState; activeJobIds?: string[] },
+    chatClearEpoch: number
 ) {
     const messageAnalysis = useMemo<MessageAnalysisResult>(() => {
         const lastAssistantMessage = [...coalescedMessages].reverse().find((message) => message.role === "assistant");
@@ -453,7 +454,7 @@ export function useMessageAnalysis(
                 model.dispatchAgentEvent({ type: "VERIFY_FINISHED", ok: true });
             }
         }
-    }, [messageAnalysis, model, status, commandInteraction]);
+    }, [messageAnalysis, model, status, commandInteraction, chatClearEpoch]);
 
     useEffect(() => {
         const currentInteraction = globalStore.get(model.commandInteractionAtom);

@@ -48,6 +48,7 @@ const AIPanelComponentInner = memo(() => {
     const backgroundJobs = jotai.useAtomValue(model.backgroundJobsAtom);
     const chatIdValue = jotai.useAtomValue(model.chatId);
     const agentMode = jotai.useAtomValue(model.agentModeAtom);
+    const chatClearEpoch = jotai.useAtomValue(model.chatClearEpochAtom);
     const tabModel = maybeUseTabModel();
 
     const { status, chatContextValue, coalescedMessages } = useChatSetup(model, tabModel.tabId);
@@ -59,7 +60,8 @@ const AIPanelComponentInner = memo(() => {
         errorMessage,
         commandInteraction,
         agentMode,
-        agentRuntimeSnapshot
+        agentRuntimeSnapshot,
+        chatClearEpoch
     );
 
     useEffect(() => {
