@@ -502,6 +502,8 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
         minWidth,
         maxWidth,
         height,
+        display: "flex",
+        flexDirection: "column",
     };
 
     return (
@@ -512,7 +514,7 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
                 tabIndex={0}
             onKeyDown={onKeyDown}
         >
-            <div ref={scrollRef} className="h-full overflow-auto">
+            <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
                 <div className="relative w-max min-w-full" style={{ height: virtualizer.getTotalSize() }}>
                     {virtualizer.getVirtualItems().map((virtualRow) => {
                         const row = visibleRows[virtualRow.index];

@@ -1,0 +1,2499 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WaveTerm AI 面板 - 组件展示</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --color-background: rgb(34, 34, 34);
+    --color-foreground: #f7f7f7;
+    --color-accent: rgb(88, 193, 66);
+    --color-accent-300: rgb(110, 231, 133);
+    --color-accent-400: rgb(88, 193, 66);
+    --font-sans: "Inter", sans-serif;
+    --font-mono: "JetBrains Mono", "Hack", monospace;
+    --radius: 8px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: var(--font-sans);
+    background: #1a1a1a;
+    color: #f7f7f7;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+@keyframes shimmer-sweep {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.animate-spin { animation: spin 1s linear infinite; }
+
+.section {
+    margin: 32px auto;
+    max-width: 520px;
+    padding: 0 16px;
+}
+
+.section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: #a1a1aa;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+/* ========== AI Panel Container ========== */
+.ai-panel {
+    background: rgba(39, 39, 42, 0.8);
+    border-radius: 12px 12px 12px 12px;
+    border: 1px solid rgba(255,255,255,0.04);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    margin-top: 4px;
+}
+
+/* ========== Panel Hero ========== */
+.panel-hero {
+    margin-bottom: 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    background: rgba(255,255,255,0.015);
+    padding: 12px 16px;
+}
+
+.panel-hero .hero-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.panel-hero .hero-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #e4e4e7;
+}
+
+.panel-hero .hero-label i {
+    color: rgba(190, 242, 100, 0.7);
+}
+
+.panel-hero .hero-badges {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #a1a1aa;
+}
+
+.badge {
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.03);
+    padding: 2px 8px;
+    font-size: 11px;
+}
+
+.badge-rate-limit {
+    border-radius: 9999px;
+    background: rgba(252, 211, 77, 0.05);
+    padding: 2px 8px;
+    font-size: 10px;
+    color: rgba(253, 230, 138, 0.7);
+}
+
+/* ========== Mode Dropdown ========== */
+.mode-dropdown {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    font-size: 11px;
+    color: #a1a1aa;
+    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.06);
+}
+
+.mode-dropdown:hover {
+    background: rgba(255,255,255,0.08);
+    color: #e4e4e7;
+}
+
+/* ========== User Prompt Card ========== */
+.user-prompt-card {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.user-prompt-card .prompt-content {
+    max-width: 78%;
+    border-radius: 16px;
+    border-left: 2px solid rgba(190, 242, 100, 0.2);
+    background: rgba(190, 242, 100, 0.04);
+    padding: 12px 16px;
+    font-size: 14px;
+    color: #e4e4e7;
+}
+
+.user-prompt-card .prompt-label {
+    margin-bottom: 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: rgba(190, 242, 100, 0.5);
+}
+
+.user-prompt-card .prompt-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ========== Assistant Output Card ========== */
+.assistant-output-card {
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+}
+
+.assistant-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.assistant-rail .dot {
+    margin-top: 6px;
+    height: 6px;
+    width: 6px;
+    border-radius: 9999px;
+    background: rgba(163, 163, 163, 0.6);
+}
+
+.assistant-rail .dot.active { background: rgba(52, 211, 153, 0.5); }
+.assistant-rail .dot.failed { background: rgba(248, 113, 113, 0.5); }
+.assistant-rail .dot.cancelled { background: rgba(113, 113, 122, 0.5); }
+
+.assistant-rail .line {
+    margin-top: 6px;
+    height: 100%;
+    min-height: 32px;
+    width: 1px;
+    background: rgba(255,255,255,0.03);
+}
+
+.assistant-output-body {
+    min-width: 0;
+    flex: 1;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.015);
+    padding: 14px 16px;
+    border-left: 2px solid rgba(255,255,255,0.04);
+}
+
+.assistant-output-body.border-failed { border-left-color: rgba(248, 113, 113, 0.2); }
+.assistant-output-body.border-cancelled { border-left-color: rgba(113, 113, 122, 0.2); }
+
+.completion-header {
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #d4d4d8;
+}
+
+.completion-header i { color: rgba(52, 211, 153, 0.7); }
+
+.assistant-text {
+    color: #f4f4f5;
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.assistant-text p { margin-bottom: 8px; }
+.assistant-text p:last-child { margin-bottom: 0; }
+
+.assistant-text code {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: rgba(0,0,0,0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.assistant-text pre {
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    padding: 12px 16px;
+    overflow-x: auto;
+    margin: 8px 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+/* ========== Copy Button ========== */
+.copy-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    padding: 4px 10px;
+    font-size: 11px;
+    color: #a1a1aa;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.copy-button:hover {
+    background: rgba(255,255,255,0.06);
+    color: #e4e4e7;
+}
+
+/* ========== Thinking Trace Card ========== */
+.thinking-trace-card {
+    margin-bottom: 12px;
+    overflow: hidden;
+    border-radius: 8px;
+    border-left: 2px solid rgba(110, 231, 133, 0.15);
+    background: rgba(110, 231, 133, 0.02);
+}
+
+.thinking-trace-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border-bottom: 1px solid rgba(110, 231, 133, 0.08);
+    padding: 8px 12px;
+}
+
+.thinking-trace-header .header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(199, 249, 180, 0.7);
+}
+
+.thinking-trace-header .header-left i { font-size: 10px; }
+
+.thinking-trace-header .shimmer-text {
+    background: linear-gradient(to right, rgba(199, 249, 180, 0.7), #fff, rgba(199, 249, 180, 0.7));
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: shimmer-sweep 2s ease-in-out infinite;
+}
+
+.thinking-trace-header .expand-btn {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(199, 249, 180, 0.5);
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: color 0.15s;
+}
+
+.thinking-trace-header .expand-btn:hover { color: #f0fdf4; }
+
+.thinking-trace-body {
+    max-height: 20lh;
+    overflow: auto;
+    white-space: pre-wrap;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: rgba(249, 254, 244, 0.75);
+    font-family: var(--font-mono);
+}
+
+/* ========== Task Chain ========== */
+.task-chain {
+    margin-top: 6px;
+    overflow: hidden;
+    border-radius: 8px;
+    padding: 6px 8px;
+    transition: background 0.2s, border-color 0.2s;
+    background: rgba(255,255,255,0.015);
+    border: 1px solid rgba(255,255,255,0.06);
+    color: rgba(199, 249, 180, 1);
+}
+
+.task-chain.tone-running {
+    border-color: rgba(113, 113, 122, 0.2);
+    background: rgba(39, 39, 42, 0.6);
+    color: #f4f4f5;
+}
+
+.task-chain.tone-failed {
+    border-color: rgba(239, 68, 68, 0.2);
+    background: rgba(239, 68, 68, 0.04);
+    color: #fee2e2;
+}
+
+.task-chain.tone-cancelled {
+    border-color: rgba(113, 113, 122, 0.2);
+    background: rgba(113, 113, 122, 0.04);
+    color: #d4d4d8;
+}
+
+.task-chain.tone-approval {
+    border-color: rgba(251, 191, 36, 0.2);
+    background: rgba(251, 191, 36, 0.04);
+    color: #fef3c7;
+}
+
+.task-chain-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+}
+
+.task-chain-header .label { color: #d4d4d8; }
+
+.task-chain-header .status-badge {
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.04);
+    padding: 1px 6px;
+    font-size: 9px;
+    font-weight: normal;
+    letter-spacing: 0.1em;
+    color: #a1a1aa;
+    text-transform: uppercase;
+}
+
+.task-chain-header .count-badge {
+    border-radius: 9999px;
+    background: rgba(190, 242, 100, 0.06);
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: normal;
+    letter-spacing: normal;
+    color: rgba(190, 242, 100, 0.7);
+}
+
+.task-chain-header .thinking-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.03);
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: normal;
+    letter-spacing: normal;
+    color: rgba(161, 161, 170, 0.7);
+}
+
+/* Timeline Step */
+.timeline-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.timeline-step .step-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+    padding-top: 4px;
+}
+
+.timeline-step .step-dot-outer {
+    display: flex;
+    height: 16px;
+    width: 16px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.03);
+}
+
+.timeline-step .step-dot-outer.active { background: rgba(255,255,255,0.06); }
+
+.timeline-step .step-dot {
+    display: flex;
+    height: 8px;
+    width: 8px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+}
+
+.timeline-step .step-dot.completed { background: rgba(52, 211, 153, 0.5); }
+.timeline-step .step-dot.running { background: rgba(250, 204, 21, 0.7); }
+.timeline-step .step-dot.failed { background: rgba(248, 113, 113, 0.6); }
+.timeline-step .step-dot.cancelled { background: rgba(113, 113, 122, 0.5); }
+.timeline-step .step-dot.pending { background: rgba(113, 113, 122, 0.5); }
+
+.timeline-step .step-dot i { color: rgba(255,255,255,0.9); font-size: 7px; }
+
+.timeline-step .step-line {
+    margin-top: 2px;
+    height: 100%;
+    min-height: 12px;
+    width: 1px;
+    background: rgba(255,255,255,0.04);
+}
+
+.timeline-step .step-content {
+    min-width: 0;
+    flex: 1;
+    padding-bottom: 6px;
+}
+
+/* Command Step */
+.command-step {
+    border-radius: 4px;
+    background: rgba(0,0,0,0.25);
+    padding: 6px 10px;
+    cursor: default;
+}
+
+.command-step .cmd-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.command-step .cmd-prompt {
+    flex-shrink: 0;
+    font-size: 13px;
+    color: rgba(52, 211, 153, 0.6);
+    font-family: var(--font-mono);
+}
+
+.command-step .cmd-text {
+    font-size: 13px;
+    color: #e4e4e7;
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.command-step .cmd-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: #71717a;
+}
+
+.command-step .cmd-badge.exit-error { color: rgba(248, 113, 113, 0.8); }
+
+/* Non-command Step */
+.non-command-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 2px;
+    padding: 1px 4px;
+}
+
+.non-command-step .step-title {
+    font-size: 10px;
+    color: #71717a;
+    flex-shrink: 0;
+}
+
+.non-command-step .step-detail {
+    font-size: 10px;
+    color: #a1a1aa;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+/* ========== Tool Use Group ========== */
+.tool-use-group {
+    margin-top: 6px;
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+.tool-use-group.completed {
+    border: 1px solid rgba(113, 113, 122, 0.2);
+    background: rgba(39, 39, 42, 0.4);
+    color: #f4f4f5;
+}
+
+.tool-use-group.failed {
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    background: rgba(239, 68, 68, 0.04);
+    color: #fee2e2;
+}
+
+.tool-use-group.running {
+    border: 1px solid rgba(113, 113, 122, 0.2);
+    background: rgba(39, 39, 42, 0.6);
+    color: #f4f4f5;
+}
+
+.tool-use-group.approval {
+    border: 1px solid rgba(202, 138, 4, 0.6);
+    background: rgba(69, 26, 3, 0.2);
+    color: #fef9c3;
+}
+
+.tool-use-group .group-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.tool-use-group .group-icon {
+    margin-top: 2px;
+    font-size: 12px;
+}
+
+.tool-use-group .group-icon.completed { color: rgba(52, 211, 153, 0.4); }
+.tool-use-group .group-icon.failed { color: rgba(248, 113, 113, 0.4); }
+.tool-use-group .group-icon.running { color: #a1a1aa; }
+.tool-use-group .group-icon.approval { color: #facc15; }
+
+.tool-use-group .group-body { min-width: 0; flex: 1; }
+
+.tool-use-group .group-title { font-weight: 500; }
+
+.tool-use-group .group-desc {
+    margin-top: 4px;
+    font-size: 14px;
+    color: #a1a1aa;
+    word-break: break-word;
+}
+
+.tool-use-group .detail-btn {
+    flex-shrink: 0;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    padding: 2px 6px;
+    font-size: 11px;
+    color: rgba(212, 212, 216, 0.8);
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.tool-use-group .detail-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: #f4f4f5;
+}
+
+.tool-use-group .retry-btn {
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    padding: 2px 6px;
+    font-size: 11px;
+    color: rgba(228, 228, 231, 0.8);
+    border: none;
+    cursor: pointer;
+    margin-top: 4px;
+}
+
+.tool-use-group .retry-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: #f4f4f5;
+}
+
+/* Tool Detail Items */
+.tool-detail-section {
+    margin-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.04);
+    padding-top: 6px;
+}
+
+.tool-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    background: rgba(39, 39, 42, 0.3);
+    transition: background 0.15s;
+}
+
+.tool-detail-item:hover { background: rgba(39, 39, 42, 0.5); }
+
+.tool-detail-item .item-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 14px;
+    padding-left: 8px;
+}
+
+.tool-detail-item .status-icon {
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.tool-detail-item .status-icon.completed { color: #4ade80; }
+.tool-detail-item .status-icon.error { color: #f87171; }
+.tool-detail-item .status-icon.running { color: #facc15; }
+.tool-detail-item .status-icon.cancelled { color: #a1a1aa; }
+
+.tool-detail-item .item-desc { color: #a1a1aa; }
+
+.tool-detail-item .duration-badge {
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.04);
+    padding: 1px 8px;
+    font-size: 11px;
+    color: rgba(212, 212, 216, 0.7);
+}
+
+/* Approval Buttons */
+.approval-buttons {
+    margin-top: 6px;
+    display: flex;
+    gap: 6px;
+}
+
+.approval-buttons button {
+    padding: 2px 8px;
+    background: rgba(255,255,255,0.04);
+    color: #d4d4d8;
+    font-size: 12px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.approval-buttons button:hover {
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+}
+
+/* ========== AI Error Message ========== */
+.ai-error-message {
+    margin: 0 12px 8px;
+    border-radius: 8px;
+    border-left: 2px solid rgba(239, 68, 68, 0.2);
+    background: rgba(239, 68, 68, 0.03);
+    padding: 8px 12px;
+    position: relative;
+}
+
+.ai-error-message .close-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    color: rgba(248, 113, 113, 0.6);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.ai-error-message .close-btn:hover { color: rgba(252, 165, 165, 1); }
+
+.ai-error-message .error-text {
+    font-size: 12px;
+    padding-right: 24px;
+    max-height: 80px;
+    overflow-y: auto;
+    color: rgba(254, 202, 202, 0.8);
+}
+
+.ai-error-message .new-chat-btn {
+    margin-left: 8px;
+    font-size: 10px;
+    color: rgba(252, 165, 165, 0.5);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.ai-error-message .new-chat-btn:hover { color: rgba(254, 202, 202, 1); }
+
+/* ========== Ask User Card ========== */
+.ask-user-card {
+    margin: 0 12px 8px;
+    border-radius: 12px;
+    border: 1px solid;
+    padding: 12px;
+    font-size: 14px;
+    color: #e4e4e7;
+}
+
+.ask-user-card.confirm {
+    border-color: rgba(252, 165, 165, 0.12);
+    background: rgba(252, 165, 165, 0.04);
+}
+
+.ask-user-card.question {
+    border-color: rgba(165, 180, 252, 0.12);
+    background: rgba(165, 180, 252, 0.04);
+}
+
+.ask-user-card .card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.ask-user-card .card-header .header-left { min-width: 0; }
+
+.ask-user-card .card-header .header-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+}
+
+.ask-user-card.confirm .header-label { color: #fee2e2; }
+.ask-user-card.question .header-label { color: #c7d2fe; }
+
+.ask-user-card .card-header .prompt-text {
+    margin-top: 6px;
+    font-size: 14px;
+    color: #e4e4e7;
+}
+
+.ask-user-card .card-header .task-id {
+    margin-top: 4px;
+    font-size: 10px;
+    color: #71717a;
+}
+
+.ask-user-card .skip-btn {
+    border-radius: 8px;
+    border: 1px solid rgba(252, 165, 165, 0.12);
+    background: rgba(252, 165, 165, 0.06);
+    padding: 4px 10px;
+    font-size: 11px;
+    color: rgba(254, 202, 202, 0.7);
+    cursor: pointer;
+}
+
+/* Select Options */
+.select-options {
+    margin-top: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.select-options .option-btn {
+    position: relative;
+    border-radius: 8px;
+    border: 1px solid;
+    padding: 6px 10px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.select-options .option-btn.recommended {
+    border-color: rgba(52, 211, 153, 0.2);
+    background: rgba(52, 211, 153, 0.06);
+    color: #d1fae5;
+}
+
+.select-options .option-btn.recommended:hover { background: rgba(52, 211, 153, 0.12); }
+
+.select-options .option-btn.normal {
+    border-color: rgba(165, 180, 252, 0.12);
+    background: rgba(165, 180, 252, 0.05);
+    color: #c7d2fe;
+}
+
+.select-options .option-btn.normal:hover { background: rgba(165, 180, 252, 0.1); }
+
+.select-options .option-btn .recommended-label {
+    margin-right: 6px;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #6ee7b7;
+}
+
+/* Confirm Buttons */
+.confirm-buttons {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+}
+
+.confirm-buttons .confirm-btn {
+    border-radius: 8px;
+    border: 1px solid rgba(248, 113, 113, 0.15);
+    background: rgba(248, 113, 113, 0.06);
+    padding: 6px 12px;
+    font-size: 14px;
+    color: #fee2e2;
+    cursor: pointer;
+}
+
+.confirm-buttons .confirm-btn:hover { background: rgba(248, 113, 113, 0.1); }
+
+.confirm-buttons .cancel-btn {
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.03);
+    padding: 6px 12px;
+    font-size: 14px;
+    color: #a1a1aa;
+    cursor: pointer;
+}
+
+.confirm-buttons .cancel-btn:hover { background: rgba(255,255,255,0.06); }
+
+/* Freeform Input */
+.freeform-input {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+}
+
+.freeform-input input {
+    min-width: 0;
+    flex: 1;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.15);
+    padding: 6px 12px;
+    font-size: 14px;
+    color: #fff;
+    outline: none;
+}
+
+.freeform-input input::placeholder { color: #71717a; }
+
+.freeform-input .send-btn {
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 14px;
+    background: rgba(165, 180, 252, 0.08);
+    color: #c7d2fe;
+    border: none;
+    cursor: pointer;
+}
+
+.freeform-input .send-btn:hover { background: rgba(165, 180, 252, 0.12); }
+
+/* ========== Approval Actions ========== */
+.approval-actions {
+    margin-top: 12px;
+    border-radius: 8px;
+    border-left: 2px solid rgba(252, 211, 77, 0.2);
+    background: rgba(252, 211, 77, 0.03);
+    padding: 8px 12px;
+    color: #fef9c3;
+}
+
+.approval-actions .approval-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.approval-actions .approval-hint {
+    margin-top: 4px;
+    font-size: 11px;
+    color: rgba(254, 252, 232, 0.6);
+}
+
+.approval-actions .approval-buttons {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+}
+
+.approval-actions .approve-btn {
+    border-radius: 8px;
+    background: rgba(52, 211, 153, 0.06);
+    padding: 4px 10px;
+    font-size: 11px;
+    color: #d1fae5;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.approval-actions .approve-btn:hover { background: rgba(52, 211, 153, 0.1); }
+
+.approval-actions .deny-btn {
+    border-radius: 8px;
+    background: rgba(248, 113, 113, 0.06);
+    padding: 4px 10px;
+    font-size: 11px;
+    color: #fee2e2;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.approval-actions .deny-btn:hover { background: rgba(248, 113, 113, 0.1); }
+
+/* ========== AI Thinking ========== */
+.ai-thinking {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ai-thinking .thinking-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ai-thinking .dots {
+    display: flex;
+    align-items: center;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.ai-thinking .dots i {
+    font-size: 10px;
+    margin: 0 4px;
+}
+
+.ai-thinking .thinking-text {
+    font-size: 14px;
+    color: #9ca3af;
+}
+
+.ai-thinking .waiting-icon { color: #eab308; font-size: 16px; }
+
+/* ========== AI Welcome Message ========== */
+.ai-welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 64px 0;
+    color: #a1a1aa;
+}
+
+.ai-welcome p {
+    font-size: 14px;
+    font-weight: 500;
+    color: #e4e4e7;
+}
+
+/* ========== AI Input Area ========== */
+.ai-input-area {
+    border-top: 1px solid rgba(255,255,255,0.03);
+    background: rgba(0,0,0,0.04);
+    padding: 8px 12px 12px;
+}
+
+.ai-input-area.focused { border-top-color: rgba(190, 242, 100, 0.12); }
+
+.ai-input-meta {
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 10px;
+    color: #71717a;
+}
+
+.ai-input-meta .target-info {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-input-meta .target-badge {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-radius: 6px;
+    padding: 2px 6px;
+}
+
+.ai-input-meta .target-badge.active {
+    background: rgba(190, 242, 100, 0.04);
+    color: #d4d4d8;
+}
+
+.ai-input-meta .target-badge.inactive {
+    background: rgba(252, 165, 165, 0.04);
+    color: rgba(254, 202, 202, 0.7);
+}
+
+.ai-input-meta .status-label { flex-shrink: 0; }
+
+.ai-input-wrapper {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    background: rgba(0,0,0,0.2);
+}
+
+.ai-input-wrapper textarea {
+    width: 100%;
+    resize: none;
+    overflow: auto;
+    background: transparent;
+    padding: 12px 16px;
+    padding-right: 96px;
+    color: #fff;
+    outline: none;
+    font-size: 13px;
+    font-family: var(--font-sans);
+    border: none;
+}
+
+.ai-input-wrapper textarea::placeholder { color: #52525b; }
+
+.ai-input-actions {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ai-input-actions .action-btn {
+    display: flex;
+    height: 28px;
+    width: 28px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: #6b7280;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.ai-input-actions .action-btn:hover {
+    background: rgba(255,255,255,0.06);
+    color: #d4d4d8;
+}
+
+.ai-input-actions .send-btn {
+    display: flex;
+    height: 32px;
+    width: 32px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.ai-input-actions .send-btn.ready {
+    background: rgba(190, 242, 100, 0.08);
+    color: rgba(190, 242, 100, 0.8);
+}
+
+.ai-input-actions .send-btn.ready:hover {
+    background: rgba(190, 242, 100, 0.12);
+    color: #ecfccb;
+}
+
+.ai-input-actions .send-btn.disabled {
+    background: rgba(255,255,255,0.02);
+    color: #52525b;
+    cursor: default;
+}
+
+.ai-input-actions .stop-btn {
+    display: flex;
+    height: 32px;
+    width: 32px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: rgba(252, 165, 165, 0.06);
+    color: rgba(252, 165, 165, 0.7);
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.ai-input-actions .stop-btn:hover {
+    background: rgba(252, 165, 165, 0.1);
+    color: #fecaca;
+}
+
+.ai-input-actions .retry-btn {
+    display: flex;
+    height: 32px;
+    width: 32px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: rgba(252, 211, 77, 0.06);
+    color: rgba(253, 230, 138, 0.7);
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.ai-input-actions .retry-btn:hover {
+    background: rgba(252, 211, 77, 0.1);
+    color: #fef08a;
+}
+
+/* ========== Context Chips ========== */
+.context-chips {
+    padding: 8px 16px 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.context-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    padding: 2px 8px 2px 6px;
+    font-size: 11px;
+    color: #a1a1aa;
+}
+
+.context-chip i { font-size: 10px; }
+
+.context-chip .chip-remove {
+    margin-left: 2px;
+    color: #71717a;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 10px;
+}
+
+.context-chip .chip-remove:hover { color: #d4d4d8; }
+
+/* ========== Context Picker ========== */
+.context-picker {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    margin-bottom: 4px;
+    z-index: 50;
+    border-radius: 12px;
+    border: 1px solid #3f3f46;
+    background: rgba(39, 39, 42, 0.9);
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+    backdrop-filter: blur(12px);
+    overflow: hidden;
+}
+
+.context-picker .picker-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    text-align: left;
+    color: #d4d4d8;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.context-picker .picker-item:hover { background: rgba(255,255,255,0.06); }
+.context-picker .picker-item.selected { background: rgba(255,255,255,0.08); color: #f4f4f5; }
+
+.context-picker .picker-item .item-icon { font-size: 12px; }
+.context-picker .picker-item .item-icon.skill { color: #fbbf24; }
+.context-picker .picker-item .item-icon.kb { color: #60a5fa; }
+
+.context-picker .picker-item .item-body { min-width: 0; flex: 1; }
+.context-picker .picker-item .item-label { font-size: 12px; }
+.context-picker .picker-item .item-desc { font-size: 10px; color: #71717a; }
+.context-picker .picker-item .item-tag { font-size: 10px; color: #52525b; }
+
+/* ========== Drag Overlay ========== */
+.drag-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(88, 193, 66, 0.2);
+    border: 2px dashed rgba(88, 193, 66, 1);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    padding: 16px;
+}
+
+.drag-overlay .drag-content {
+    color: rgba(88, 193, 66, 1);
+    text-align: center;
+}
+
+.drag-overlay .drag-content i { font-size: 28px; margin-bottom: 8px; }
+.drag-overlay .drag-content .drag-title { font-size: 18px; font-weight: 600; }
+.drag-overlay .drag-content .drag-subtitle { font-size: 14px; }
+
+/* ========== Streaming Text Block ========== */
+.streaming-text-block {
+    position: relative;
+    overflow: hidden;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.015);
+    padding: 12px 16px;
+}
+
+.streaming-text-block .streaming-bar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    background: rgba(52, 211, 153, 0.4);
+}
+
+.streaming-text-block .streaming-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding-left: 8px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #f4f4f5;
+}
+
+.streaming-text-block .cursor-blink {
+    display: inline-block;
+    width: 3px;
+    height: 14px;
+    margin-left: 2px;
+    background: #34d399;
+    animation: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    border-radius: 1px;
+    vertical-align: text-bottom;
+}
+
+/* ========== Agent Status ========== */
+.agent-status {
+    margin: 0 8px 8px;
+    border-radius: 8px;
+    border: 1px solid #3f3f46;
+    background: rgba(39, 39, 42, 0.8);
+    padding: 8px 12px;
+}
+
+.agent-status .status-badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.agent-status .status-badge {
+    border-radius: 9999px;
+    background: #27272a;
+    padding: 4px 8px;
+    color: #e4e4e7;
+}
+
+.agent-status .state-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 9999px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.agent-status .state-badge.executing { background: rgba(6, 78, 59, 0.7); color: #6ee7b7; }
+.agent-status .state-badge.failed { background: rgba(127, 29, 29, 0.7); color: #fca5a5; }
+.agent-status .state-badge.approval { background: rgba(69, 26, 3, 0.7); color: #fde047; }
+
+.agent-status .state-badge .shimmer-text {
+    background: linear-gradient(to right, #d4d4d8, #fff, #d4d4d8);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: shimmer-sweep 2s ease-in-out infinite;
+}
+
+.agent-status .status-details {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #a1a1aa;
+}
+
+.agent-status .status-details div {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-status .status-details code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+/* ========== Cancelled / Failed Banner ========== */
+.status-banner {
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 8px;
+    border-left: 2px solid;
+    padding: 8px 12px;
+    font-size: 11px;
+}
+
+.status-banner.cancelled {
+    border-left-color: rgba(113, 113, 122, 0.2);
+    background: rgba(113, 113, 122, 0.04);
+    color: #a1a1aa;
+}
+
+.status-banner.failed {
+    border-left-color: rgba(248, 113, 113, 0.2);
+    background: rgba(248, 113, 113, 0.04);
+    color: #fca5a5;
+}
+
+/* ========== Raw Output Block ========== */
+.raw-output-block {
+    margin-top: 8px;
+    overflow: hidden;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.25);
+}
+
+.raw-output-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    padding: 6px 12px;
+}
+
+.raw-output-header .result-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: #71717a;
+}
+
+.raw-output-header .exit-code-badge {
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.04);
+    padding: 1px 6px;
+    font-size: 10px;
+    color: #a1a1aa;
+}
+
+.raw-output-header .expand-btn {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: #71717a;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.raw-output-header .expand-btn:hover { color: #d4d4d8; }
+
+.raw-output-block pre {
+    overflow-x: auto;
+    white-space: pre-wrap;
+    padding: 10px 12px;
+    font-size: 16px;
+    color: #f4f4f5;
+    font-family: var(--font-mono);
+}
+
+.raw-output-footer {
+    border-top: 1px solid rgba(255,255,255,0.03);
+    padding: 6px 12px;
+    font-size: 10px;
+    color: #71717a;
+}
+
+/* ========== Inline Diff Preview ========== */
+.inline-diff {
+    padding-left: 20px;
+}
+
+.inline-diff .diff-container {
+    margin-top: 2px;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.3);
+}
+
+.inline-diff .diff-header {
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    padding: 4px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: #71717a;
+}
+
+.inline-diff pre {
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    padding: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #f4f4f5;
+    font-family: var(--font-mono);
+}
+
+/* ========== User Message Files ========== */
+.user-files {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #52525b;
+}
+
+.user-files .files-row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+.user-files .file-card {
+    position: relative;
+    background: #3f3f46;
+    border-radius: 8px;
+    padding: 8px;
+    min-width: 80px;
+    flex-shrink: 0;
+}
+
+.user-files .file-card .file-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.user-files .file-card .file-icon-box {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #52525b;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.user-files .file-card .file-icon-box i { font-size: 18px; color: #d4d4d8; }
+
+.user-files .file-card .file-name {
+    font-size: 10px;
+    color: #e4e4e7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 64px;
+}
+
+/* ========== Session Toolbar ========== */
+.session-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.session-toolbar .session-tabs {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    flex: 1;
+    min-width: 0;
+}
+
+.session-toolbar .session-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #a1a1aa;
+    background: none;
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+}
+
+.session-toolbar .session-tab:hover { background: rgba(255,255,255,0.06); color: #e4e4e7; }
+.session-toolbar .session-tab.active { background: rgba(255,255,255,0.08); color: #f4f4f5; }
+
+.session-toolbar .toolbar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    color: #71717a;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.session-toolbar .toolbar-btn:hover { background: rgba(255,255,255,0.06); color: #e4e4e7; }
+
+/* ========== Full Panel Demo ========== */
+.full-panel-demo {
+    max-width: 520px;
+    margin: 32px auto;
+    background: rgba(39, 39, 42, 0.8);
+    border-radius: 12px 12px 12px 12px;
+    border: 1px solid rgba(255,255,255,0.04);
+    display: flex;
+    flex-direction: column;
+    height: 700px;
+    overflow: hidden;
+}
+
+.full-panel-demo .messages-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== 1. Panel Hero ==================== -->
+<div class="section">
+    <div class="section-title">1. 面板头部</div>
+    <div class="panel-hero">
+        <div class="hero-top">
+            <div style="min-width:0">
+                <div class="hero-label">
+                    <i class="fa fa-sparkles"></i>
+                    <span>Wave AI</span>
+                </div>
+                <div class="hero-badges">
+                    <span class="badge">默认</span>
+                    <span class="badge">就绪</span>
+                    <span class="badge-rate-limit">高级版 剩余 42 次</span>
+                </div>
+            </div>
+            <div class="mode-dropdown">
+                <span>默认</span>
+                <i class="fa fa-chevron-down" style="font-size:10px"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 2. User Prompt Card ==================== -->
+<div class="section">
+    <div class="section-title">2. 用户提问卡片</div>
+    <div class="user-prompt-card">
+        <div class="prompt-content">
+            <div class="prompt-label">你</div>
+            <div class="prompt-text">帮我查看当前目录下的文件列表，并找出最近修改的文件</div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 3. Assistant Output - Completed ==================== -->
+<div class="section">
+    <div class="section-title">3. 助手输出 - 已完成</div>
+    <div class="assistant-output-card">
+        <div class="assistant-rail">
+            <div class="dot"></div>
+            <div class="line"></div>
+        </div>
+        <div class="assistant-output-body">
+            <div class="completion-header">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>任务完成</span>
+            </div>
+            <div class="assistant-text">
+                <p>当前目录下共有 <strong>12 个文件</strong>，最近修改的文件是：</p>
+                <pre><code>config/settings.json  —  修改于 2026-05-20 14:32</code></pre>
+                <p>以下是完整的文件列表：</p>
+            </div>
+            <div style="margin-top:12px; display:flex; align-items:center; gap:8px; border-top:1px solid rgba(255,255,255,0.03); padding-top:10px;">
+                <button class="copy-button"><i class="fa fa-copy" style="font-size:10px"></i> 复制</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 4. Thinking Trace Card ==================== -->
+<div class="section">
+    <div class="section-title">4. 思考过程卡片</div>
+    <div class="thinking-trace-card">
+        <div class="thinking-trace-header">
+            <div class="header-left">
+                <i class="fa-solid fa-brain"></i>
+                <span>深度思考</span>
+                <span class="shimmer-text">处理中...</span>
+                <span style="color:rgba(199,249,180,0.5)">1.2s</span>
+            </div>
+            <button class="expand-btn">展开 12</button>
+        </div>
+        <div class="thinking-trace-body">让我先分析目录结构。我需要检查文件修改时间并进行比较，找出最近修改的文件。用户需要完整的文件列表以及最近修改的文件...</div>
+    </div>
+</div>
+
+<!-- ==================== 5. Task Chain - Running ==================== -->
+<div class="section">
+    <div class="section-title">5. 任务链 - 执行中</div>
+    <div class="task-chain tone-running">
+        <div class="task-chain-header">
+            <span class="label">执行步骤</span>
+            <span class="status-badge">执行中</span>
+            <span class="count-badge">3 次调用</span>
+            <span class="thinking-badge"><i class="fa-solid fa-spinner fa-spin" style="font-size:8px"></i> 思考中</span>
+        </div>
+        <div style="margin-top:4px">
+            <!-- Step 1: Completed -->
+            <div class="timeline-step">
+                <div class="step-rail">
+                    <div class="step-dot-outer">
+                        <div class="step-dot completed"><i class="fa-solid fa-check"></i></div>
+                    </div>
+                    <div class="step-line"></div>
+                </div>
+                <div class="step-content">
+                    <div class="command-step">
+                        <div class="cmd-row">
+                            <span class="cmd-prompt">$</span>
+                            <code class="cmd-text">ls -la /home/user/project</code>
+                            <span style="flex-shrink:0;font-size:10px;color:#34d399">✓</span>
+                            <span class="cmd-badge">1.2s</span>
+                            <span class="cmd-badge">Exit 0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Step 2: Running -->
+            <div class="timeline-step">
+                <div class="step-rail">
+                    <div class="step-dot-outer active">
+                        <div class="step-dot running"><i class="fa-solid fa-spinner fa-spin" style="font-size:8px"></i></div>
+                    </div>
+                    <div class="step-line"></div>
+                </div>
+                <div class="step-content">
+                    <div class="command-step" style="animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite">
+                        <div class="cmd-row">
+                            <span class="cmd-prompt">$</span>
+                            <code class="cmd-text">find . -type f -printf '%T@ %p\n' | sort -rn | head -5</code>
+                            <span style="flex-shrink:0;display:inline-block;width:6px;height:6px;border-radius:9999px;background:#facc15;animation:pulse 2s cubic-bezier(0.4,0,0.6,1) infinite"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Step 3: Pending -->
+            <div class="timeline-step">
+                <div class="step-rail">
+                    <div class="step-dot-outer">
+                        <div class="step-dot pending"></div>
+                    </div>
+                </div>
+                <div class="step-content">
+                    <div class="non-command-step">
+                        <span class="step-title">读取目录</span>
+                        <span class="step-detail">正在读取 config/settings.json</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 6. Task Chain - Completed ==================== -->
+<div class="section">
+    <div class="section-title">6. 任务链 - 已完成</div>
+    <div class="task-chain">
+        <div class="task-chain-header">
+            <span class="label">执行步骤</span>
+            <span class="status-badge">已完成</span>
+            <span class="count-badge">2 次调用</span>
+        </div>
+        <div style="margin-top:4px">
+            <div class="timeline-step">
+                <div class="step-rail">
+                    <div class="step-dot-outer">
+                        <div class="step-dot completed"><i class="fa-solid fa-check"></i></div>
+                    </div>
+                    <div class="step-line"></div>
+                </div>
+                <div class="step-content">
+                    <div class="command-step">
+                        <div class="cmd-row">
+                            <span class="cmd-prompt">$</span>
+                            <code class="cmd-text">ls -la</code>
+                            <span style="flex-shrink:0;font-size:10px;color:rgba(52,211,153,0.6)">✓</span>
+                            <span class="cmd-badge">0.8s</span>
+                            <span class="cmd-badge">Exit 0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="timeline-step">
+                <div class="step-rail">
+                    <div class="step-dot-outer">
+                        <div class="step-dot completed"><i class="fa-solid fa-check"></i></div>
+                    </div>
+                </div>
+                <div class="step-content">
+                    <div class="non-command-step">
+                        <span class="step-title">读取目录</span>
+                        <span class="step-detail">config/settings.json</span>
+                        <span style="flex-shrink:0;font-size:10px;color:#71717a">0.3s</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 7. Task Chain - Failed ==================== -->
+<div class="section">
+    <div class="section-title">7. 任务链 - 失败</div>
+    <div class="task-chain tone-failed">
+        <div class="task-chain-header">
+            <span class="label">执行步骤</span>
+            <span class="status-badge">失败</span>
+            <span class="count-badge">1 次调用</span>
+        </div>
+        <div style="margin-top:4px">
+            <div class="timeline-step">
+                <div class="step-rail">
+                    <div class="step-dot-outer">
+                        <div class="step-dot failed"><i class="fa-solid fa-xmark"></i></div>
+                    </div>
+                </div>
+                <div class="step-content">
+                    <div class="command-step">
+                        <div class="cmd-row">
+                            <span class="cmd-prompt">$</span>
+                            <code class="cmd-text">rm -rf /important/data</code>
+                            <span style="flex-shrink:0;font-size:10px;color:#f87171">✖</span>
+                            <span class="cmd-badge exit-error">Exit 1</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 8. Tool Use Group - Completed ==================== -->
+<div class="section">
+    <div class="section-title">8. 工具调用组 - 已完成</div>
+    <div class="tool-use-group completed">
+        <div class="group-header">
+            <i class="fa fa-circle-check group-icon completed"></i>
+            <div class="group-body">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+                    <div style="min-width:0">
+                        <div class="group-title">已完成的命令执行</div>
+                        <div class="group-desc">正在 /home/user 中运行 "ls -la"</div>
+                    </div>
+                    <button class="detail-btn">查看详情</button>
+                </div>
+                <div class="tool-detail-section">
+                    <div class="tool-detail-item" style="margin-top:6px">
+                        <div class="item-row">
+                            <span class="status-icon completed">✓</span>
+                            <span class="item-desc">正在 /home/user 中运行 "ls -la"</span>
+                            <span class="duration-badge">耗时 1.2s</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 9. Tool Use Group - Failed ==================== -->
+<div class="section">
+    <div class="section-title">9. 工具调用组 - 失败</div>
+    <div class="tool-use-group failed">
+        <div class="group-header">
+            <i class="fa fa-circle-xmark group-icon failed"></i>
+            <div class="group-body">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+                    <div style="min-width:0">
+                        <div class="group-title">失败的命令执行</div>
+                        <div class="group-desc">权限被拒绝</div>
+                    </div>
+                    <button class="detail-btn">查看详情</button>
+                </div>
+                <button class="retry-btn">重试此步骤</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 10. Tool Use Group - Approval ==================== -->
+<div class="section">
+    <div class="section-title">10. 工具调用组 - 待审批</div>
+    <div class="tool-use-group approval">
+        <div class="group-header">
+            <i class="fa fa-clock group-icon approval"></i>
+            <div class="group-body">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+                    <div style="min-width:0">
+                        <div class="group-title">待确认：写入文本文件</div>
+                        <div class="group-desc">正在写入 /etc/config.yaml</div>
+                    </div>
+                    <button class="detail-btn">查看详情</button>
+                </div>
+                <div class="tool-detail-section">
+                    <div class="tool-detail-item" style="margin-top:6px">
+                        <div class="item-row">
+                            <span class="status-icon" style="color:#facc15">↻</span>
+                            <span class="item-desc">正在写入 /etc/config.yaml</span>
+                        </div>
+                        <div class="approval-buttons" style="padding-left:20px">
+                            <button>批准</button>
+                            <button>拒绝</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 11. Tool Use Group - Running ==================== -->
+<div class="section">
+    <div class="section-title">11. 工具调用组 - 执行中</div>
+    <div class="tool-use-group running">
+        <div class="group-header">
+            <i class="fa fa-spinner fa-spin group-icon running"></i>
+            <div class="group-body">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+                    <div style="min-width:0">
+                        <div class="group-title">正在执行命令</div>
+                        <div class="group-desc">正在 /home/user/project 中运行 "npm test"</div>
+                    </div>
+                    <button class="detail-btn">查看详情</button>
+                </div>
+                <div class="tool-detail-section">
+                    <div class="tool-detail-item" style="margin-top:6px">
+                        <div class="item-row">
+                            <span class="status-icon running" style="animation:spin 1s linear infinite">↻</span>
+                            <span class="item-desc">正在运行 "npm test"</span>
+                        </div>
+                    </div>
+                    <div class="tool-detail-item" style="margin-top:4px">
+                        <div class="item-row">
+                            <i class="fa fa-spinner fa-spin" style="font-size:11px;color:#a1a1aa"></i>
+                            <div style="font-weight:500;font-size:12px;color:#f4f4f5">npm test</div>
+                        </div>
+                        <div style="font-size:12px;color:rgba(161,161,170,0.8);padding-left:20px">
+                            <div>正在运行 42 个测试...</div>
+                            <div>✓ test/unit/parser.test.js</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 12. Inline Diff Preview ==================== -->
+<div class="section">
+    <div class="section-title">12. 内联差异预览</div>
+    <div class="tool-detail-item">
+        <div class="item-row">
+            <span class="status-icon completed">✓</span>
+            <div style="font-weight:500;font-size:12px;color:#f4f4f5">edit_text_file</div>
+            <span class="duration-badge">耗时 0.3s</span>
+            <button class="detail-btn" style="font-size:10px;padding:1px 4px">还原文件</button>
+            <button class="detail-btn" style="font-size:10px;padding:1px 4px">隐藏变更</button>
+        </div>
+        <div style="font-size:12px;color:rgba(161,161,170,0.8);padding-left:20px">正在编辑 src/index.ts</div>
+        <div class="inline-diff">
+            <div class="diff-container">
+                <div class="diff-header">变更预览</div>
+                <pre>  const port = 3000;
+- const host = "localhost";
++ const host = "0.0.0.0";
+  const debug = true;</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 13. Error Message ==================== -->
+<div class="section">
+    <div class="section-title">13. 错误消息</div>
+    <div class="ai-error-message">
+        <button class="close-btn"><i class="fa fa-times"></i></button>
+        <div class="error-text">
+            连接 AI 服务失败：连接超时（30秒）
+            <button class="new-chat-btn">新建对话</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 14. Ask User - Select ==================== -->
+<div class="section">
+    <div class="section-title">14. 询问用户 - 选择</div>
+    <div class="ask-user-card question">
+        <div class="card-header">
+            <div class="header-left">
+                <div class="header-label">
+                    <span>❓</span>
+                    <span>需要更多信息</span>
+                </div>
+                <div class="prompt-text">这个项目你想使用哪个框架？</div>
+            </div>
+            <button class="skip-btn">跳过</button>
+        </div>
+        <div class="select-options">
+            <button class="option-btn recommended">
+                <span class="recommended-label">推荐</span>
+                React
+            </button>
+            <button class="option-btn normal">Vue</button>
+            <button class="option-btn normal">Svelte</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 15. Ask User - Confirm ==================== -->
+<div class="section">
+    <div class="section-title">15. 询问用户 - 确认</div>
+    <div class="ask-user-card confirm">
+        <div class="card-header">
+            <div class="header-left">
+                <div class="header-label">
+                    <span>⚠️</span>
+                    <span>确认操作</span>
+                </div>
+                <div class="prompt-text">这将会删除 /tmp/build 下的 3 个文件，确定继续吗？</div>
+            </div>
+            <button class="skip-btn">跳过</button>
+        </div>
+        <div class="confirm-buttons">
+            <button class="confirm-btn">确认</button>
+            <button class="cancel-btn">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 16. Ask User - Freeform ==================== -->
+<div class="section">
+    <div class="section-title">16. 询问用户 - 自由输入</div>
+    <div class="ask-user-card question">
+        <div class="card-header">
+            <div class="header-left">
+                <div class="header-label">
+                    <span>❓</span>
+                    <span>需要更多信息</span>
+                </div>
+                <div class="prompt-text">你想给新组件取什么名字？</div>
+            </div>
+            <button class="skip-btn">跳过</button>
+        </div>
+        <div class="freeform-input">
+            <input type="text" placeholder="输入组件名称...">
+            <button class="send-btn">发送</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 17. Approval Actions ==================== -->
+<div class="section">
+    <div class="section-title">17. 审批操作</div>
+    <div class="approval-actions">
+        <div class="approval-header">
+            <i class="fa-solid fa-triangle-exclamation" style="color:rgba(252,211,77,0.7)"></i>
+            <span>等待工具审批</span>
+        </div>
+        <div class="approval-hint">请审核工具调用，批准或拒绝以继续。</div>
+        <div class="approval-buttons">
+            <button class="approve-btn">批准</button>
+            <button class="deny-btn">拒绝</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 18. AI Thinking ==================== -->
+<div class="section">
+    <div class="section-title">18. AI 思考中</div>
+    <div class="ai-thinking">
+        <div class="thinking-row">
+            <div class="dots">
+                <i class="fa fa-circle"></i>
+                <i class="fa fa-circle" style="margin:0 4px"></i>
+                <i class="fa fa-circle"></i>
+            </div>
+            <span class="thinking-text">AI 正在思考...</span>
+        </div>
+    </div>
+    <div style="height:16px"></div>
+    <div class="ai-thinking">
+        <div class="thinking-row">
+            <i class="fa fa-clock waiting-icon"></i>
+            <span class="thinking-text">等待工具审批...</span>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 19. Streaming Text ==================== -->
+<div class="section">
+    <div class="section-title">19. 流式输出</div>
+    <div class="streaming-text-block">
+        <div class="streaming-bar"></div>
+        <div class="streaming-content">我来帮你查看当前目录。让我运行一个命令来列出文件...<span class="cursor-blink"></span></div>
+    </div>
+</div>
+
+<!-- ==================== 20. Cancelled / Failed Banner ==================== -->
+<div class="section">
+    <div class="section-title">20. 取消/失败横幅</div>
+    <div class="status-banner cancelled">
+        <i class="fa-solid fa-ban" style="color:#a1a1aa"></i>
+        <span>已取消 — 用户停止了执行</span>
+    </div>
+    <div style="height:12px"></div>
+    <div class="status-banner failed">
+        <i class="fa-solid fa-circle-exclamation" style="color:#f87171"></i>
+        <span>执行错误 — 命令退出码为 1</span>
+    </div>
+</div>
+
+<!-- ==================== 21. Raw Output Block ==================== -->
+<div class="section">
+    <div class="section-title">21. 原始输出块</div>
+    <div class="raw-output-block">
+        <div class="raw-output-header">
+            <div style="display:flex;align-items:center;gap:8px">
+                <span class="result-label">结果</span>
+                <span class="exit-code-badge">Exit 0</span>
+            </div>
+            <button class="expand-btn">展开 24</button>
+        </div>
+        <pre>total 48
+drwxr-xr-x  5 user  staff  160 May 20 14:32 .
+drwxr-xr-x  3 user  staff   96 May 19 10:15 ..
+-rw-r--r--  1 user  staff  512 May 20 14:32 config.json
+-rw-r--r--  1 user  staff  256 May 18 09:00 index.ts</pre>
+        <div class="raw-output-footer">显示前 5 行</div>
+    </div>
+</div>
+
+<!-- ==================== 22. Agent Status ==================== -->
+<div class="section">
+    <div class="section-title">22. 代理状态</div>
+    <div class="agent-status">
+        <div class="status-badges">
+            <span class="status-badge">Wave AI</span>
+            <span class="status-badge">自动审批</span>
+            <span class="state-badge executing">
+                <i class="fa-solid fa-spinner fa-spin" style="font-size:10px"></i>
+                <span class="shimmer-text">思考中</span>
+            </span>
+        </div>
+        <div class="status-details">
+            <div>工具：<code>wave_run_command</code></div>
+            <div>最近命令：<code>ls -la /home/user</code></div>
+        </div>
+    </div>
+    <div style="height:12px"></div>
+    <div class="agent-status">
+        <div class="status-badges">
+            <span class="status-badge">Wave AI</span>
+            <span class="status-badge">默认</span>
+            <span class="state-badge failed">失败</span>
+        </div>
+        <div class="status-details">
+            <div>原因：命令退出码为 1</div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 23. User Message with Files ==================== -->
+<div class="section">
+    <div class="section-title">23. 带文件的用户消息</div>
+    <div style="display:flex;justify-content:flex-end">
+        <div style="max-width:calc(100% - 50px);padding:8px;border-radius:8px;background:rgba(63,63,70,0.6);color:#fff">
+            <div style="white-space:pre-wrap;word-break:break-word">请分析这个配置文件</div>
+            <div class="user-files">
+                <div class="files-row">
+                    <div class="file-card">
+                        <div class="file-inner">
+                            <div class="file-icon-box"><i class="fa fa-file-code"></i></div>
+                            <div class="file-name">config.json</div>
+                        </div>
+                    </div>
+                    <div class="file-card">
+                        <div class="file-inner">
+                            <div class="file-icon-box"><i class="fa fa-file-image"></i></div>
+                            <div class="file-name">screenshot.png</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 24. Context Picker ==================== -->
+<div class="section">
+    <div class="section-title">24. 上下文选择器</div>
+    <div style="position:relative;height:180px">
+        <div class="context-picker" style="position:relative">
+            <div class="picker-item selected">
+                <i class="fa fa-bolt item-icon skill"></i>
+                <div class="item-body">
+                    <div class="item-label">@skill</div>
+                    <div class="item-desc">引用 AI 技能</div>
+                </div>
+                <span class="item-tag">技能</span>
+            </div>
+            <div class="picker-item">
+                <i class="fa fa-book item-icon kb"></i>
+                <div class="item-body">
+                    <div class="item-label">@kb</div>
+                    <div class="item-desc">引用知识库文件</div>
+                </div>
+                <span class="item-tag">知识库</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 25. Context Chips ==================== -->
+<div class="section">
+    <div class="section-title">25. 上下文标签</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <div class="context-chip">
+            <i class="fa fa-bolt" style="color:#fbbf24"></i>
+            <span>code-review</span>
+            <button class="chip-remove"><i class="fa fa-times"></i></button>
+        </div>
+        <div class="context-chip">
+            <i class="fa fa-book" style="color:#60a5fa"></i>
+            <span>docs/api.md</span>
+            <button class="chip-remove"><i class="fa fa-times"></i></button>
+        </div>
+        <div class="context-chip">
+            <i class="fa fa-file" style="color:#a1a1aa"></i>
+            <span>config.json</span>
+            <button class="chip-remove"><i class="fa fa-times"></i></button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 26. Input Area - Ready ==================== -->
+<div class="section">
+    <div class="section-title">26. 输入区 - 就绪</div>
+    <div class="ai-input-area focused">
+        <div class="ai-input-meta">
+            <div class="target-info">
+                <span style="color:#71717a">代理目标</span>
+                <span class="target-badge active">本地 - /home/user/project</span>
+            </div>
+            <div class="status-label">就绪</div>
+        </div>
+        <div class="ai-input-wrapper">
+            <textarea rows="2" placeholder="@ 某些内容"></textarea>
+            <div class="ai-input-actions">
+                <button class="action-btn" title="附件"><i class="fa fa-paperclip" style="font-size:12px"></i></button>
+                <button class="send-btn ready" title="发送消息 (Enter)"><i class="fa fa-paper-plane" style="font-size:12px"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 27. Input Area - Executing ==================== -->
+<div class="section">
+    <div class="section-title">27. 输入区 - 执行中</div>
+    <div class="ai-input-area">
+        <div class="ai-input-meta">
+            <div class="target-info">
+                <span style="color:#71717a">代理目标</span>
+                <span class="target-badge active">本地 - /home/user/project</span>
+            </div>
+            <div class="status-label">执行中</div>
+        </div>
+        <div class="ai-input-wrapper">
+            <textarea rows="2" placeholder="继续..."></textarea>
+            <div class="ai-input-actions">
+                <button class="action-btn" title="附件"><i class="fa fa-paperclip" style="font-size:12px"></i></button>
+                <button class="stop-btn" title="停止"><i class="fa fa-stop" style="font-size:12px"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 28. Input Area - Retry ==================== -->
+<div class="section">
+    <div class="section-title">28. 输入区 - 可重试</div>
+    <div class="ai-input-area">
+        <div class="ai-input-meta">
+            <div class="target-info">
+                <span style="color:#71717a">代理目标</span>
+                <span class="target-badge inactive">无终端</span>
+            </div>
+            <div class="status-label">就绪</div>
+        </div>
+        <div class="ai-input-wrapper">
+            <textarea rows="2" placeholder="继续..."></textarea>
+            <div class="ai-input-actions">
+                <button class="action-btn" title="附件"><i class="fa fa-paperclip" style="font-size:12px"></i></button>
+                <button class="retry-btn" title="重试上一步"><i class="fa fa-rotate-right" style="font-size:12px"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 29. Drag Overlay ==================== -->
+<div class="section">
+    <div class="section-title">29. 拖拽覆盖层</div>
+    <div style="position:relative;height:160px;border-radius:8px;overflow:hidden">
+        <div class="drag-overlay">
+            <div class="drag-content">
+                <i class="fa fa-upload"></i>
+                <div class="drag-title">拖放文件到此处</div>
+                <div class="drag-subtitle">图片、PDF、代码文件等</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 30. Welcome Message ==================== -->
+<div class="section">
+    <div class="section-title">30. 欢迎消息</div>
+    <div class="ai-welcome">
+        <p>欢迎使用 Wave AI</p>
+    </div>
+</div>
+
+<!-- ==================== 31. Session Toolbar ==================== -->
+<div class="section">
+    <div class="section-title">31. 会话工具栏</div>
+    <div class="session-toolbar">
+        <div class="session-tabs">
+            <div class="session-tab active">
+                <i class="fa fa-message" style="font-size:10px"></i>
+                <span>当前对话</span>
+            </div>
+            <div class="session-tab">
+                <i class="fa fa-message" style="font-size:10px"></i>
+                <span>调试会话</span>
+            </div>
+        </div>
+        <button class="toolbar-btn" title="新建对话"><i class="fa fa-plus" style="font-size:12px"></i></button>
+        <button class="toolbar-btn" title="历史记录"><i class="fa fa-clock-rotate-left" style="font-size:12px"></i></button>
+    </div>
+</div>
+
+<!-- ==================== 32. Full Panel Integration ==================== -->
+<div class="section" style="max-width:520px">
+    <div class="section-title">32. 完整面板集成</div>
+</div>
+<div class="full-panel-demo">
+    <!-- Session Toolbar -->
+    <div class="session-toolbar">
+        <div class="session-tabs">
+            <div class="session-tab active">
+                <i class="fa fa-message" style="font-size:10px"></i>
+                <span>项目配置</span>
+            </div>
+        </div>
+        <button class="toolbar-btn"><i class="fa fa-plus" style="font-size:12px"></i></button>
+        <button class="toolbar-btn"><i class="fa fa-clock-rotate-left" style="font-size:12px"></i></button>
+    </div>
+
+    <!-- Messages Area -->
+    <div class="messages-area">
+        <div class="panel-hero">
+            <div class="hero-top">
+                <div style="min-width:0">
+                    <div class="hero-label">
+                        <i class="fa fa-sparkles"></i>
+                        <span>Wave AI</span>
+                    </div>
+                    <div class="hero-badges">
+                        <span class="badge">自动审批</span>
+                        <span class="badge">已完成</span>
+                    </div>
+                </div>
+                <div class="mode-dropdown">
+                    <span>自动审批</span>
+                    <i class="fa fa-chevron-down" style="font-size:10px"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- User message -->
+        <div style="margin-bottom:16px">
+            <div class="user-prompt-card">
+                <div class="prompt-content">
+                    <div class="prompt-label">你</div>
+                    <div class="prompt-text">帮我查看当前目录下的文件列表</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Task Chain -->
+        <div style="margin-bottom:16px">
+            <div class="task-chain">
+                <div class="task-chain-header">
+                    <span class="label">执行步骤</span>
+                    <span class="status-badge">已完成</span>
+                    <span class="count-badge">1 次调用</span>
+                </div>
+                <div style="margin-top:4px">
+                    <div class="timeline-step">
+                        <div class="step-rail">
+                            <div class="step-dot-outer">
+                                <div class="step-dot completed"><i class="fa-solid fa-check"></i></div>
+                            </div>
+                        </div>
+                        <div class="step-content">
+                            <div class="command-step">
+                                <div class="cmd-row">
+                                    <span class="cmd-prompt">$</span>
+                                    <code class="cmd-text">ls -la</code>
+                                    <span style="flex-shrink:0;font-size:10px;color:rgba(52,211,153,0.6)">✓</span>
+                                    <span class="cmd-badge">0.5s</span>
+                                    <span class="cmd-badge">Exit 0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Assistant output -->
+        <div style="margin-bottom:16px">
+            <div class="assistant-output-card">
+                <div class="assistant-rail">
+                    <div class="dot"></div>
+                    <div class="line"></div>
+                </div>
+                <div class="assistant-output-body">
+                    <div class="completion-header">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>任务完成</span>
+                    </div>
+                    <div class="assistant-text">
+                        <p>当前目录下共有 <strong>8 个文件</strong>：</p>
+                    </div>
+                    <div class="raw-output-block" style="margin-top:8px">
+                        <div class="raw-output-header">
+                            <div style="display:flex;align-items:center;gap:8px">
+                                <span class="result-label">结果</span>
+                                <span class="exit-code-badge">Exit 0</span>
+                            </div>
+                        </div>
+                        <pre>total 32
+drwxr-xr-x  5 user  staff  160 May 20 14:32 .
+-rw-r--r--  1 user  staff  512 May 20 14:32 config.json
+-rw-r--r--  1 user  staff  256 May 18 09:00 index.ts</pre>
+                    </div>
+                    <div style="margin-top:12px;display:flex;align-items:center;gap:8px;border-top:1px solid rgba(255,255,255,0.03);padding-top:10px">
+                        <button class="copy-button"><i class="fa fa-copy" style="font-size:10px"></i> 复制</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="ai-input-area focused">
+        <div class="ai-input-meta">
+            <div class="target-info">
+                <span style="color:#71717a">代理目标</span>
+                <span class="target-badge active">本地 - /home/user/project</span>
+            </div>
+            <div class="status-label">就绪</div>
+        </div>
+        <div class="ai-input-wrapper">
+            <textarea rows="2" placeholder="继续..."></textarea>
+            <div class="ai-input-actions">
+                <button class="action-btn"><i class="fa fa-paperclip" style="font-size:12px"></i></button>
+                <button class="send-btn disabled"><i class="fa fa-paper-plane" style="font-size:12px"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div style="height:64px"></div>
+
+</body>
+</html>

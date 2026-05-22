@@ -697,7 +697,7 @@ function DirectoryTable({
             colSizes[`--col-${header.column.id}-size`] = header.column.getSize();
         }
         return colSizes;
-    }, [table.getState().columnSizingInfo]);
+    }, [data, table.getState().columnSizingInfo]);
 
     const osRef = useRef<OverlayScrollbarsComponentRef>(null);
     const bodyRef = useRef<HTMLDivElement>(null);
@@ -846,7 +846,7 @@ function TableBody({
             });
             ContextMenuModel.getInstance().showContextMenu(menu, e);
         },
-        [conn, dirPath, model, newDirectory, newFile, openUploadFilePicker, rootPath, setEntryManagerProps, setErrorMsg]
+        [conn, dirPath, finfo, model, newDirectory, newFile, openUploadFilePicker, rootPath, setEntryManagerProps, setErrorMsg]
     );
 
     const virtualItems = virtualizer.getVirtualItems();
@@ -1011,13 +1011,14 @@ const MemoizedTableRow = React.memo(
         prev.dirPath === next.dirPath &&
         prev.connection === next.connection &&
         prev.virtualRowStart === next.virtualRowStart &&
-        prev.virtualRowSize === next.virtualRowSize
+        prev.virtualRowSize === next.virtualRowSize &&
+        prev.handleFileContextMenu === next.handleFileContextMenu
 );
 
 const MemoizedTableBody = React.memo(
     TableBody,
     (prev, next) =>
-        prev.table.options.data == next.table.options.data &&
+        prev.allRows === next.allRows &&
         prev.focusIndex === next.focusIndex &&
         prev.search === next.search
 ) as typeof TableBody;
@@ -1397,7 +1398,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
         return () => {
             model.directoryKeyDownHandler = null;
         };
-    }, [connImmediate, directoryViewMode, selectedFileInfo, selectedPath, searchText]);
+    }, [connImmediate, directoryViewMode, model, selectedFileInfo, selectedPath, searchText]);
 
     useEffect(() => {
         if (filteredData.length != 0 && focusIndex > filteredData.length - 1) {

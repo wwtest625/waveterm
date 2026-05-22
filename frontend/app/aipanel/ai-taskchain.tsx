@@ -5,7 +5,7 @@ import { WaveStreamdown } from "@/app/element/streamdown";
 import { cn } from "@/util/util";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isThinkingPhaseLabel } from "./agentstatus";
-import { getToolDisplayName } from "./aitooluse";
+import { getToolDisplayName, ToolDescLine } from "./aitooluse";
 import {
     type AgentRuntimeSnapshot,
     coalesceToolDetailParts,
@@ -916,30 +916,30 @@ const TimelineStep = memo(
                                 )}
                                 onClick={hasExpandableOutput ? handleToggle : undefined}
                             >
-                                <span className="text-[10px] text-zinc-500 shrink-0">{step.title}</span>
+                                <span className="text-[14px] text-zinc-500 shrink-0">{step.title}</span>
                                 {step.detail && !isCommandStep && (
-                                    <span className="text-[10px] text-zinc-400 truncate flex-1 min-w-0">{step.detail}</span>
+                                    <span className="text-[14px] text-zinc-400 truncate flex-1 min-w-0"><ToolDescLine text={step.detail} /></span>
                                 )}
                                 {step.status === "running" && (
                                     <span className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
                                 )}
                                 {step.status === "failed" && (
-                                    <i className="shrink-0 fa-solid fa-circle-xmark text-[9px] text-red-400" />
+                                    <i className="shrink-0 fa-solid fa-circle-xmark text-[12px] text-red-400" />
                                 )}
                                 {(step.duplicateCount ?? 1) > 1 && (
-                                    <span className="shrink-0 text-[9px] text-zinc-500">×{step.duplicateCount}</span>
+                                    <span className="shrink-0 text-[12px] text-zinc-500">×{step.duplicateCount}</span>
                                 )}
                                 {hasExpandableOutput && !isOutputExpanded && outputDisplay && (
-                                    <span className="shrink-0 text-[10px] text-zinc-500">▸ {outputDisplay.lineCount}</span>
+                                    <span className="shrink-0 text-[12px] text-zinc-500">▸ {outputDisplay.lineCount}</span>
                                 )}
                                 {hasExpandableOutput && isOutputExpanded && (
-                                    <span className="shrink-0 text-[10px] text-zinc-500">▾</span>
+                                    <span className="shrink-0 text-[12px] text-zinc-500">▾</span>
                                 )}
                                 {durationLabel && (
-                                    <span className="shrink-0 text-[10px] text-zinc-500">{durationLabel}</span>
+                                    <span className="shrink-0 text-[12px] text-zinc-500">{durationLabel}</span>
                                 )}
                                 {exitCodeLabel && (
-                                    <span className="shrink-0 text-[9px] text-zinc-400">{exitCodeLabel}</span>
+                                    <span className="shrink-0 text-[12px] text-zinc-400">{exitCodeLabel}</span>
                                 )}
                             </div>
                         )}

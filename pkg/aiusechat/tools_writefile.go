@@ -9,9 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
+	"github.com/pmezard/go-difflib/difflib"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/fsutil"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -22,6 +24,24 @@ import (
 )
 
 const MaxEditFileSize = 100 * 1024 // 100KB
+
+func computeLineDiff(original, modified []byte) (added, removed int) {
+	origLines := difflib.SplitLines(string(original))
+	modLines := difflib.SplitLines(string(modified))
+	sm := difflib.NewMatcher(origLines, modLines)
+	for _, op := range sm.GetOpCodes() {
+		switch op.Tag {
+		case 'i':
+			added += op.J2 - op.J1
+		case 'd':
+			removed += op.I2 - op.I1
+		case 'r':
+			removed += op.I2 - op.I1
+			added += op.J2 - op.J1
+		}
+	}
+	return added, removed
+}
 
 func isPosixAbsolutePath(filename string) bool {
 	trimmed := strings.TrimSpace(filename)
@@ -179,13 +199,25 @@ func writeTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse)
 	if utilfn.HasBinaryData(contentsBytes) {
 		return nil, fmt.Errorf("contents appear to contain binary data")
 	}
+
+	var linesAdded, linesRemoved int
+	originalContent, readErr := rpcRemoteReadFile(remoteTarget, params.Filename)
+	if readErr == nil && len(originalContent) > 0 {
+		linesAdded, linesRemoved = computeLineDiff([]byte(originalContent), contentsBytes)
+	} else {
+		linesAdded, linesRemoved = computeLineDiff(nil, contentsBytes)
+	}
+	log.Printf("[DEBUG] writeTextFileCallback: file=%s linesAdded=%d linesRemoved=%d readErr=%v origLen=%d", params.Filename, linesAdded, linesRemoved, readErr, len(originalContent))
+
 	if err := rpcRemoteWriteFile(remoteTarget, params.Filename, contentsBytes); err != nil {
 		return nil, err
 	}
 
 	return map[string]any{
-		"success": true,
-		"message": fmt.Sprintf("Successfully wrote %s (%d bytes) on remote host", params.Filename, len(contentsBytes)),
+		"success":       true,
+		"message":       fmt.Sprintf("Successfully wrote %s (%d bytes) on remote host", params.Filename, len(contentsBytes)),
+		"lines_added":   linesAdded,
+		"lines_removed": linesRemoved,
 	}, nil
 }
 
@@ -216,7 +248,23 @@ func GetWriteTextFileToolDefinition() uctypes.ToolDefinition {
 			if err != nil {
 				return fmt.Sprintf("error parsing input: %v", err)
 			}
-			return fmt.Sprintf("writing %q", params.Filename)
+			baseDesc := fmt.Sprintf("writing %q", params.Filename)
+			if output != nil {
+				log.Printf("[DEBUG] write_text_file ToolCallDesc: output type=%T, value=%v", output, output)
+				if outputMap, ok := output.(map[string]any); ok {
+					la, laOk := outputMap["lines_added"]
+					lr, lrOk := outputMap["lines_removed"]
+					log.Printf("[DEBUG] write_text_file ToolCallDesc: lines_added type=%T value=%v ok=%v, lines_removed type=%T value=%v ok=%v", la, la, laOk, lr, lr, lrOk)
+					linesAdded, _ := outputMap["lines_added"].(int)
+					linesRemoved, _ := outputMap["lines_removed"].(int)
+					if linesAdded > 0 || linesRemoved > 0 {
+						baseDesc += fmt.Sprintf(" +%d -%d", linesAdded, linesRemoved)
+					}
+				} else {
+					log.Printf("[DEBUG] write_text_file ToolCallDesc: output is not map[string]any, type=%T", output)
+				}
+			}
+			return baseDesc
 		},
 		ToolAnyCallback: writeTextFileCallback,
 		ToolApproval: func(input any, _ uctypes.ApprovalContext) string {
@@ -334,9 +382,14 @@ func editTextFileCallback(input any, toolUseData *uctypes.UIMessageDataToolUse) 
 		return nil, err
 	}
 
+	linesAdded, linesRemoved := computeLineDiff(originalBytes, modifiedContent)
+	log.Printf("[DEBUG] editTextFileCallback: file=%s linesAdded=%d linesRemoved=%d origLen=%d modLen=%d", params.Filename, linesAdded, linesRemoved, len(originalBytes), len(modifiedContent))
+
 	return map[string]any{
-		"success": true,
-		"message": fmt.Sprintf("Successfully edited %s with %d changes on remote host", params.Filename, len(params.Edits)),
+		"success":       true,
+		"message":       fmt.Sprintf("Successfully edited %s with %d changes on remote host", params.Filename, len(params.Edits)),
+		"lines_added":   linesAdded,
+		"lines_removed": linesRemoved,
 	}, nil
 }
 
@@ -394,7 +447,30 @@ func GetEditTextFileToolDefinition() uctypes.ToolDefinition {
 			if editCount == 1 {
 				editWord = "edit"
 			}
-			return fmt.Sprintf("editing %q (%d %s)", params.Filename, editCount, editWord)
+			baseDesc := fmt.Sprintf("editing %q (%d %s)", params.Filename, editCount, editWord)
+			if output != nil {
+				log.Printf("[DEBUG] edit_text_file ToolCallDesc: output type=%T, value=%v", output, output)
+				if outputMap, ok := output.(map[string]any); ok {
+					log.Printf("[DEBUG] edit_text_file ToolCallDesc: outputMap keys=%v", func() []string {
+						keys := make([]string, 0, len(outputMap))
+						for k := range outputMap {
+							keys = append(keys, k)
+						}
+						return keys
+					}())
+					la, laOk := outputMap["lines_added"]
+					lr, lrOk := outputMap["lines_removed"]
+					log.Printf("[DEBUG] edit_text_file ToolCallDesc: lines_added type=%T value=%v ok=%v, lines_removed type=%T value=%v ok=%v", la, la, laOk, lr, lr, lrOk)
+					linesAdded, _ := outputMap["lines_added"].(int)
+					linesRemoved, _ := outputMap["lines_removed"].(int)
+					if linesAdded > 0 || linesRemoved > 0 {
+						baseDesc += fmt.Sprintf(" +%d -%d", linesAdded, linesRemoved)
+					}
+				} else {
+					log.Printf("[DEBUG] edit_text_file ToolCallDesc: output is not map[string]any, type=%T", output)
+				}
+			}
+			return baseDesc
 		},
 		ToolAnyCallback: editTextFileCallback,
 		ToolApproval: func(input any, _ uctypes.ApprovalContext) string {

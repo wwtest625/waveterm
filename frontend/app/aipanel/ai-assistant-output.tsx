@@ -74,7 +74,7 @@ function getAssistantDisplayContent(messages: WaveUIMessage[], hasTaskChain: boo
                 if (answerText) {
                     answerSegments.push(answerText);
                 }
-                if (thinkingText) {
+                if (thinkingText && !hasTaskChain) {
                     thinkingSegments.push(thinkingText);
                 }
             }

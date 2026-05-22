@@ -44,6 +44,7 @@ type ToolGroupSummary = {
     toneClassName: string;
     iconClassName: string;
     icon: string;
+    iconSpin: boolean;
     defaultExpanded: boolean;
     canRetry: boolean;
     needsApproval: boolean;
@@ -147,8 +148,9 @@ export function summarizeToolGroup(
                 primaryDescription ??
                 t.message.executionError,
             toneClassName: "border-red-500/20 bg-red-500/[0.04] text-red-100",
-            iconClassName: "text-red-400",
-            icon: "fa-circle-xmark",
+            iconClassName: "text-error",
+            icon: "✗",
+            iconSpin: false,
             defaultExpanded: false,
             canRetry: true,
             needsApproval: false,
@@ -174,7 +176,8 @@ export function summarizeToolGroup(
                 cancelDesc,
             toneClassName: "border-zinc-500/20 bg-zinc-500/[0.04] text-zinc-300",
             iconClassName: "text-zinc-400",
-            icon: "fa-ban",
+            icon: "⊘",
+            iconSpin: false,
             defaultExpanded: false,
             canRetry: true,
             needsApproval: false,
@@ -188,7 +191,8 @@ export function summarizeToolGroup(
             description: normalizeSummaryDescription(approvalToolUse.data.tooldesc) ?? t.tool.waitingApproval,
             toneClassName: "border-yellow-800/60 bg-yellow-950/20 text-yellow-100",
             iconClassName: "text-yellow-400",
-            icon: "fa-clock",
+            icon: "⏳",
+            iconSpin: false,
             defaultExpanded: true,
             canRetry: false,
             needsApproval: true,
@@ -209,7 +213,8 @@ export function summarizeToolGroup(
                 : (normalizeSummaryDescription(lastProgressLine) ?? primaryDescription ?? t.tool.executing),
             toneClassName: "border-zinc-700 bg-zinc-900/60 text-zinc-100",
             iconClassName: isLiveResult ? "text-yellow-400" : "text-zinc-400",
-            icon: isLiveResult ? "fa-bolt" : "fa-spinner fa-spin",
+            icon: "↻",
+            iconSpin: true,
             defaultExpanded: true,
             canRetry: false,
             needsApproval: false,
@@ -221,8 +226,9 @@ export function summarizeToolGroup(
         title: t.tool.completed(leadToolName),
         description: primaryDescription ?? t.tool.executionCompleted,
         toneClassName: "border-zinc-700 bg-zinc-900/40 text-zinc-100",
-        iconClassName: "text-emerald-400",
-        icon: "fa-circle-check",
+        iconClassName: "text-success",
+        icon: "✓",
+        iconSpin: false,
         defaultExpanded: false,
         canRetry: false,
         needsApproval: false,
@@ -234,7 +240,7 @@ interface ToolDescLineProps {
     text: string;
 }
 
-const ToolDescLine = memo(({ text }: ToolDescLineProps) => {
+export const ToolDescLine = memo(({ text }: ToolDescLineProps) => {
     let displayText = text;
     if (displayText.startsWith("* ")) {
         displayText = "• " + displayText.slice(2);
@@ -256,7 +262,7 @@ const ToolDescLine = memo(({ text }: ToolDescLineProps) => {
 
         const sign = match[2];
         const number = match[3];
-        const colorClass = sign === "+" ? "text-green-600" : "text-red-600";
+        const colorClass = sign === "+" ? "text-green-400" : "text-red-400";
         parts.push(
             <span key={match.index} className={colorClass}>
                 {sign}
@@ -271,7 +277,7 @@ const ToolDescLine = memo(({ text }: ToolDescLineProps) => {
         parts.push(displayText.slice(lastIndex));
     }
 
-    return <div>{parts.length > 0 ? parts : displayText}</div>;
+    return <span>{parts.length > 0 ? parts : displayText}</span>;
 });
 
 ToolDescLine.displayName = "ToolDescLine";
@@ -425,11 +431,11 @@ const AIToolUseBatchItem = memo(({ part, effectiveApproval }: AIToolUseBatchItem
     const effectiveErrorMessage = part.data.errormessage || (effectiveApproval === "timeout" ? "Not approved" : null);
 
     return (
-        <div className="text-sm pl-2 flex items-start gap-1.5">
+        <div className="text-[16px] pl-2 flex items-start gap-1.5">
             <span className={cn("font-bold flex-shrink-0", statusColor, isRunning && "animate-spin")}>{statusIcon}</span>
             <div className="flex-1">
                 <div className="flex items-center gap-2">
-                    <span className="text-gray-400">{part.data.tooldesc}</span>
+                    <ToolDescLine text={part.data.tooldesc ?? ""} />
                     {part.data.durationms != null && part.data.durationms > 0 && (
                         <span className="rounded-full bg-white/[0.04] px-2 py-0.5 text-[11px] text-zinc-300">
                             {t.tool.durationFormatted(formatCommandDuration(part.data.durationms))}
@@ -690,7 +696,7 @@ const AIToolUse = memo(({ part, isStreaming, onSendApproval }: AIToolUseProps) =
                     </button>
                 )}
             </div>
-            {toolData.tooldesc && <ToolDesc text={toolData.tooldesc} className="text-xs text-gray-400/80 pl-5" />}
+            {toolData.tooldesc && <ToolDesc text={toolData.tooldesc} className="text-[16px] text-gray-400/80 pl-5" />}
             {inlineDiffOpen && (
                 <div className="pl-5">
                     <div className="mt-0.5 rounded bg-black/30">
@@ -747,7 +753,7 @@ const AIToolProgress = memo(({ part }: AIToolProgressProps) => {
             {!shouldHideProgressStatusLines(progressData.toolname) &&
                 progressData.statuslines &&
                 progressData.statuslines.length > 0 && (
-                    <ToolDesc text={progressData.statuslines} className="text-xs text-gray-400/80 pl-5 space-y-0.5" />
+                    <ToolDesc text={progressData.statuslines} className="text-[16px] text-gray-400/80 pl-5 space-y-0.5" />
                 )}
         </div>
     );
@@ -849,13 +855,13 @@ export const AIToolUseGroup = memo(({ parts, isStreaming }: AIToolUseGroupProps)
     return (
         <div className={cn("mt-1.5 rounded-lg px-2.5 py-1.5", groupSummary.toneClassName)}>
             <div className="flex items-start gap-2">
-                <i className={cn("fa mt-0.5 text-xs", groupSummary.icon, groupSummary.iconClassName)}></i>
+                <span className={cn("mt-0.5 text-xs font-bold", groupSummary.iconClassName, groupSummary.iconSpin && "animate-spin")}>{groupSummary.icon}</span>
                 <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                             <div className="font-medium">{groupSummary.title}</div>
                             {groupSummary.description && (
-                                <div className="mt-1 text-sm text-zinc-400 break-words">{groupSummary.description}</div>
+                                <div className="mt-1 text-[20px] text-zinc-400 break-words"><ToolDescLine text={groupSummary.description} /></div>
                             )}
                         </div>
                         {groupSummary.hasDetails && (
