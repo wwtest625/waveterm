@@ -1215,6 +1215,10 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
     const [listScrollPosition, setListScrollPosition] = useState(0);
     const stateInitializedRef = useRef(false);
 
+    const handleExpandedChange = useCallback((expandedIds: Set<string>) => {
+        setSavedExpandedPaths(Array.from(expandedIds));
+    }, []);
+
     const stateStorageKey = useMemo(() => connImmediate || "local", [connImmediate]);
 
     useEffect(() => {
@@ -1766,9 +1770,7 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                         newDirectory={newDirectory}
                         openUploadFilePicker={openUploadFilePicker}
                         savedExpandedPaths={savedExpandedPaths}
-                        onExpandedChange={(expandedIds) => {
-                            setSavedExpandedPaths(Array.from(expandedIds));
-                        }}
+                        onExpandedChange={handleExpandedChange}
                     />
                 ) : (
                     <DirectoryTable

@@ -321,11 +321,16 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
         virtualizer.scrollToIndex(index, { align: "auto" });
     }, [idToIndex, virtualizer]);
 
+    const scrollToIdRef = useRef(scrollToId);
+    scrollToIdRef.current = scrollToId;
+
+    const prevSelectedIdRef = useRef<string | null>(null);
     useEffect(() => {
-        if (selectedId != null) {
-            scrollToId(selectedId);
+        if (selectedId != null && selectedId !== prevSelectedIdRef.current) {
+            scrollToIdRef.current(selectedId);
         }
-    }, [scrollToId, selectedId, visibleRows.length]);
+        prevSelectedIdRef.current = selectedId;
+    }, [selectedId]);
 
     useImperativeHandle(
         ref,
