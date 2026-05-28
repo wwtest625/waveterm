@@ -134,28 +134,47 @@
 
 .kb-fw-resize-handle {
     position: absolute;
-    right: 0;
-    bottom: 0;
     width: 14px;
     height: 14px;
-    cursor: nwse-resize;
     z-index: 10;
 
     &::after {
         content: "";
         position: absolute;
-        right: 3px;
-        bottom: 3px;
         width: 8px;
         height: 8px;
-        border-right: 2px solid var(--color-border);
-        border-bottom: 2px solid var(--color-border);
         opacity: 0.5;
     }
 
     &:hover::after {
         opacity: 1;
         border-color: var(--color-accent);
+    }
+}
+
+.kb-fw-resize-se {
+    right: 0;
+    bottom: 0;
+    cursor: nwse-resize;
+
+    &::after {
+        right: 3px;
+        bottom: 3px;
+        border-right: 2px solid var(--color-border);
+        border-bottom: 2px solid var(--color-border);
+    }
+}
+
+.kb-fw-resize-sw {
+    left: 0;
+    bottom: 0;
+    cursor: nesw-resize;
+
+    &::after {
+        left: 3px;
+        bottom: 3px;
+        border-left: 2px solid var(--color-border);
+        border-bottom: 2px solid var(--color-border);
     }
 }
 

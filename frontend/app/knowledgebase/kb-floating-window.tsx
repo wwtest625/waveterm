@@ -26,7 +26,7 @@ const FloatingWindowInner = memo(() => {
     const [size, setSize] = useAtom(floatingSizeAtom);
 
     const dragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
-    const resizeRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
+    const resizeRef = useRef<{ startX: number; startY: number; startW: number; startH: number; startPosX: number; direction: string } | null>(null);
     const windowRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -65,9 +65,25 @@ const FloatingWindowInner = memo(() => {
             if (resizeRef.current) {
                 const dx = e.clientX - resizeRef.current.startX;
                 const dy = e.clientY - resizeRef.current.startY;
-                const newW = Math.max(320, Math.min(resizeRef.current.startW + dx, window.innerWidth - position.x - 20));
-                const newH = Math.max(200, Math.min(resizeRef.current.startH + dy, window.innerHeight - position.y - 20));
+                const dir = resizeRef.current.direction;
+                let newW = resizeRef.current.startW;
+                let newH = resizeRef.current.startH;
+                let newX = resizeRef.current.startPosX;
+
+                if (dir === "se") {
+                    newW = Math.max(320, Math.min(resizeRef.current.startW + dx, window.innerWidth - position.x - 20));
+                    newH = Math.max(200, Math.min(resizeRef.current.startH + dy, window.innerHeight - position.y - 20));
+                } else if (dir === "sw") {
+                    const candidateW = Math.max(320, Math.min(resizeRef.current.startW - dx, resizeRef.current.startPosX + resizeRef.current.startW - 20));
+                    newX = Math.max(0, resizeRef.current.startPosX + resizeRef.current.startW - candidateW);
+                    newW = candidateW;
+                    newH = Math.max(200, Math.min(resizeRef.current.startH + dy, window.innerHeight - position.y - 20));
+                }
+
                 setSize({ w: newW, h: newH });
+                if (dir === "sw" && newX !== position.x) {
+                    setPosition({ x: newX, y: position.y });
+                }
             }
         };
 
@@ -84,7 +100,7 @@ const FloatingWindowInner = memo(() => {
         };
     }, [visible, minimized, position.x, position.y, setPosition, setSize]);
 
-    const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    const handleResizeMouseDown = useCallback((e: React.MouseEvent, direction: string) => {
         e.preventDefault();
         e.stopPropagation();
         resizeRef.current = {
@@ -92,8 +108,10 @@ const FloatingWindowInner = memo(() => {
             startY: e.clientY,
             startW: size.w,
             startH: size.h,
+            startPosX: position.x,
+            direction,
         };
-    }, [size]);
+    }, [size, position]);
 
     const handleMinimize = useCallback(() => {
         minimizeFloatingWindow();
@@ -173,7 +191,8 @@ const FloatingWindowInner = memo(() => {
                     </div>
                 )}
             </div>
-            <div className="kb-fw-resize-handle" onMouseDown={handleResizeMouseDown} />
+            <div className="kb-fw-resize-handle kb-fw-resize-se" onMouseDown={(e) => handleResizeMouseDown(e, "se")} />
+            <div className="kb-fw-resize-handle kb-fw-resize-sw" onMouseDown={(e) => handleResizeMouseDown(e, "sw")} />
         </div>,
         document.getElementById("main")!
     );
