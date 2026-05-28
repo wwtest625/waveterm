@@ -4,6 +4,7 @@
 import { AIPanel } from "@/app/aipanel/aipanel";
 import { ErrorBoundary } from "@/app/element/errorboundary";
 import { CenteredDiv } from "@/app/element/quickelems";
+import { KbFloatingWindow } from "@/app/knowledgebase/kb-floating-window";
 import { ModalsRenderer } from "@/app/modals/modalsrenderer";
 import { TabBar } from "@/app/tab/tabbar";
 import { TabContent } from "@/app/tab/tabcontent";
@@ -85,6 +86,7 @@ const WorkspaceElem = memo(() => {
                         </Panel>
                     </PanelGroup>
                     <ModalsRenderer />
+                    <KbFloatingWindow />
                 </ErrorBoundary>
             </div>
         </div>
