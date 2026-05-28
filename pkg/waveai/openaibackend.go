@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 
 	openaiapi "github.com/sashabaranov/go-openai"
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/aiutil"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -111,19 +111,9 @@ func (OpenAIBackend) StreamCompletion(ctx context.Context, request wshrpc.WaveAI
 			clientConfig.APIVersion = request.Opts.APIVersion
 		}
 
-		// Configure proxy if specified
-		if request.Opts.ProxyURL != "" {
-			proxyURL, err := url.Parse(request.Opts.ProxyURL)
-			if err != nil {
-				rtn <- makeAIError(fmt.Errorf("invalid proxy URL: %v", err))
-				return
-			}
-			transport := &http.Transport{
-				Proxy: http.ProxyURL(proxyURL),
-			}
-			clientConfig.HTTPClient = &http.Client{
-				Transport: transport,
-			}
+		// Configure HTTP client with compat TLS (utls) and optional proxy
+		clientConfig.HTTPClient = &http.Client{
+			Transport: aiutil.MakeCompatHTTPTransport(request.Opts.ProxyURL),
 		}
 
 		client := openaiapi.NewClientWithConfig(clientConfig)

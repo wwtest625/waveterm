@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/aiutil"
 	"github.com/wavetermdev/waveterm/pkg/secretstore"
 )
 
@@ -151,7 +152,9 @@ func callModelListAPI(endpoint, apiKey string) ([]ModelInfo, error) {
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Transport: aiutil.MakeCompatHTTPTransport(""),
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %v", err)

@@ -5,6 +5,7 @@ package wshremote
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -32,6 +33,22 @@ import (
 const RemoteFileTransferSizeLimit = 32 * 1024 * 1024
 
 var DisableRecursiveFileOpts = true
+
+func isLikelyTextData(data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	checkLen := len(data)
+	if checkLen > 8192 {
+		checkLen = 8192
+	}
+	for i := 0; i < checkLen; i++ {
+		if data[i] == 0 {
+			return false
+		}
+	}
+	return true
+}
 
 type ByteRangeType struct {
 	All   bool
@@ -632,6 +649,11 @@ func (*ServerImpl) RemoteWriteFileCommand(ctx context.Context, data wshrpc.FileD
 	if err != nil {
 		return fmt.Errorf("cannot decode base64 data: %w", err)
 	}
+	dataBytes = dataBytes[:n]
+	if !append && atOffset == 0 && isLikelyTextData(dataBytes) {
+		dataBytes = bytes.ReplaceAll(dataBytes, []byte("\r\n"), []byte("\n"))
+		dataBytes = bytes.ReplaceAll(dataBytes, []byte("\r"), []byte("\n"))
+	}
 	finfo, err := os.Stat(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("cannot stat file %q: %w", path, err)
@@ -660,9 +682,9 @@ func (*ServerImpl) RemoteWriteFileCommand(ctx context.Context, data wshrpc.FileD
 	}
 	defer utilfn.GracefulClose(file, "RemoteWriteFileCommand", path)
 	if atOffset > 0 && !append {
-		n, err = file.WriteAt(dataBytes[:n], atOffset)
+		_, err = file.WriteAt(dataBytes, atOffset)
 	} else {
-		n, err = file.Write(dataBytes[:n])
+		_, err = file.Write(dataBytes)
 	}
 	if err != nil {
 		return fmt.Errorf("cannot write to file %q: %w", path, err)

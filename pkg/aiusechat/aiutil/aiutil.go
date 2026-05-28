@@ -190,20 +190,33 @@ func JsonEncodeRequestBody(reqBody any) (bytes.Buffer, error) {
 	return buf, nil
 }
 
-func MakeHTTPClient(proxyURL string) (*http.Client, error) {
-	baseTransport := http.DefaultTransport
+func resolveProxyURL(proxyURL string) string {
 	if proxyURL != "" {
-		pURL, err := url.Parse(proxyURL)
-		if err != nil {
-			return nil, fmt.Errorf("invalid proxy URL: %w", err)
-		}
-		baseTransport = &http.Transport{
-			Proxy: http.ProxyURL(pURL),
+		return proxyURL
+	}
+	return detectSystemProxy()
+}
+
+func MakeCompatHTTPTransport(proxyURL string) http.RoundTripper {
+	effectiveProxy := resolveProxyURL(proxyURL)
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	if effectiveProxy != "" {
+		pURL, err := url.Parse(effectiveProxy)
+		if err == nil {
+			transport.Proxy = http.ProxyURL(pURL)
 		}
 	}
+	return transport
+}
+
+func MakeHTTPClient(proxyURL string) (*http.Client, error) {
 	client := &http.Client{
 		Timeout:   0,
-		Transport: &retryTransport{base: baseTransport},
+		Transport: &retryTransport{base: MakeCompatHTTPTransport(proxyURL)},
 	}
 	return client, nil
 }

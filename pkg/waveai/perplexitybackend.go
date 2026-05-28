@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/aiutil"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -109,19 +109,8 @@ func (PerplexityBackend) StreamCompletion(ctx context.Context, request wshrpc.Wa
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+request.Opts.APIToken)
 
-		// Configure HTTP client with proxy if specified
-		client := &http.Client{}
-		if request.Opts.ProxyURL != "" {
-			proxyURL, err := url.Parse(request.Opts.ProxyURL)
-			if err != nil {
-				rtn <- makeAIError(fmt.Errorf("invalid proxy URL: %v", err))
-				return
-			}
-			transport := &http.Transport{
-				Proxy: http.ProxyURL(proxyURL),
-			}
-			client.Transport = transport
-		}
+		// Configure HTTP client with compat TLS (utls) and optional proxy
+		client := &http.Client{Transport: aiutil.MakeCompatHTTPTransport(request.Opts.ProxyURL)}
 
 		resp, err := client.Do(req)
 		if err != nil {

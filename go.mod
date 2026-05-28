@@ -20,7 +20,7 @@ require (
 	github.com/junegunn/fzf v0.65.2
 	github.com/kevinburke/ssh_config v1.2.0
 	github.com/launchdarkly/eventsource v1.11.0
-	github.com/mattn/go-sqlite3 v1.14.34
+	github.com/mattn/go-sqlite3 v1.14.40
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/sashabaranov/go-openai v1.41.2
@@ -33,8 +33,8 @@ require (
 	golang.org/x/crypto v0.48.0
 	golang.org/x/mod v0.33.0
 	golang.org/x/sync v0.19.0
-	golang.org/x/sys v0.41.0
-	golang.org/x/term v0.40.0
+	golang.org/x/sys v0.43.0
+	golang.org/x/term v0.42.0
 	google.golang.org/api v0.269.0
 )
 

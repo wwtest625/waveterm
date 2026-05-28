@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 
 	"github.com/google/generative-ai-go/genai"
+	"github.com/wavetermdev/waveterm/pkg/aiusechat/aiutil"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -24,25 +24,11 @@ func (GoogleBackend) StreamCompletion(ctx context.Context, request wshrpc.WaveAI
 	var clientOptions []option.ClientOption
 	clientOptions = append(clientOptions, option.WithAPIKey(request.Opts.APIToken))
 
-	// Configure proxy if specified
-	if request.Opts.ProxyURL != "" {
-		proxyURL, err := url.Parse(request.Opts.ProxyURL)
-		if err != nil {
-			rtn := make(chan wshrpc.RespOrErrorUnion[wshrpc.WaveAIPacketType])
-			go func() {
-				defer close(rtn)
-				rtn <- makeAIError(fmt.Errorf("invalid proxy URL: %v", err))
-			}()
-			return rtn
-		}
-		transport := &http.Transport{
-			Proxy: http.ProxyURL(proxyURL),
-		}
-		httpClient := &http.Client{
-			Transport: transport,
-		}
-		clientOptions = append(clientOptions, option.WithHTTPClient(httpClient))
+	// Configure HTTP client with compat TLS (utls) and optional proxy
+	httpClient := &http.Client{
+		Transport: aiutil.MakeCompatHTTPTransport(request.Opts.ProxyURL),
 	}
+	clientOptions = append(clientOptions, option.WithHTTPClient(httpClient))
 
 	client, err := genai.NewClient(ctx, clientOptions...)
 	if err != nil {

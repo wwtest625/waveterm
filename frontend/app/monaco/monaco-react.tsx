@@ -9,7 +9,9 @@ import { debounce } from "throttle-debounce";
 
 function createModel(value: string, path: string, language?: string) {
     const uri = monaco.Uri.parse(`wave://editor/${encodeURIComponent(path)}`);
-    return monaco.editor.createModel(value, language, uri);
+    const model = monaco.editor.createModel(value, language, uri);
+    model.setEOL(monaco.editor.EndOfLineSequence.LF);
+    return model;
 }
 
 type CodeEditorProps = {
@@ -139,7 +141,9 @@ export function MonacoDiffViewer({ original, modified, language, path, options }
         const modUri = monaco.Uri.parse(`wave://diff/${encodeURIComponent(path)}.mod`);
 
         const originalModel = monaco.editor.createModel(original, language, origUri);
+        originalModel.setEOL(monaco.editor.EndOfLineSequence.LF);
         const modifiedModel = monaco.editor.createModel(modified, language, modUri);
+        modifiedModel.setEOL(monaco.editor.EndOfLineSequence.LF);
 
         const diff = monaco.editor.createDiffEditor(el, options);
         diffRef.current = diff;
