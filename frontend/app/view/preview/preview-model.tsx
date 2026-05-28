@@ -15,6 +15,8 @@ import * as WOS from "@/store/wos";
 import { goHistory, goHistoryBack, goHistoryForward } from "@/util/historyutil";
 import { checkKeyPressed } from "@/util/keyutil";
 import { addOpenMenuItems, openPreviewInNewBlock } from "@/util/previewutil";
+import { openFloatingWindow } from "@/app/store/kb-model";
+import { uxCloseBlock } from "@/app/store/keymodel";
 import { base64ToString, fireAndForget, isBlank, jotaiLoadableValue, makeIconClass, stringToBase64 } from "@/util/util";
 import { formatRemoteUri } from "@/util/waveutil";
 import clsx from "clsx";
@@ -337,6 +339,17 @@ export class PreviewModel implements ViewModel {
             const mimeType = jotaiLoadableValue(get(this.fileMimeTypeLoadable), "");
             const loadableSV = get(this.loadableSpecializedView);
             const isCeView = loadableSV.state == "hasData" && loadableSV.data.specializedView == "codeedit";
+            const connImmediate = get(this.connectionImmediate);
+            const minimizeToFloatingBtn: IconButtonDecl = {
+                elemtype: "iconbutton",
+                icon: "up-right-from-square",
+                title: "缩小到悬浮窗",
+                click: () => {
+                    const filePath = globalStore.get(this.metaFilePath);
+                    openFloatingWindow(filePath, connImmediate, this.blockId);
+                    uxCloseBlock(this.blockId);
+                },
+            };
             if (mimeType == "directory") {
                 const showHiddenFiles = get(this.showHiddenFiles);
                 const directoryViewMode = get(this.directoryViewMode);
@@ -381,6 +394,7 @@ export class PreviewModel implements ViewModel {
                 ] as IconButtonDecl[];
             } else if (!isCeView && isMarkdownLike(mimeType)) {
                 return [
+                    minimizeToFloatingBtn,
                     {
                         elemtype: "iconbutton",
                         icon: "book",
@@ -394,9 +408,13 @@ export class PreviewModel implements ViewModel {
                         click: () => this.refreshCallback?.(),
                     },
                 ] as IconButtonDecl[];
-            } else if (!isCeView && mimeType) {
-                // For all other file types (text, code, etc.), add refresh button
+            } else if (isCeView) {
                 return [
+                    minimizeToFloatingBtn,
+                ] as IconButtonDecl[];
+            } else if (!isCeView && mimeType) {
+                return [
+                    minimizeToFloatingBtn,
                     {
                         elemtype: "iconbutton",
                         icon: "arrows-rotate",
@@ -675,14 +693,15 @@ export class PreviewModel implements ViewModel {
             console.log("not saving file, newFileContent is null");
             return;
         }
+        const normalizedContent = newFileContent.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
         try {
             await RpcApi.FileWriteCommand(TabRpcClient, {
                 info: {
                     path: await this.formatRemoteUri(filePath, globalStore.get),
                 },
-                data64: stringToBase64(newFileContent),
+                data64: stringToBase64(normalizedContent),
             });
-            globalStore.set(this.fileContent, newFileContent);
+            globalStore.set(this.fileContent, normalizedContent);
             globalStore.set(this.newFileContent, null);
             console.log("saved file", filePath);
         } catch (e) {
