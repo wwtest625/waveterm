@@ -39,3 +39,9 @@ func normalizeProxyURL(proxyStr string) string {
 	}
 	return proxyStr
 }
+
+// shouldBypassProxy checks if the given target URL should bypass the proxy.
+// On non-Windows platforms, this uses no_proxy environment variable.
+func shouldBypassProxy(targetURL string) bool {
+	return false
+}

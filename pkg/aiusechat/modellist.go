@@ -9,10 +9,13 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/aiutil"
 	"github.com/wavetermdev/waveterm/pkg/secretstore"
 )
+
+const modelListTimeout = 15 * time.Second
 
 type ModelListRequest struct {
 	Provider   string `json:"provider"`
@@ -88,7 +91,7 @@ func fetchModelList(provider, endpoint, secretName string) ([]ModelInfo, error) 
 
 	if endpoint != "" {
 		endpoint = ensureModelListEndpoint(endpoint)
-		return nil, fmt.Errorf("no API key configured. Please set ai:apitokensecretname in your config")
+		return callModelListAPI(endpoint, "")
 	}
 
 	defaultEndpoint := getDefaultEndpoint(provider)
@@ -101,6 +104,8 @@ func fetchModelList(provider, endpoint, secretName string) ([]ModelInfo, error) 
 
 func ensureModelListEndpoint(endpoint string) string {
 	endpoint = strings.TrimSpace(endpoint)
+	// 去除可能的引号（单引号、双引号、反引号）
+	endpoint = strings.Trim(endpoint, "\"'`")
 	if endpoint == "" {
 		return endpoint
 	}
@@ -149,10 +154,13 @@ func callModelListAPI(endpoint, apiKey string) ([]ModelInfo, error) {
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{
+		Timeout:   modelListTimeout,
 		Transport: aiutil.MakeCompatHTTPTransport(""),
 	}
 	resp, err := client.Do(req)

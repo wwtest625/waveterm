@@ -253,7 +253,6 @@ export const AIPanelMessages = memo(({ messages, status, onContextMenu }: AIPane
 
     return (
         <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-2" onContextMenu={onContextMenu}>
-            <PanelHero />
             <div className="space-y-4">
                 {turns.map((turn, index) => {
                     const isLastTurn = index === turns.length - 1;

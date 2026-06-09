@@ -143,10 +143,18 @@ function ensureDownloadProgressBridge(session: Electron.Session): void {
         fs.mkdirSync(targetDir, { recursive: true });
         let filename = item.getFilename();
         const downloadUrl = item.getURL();
+        const mimeType = item.getMimeType();
+        const totalBytesFromItem = item.getTotalBytes();
+        console.log(`[download-debug] will-download: url=${downloadUrl}`);
+        console.log(`[download-debug] effectiveFilePath=${effectiveFilePath}`);
+        console.log(`[download-debug] filename(from Electron)=${filename}, mimeType=${mimeType}, totalBytes=${totalBytesFromItem}`);
         if (downloadUrl.includes("/wave/stream-directory/") && !filename.toLowerCase().endsWith(".zip")) {
+            console.log(`[download-debug] appending .zip to filename: ${filename} -> ${filename}.zip`);
             filename = filename + ".zip";
         }
-        item.setSavePath(getUniqueDownloadPath(targetDir, filename));
+        const savePath = getUniqueDownloadPath(targetDir, filename);
+        console.log(`[download-debug] savePath=${savePath}`);
+        item.setSavePath(savePath);
 
         // Retrieve zip metadata captured from response headers
         const zipMeta = downloadUrl.includes("/wave/stream-directory/") ? pendingZipMetadata.get(downloadUrl) : undefined;
@@ -183,7 +191,15 @@ function ensureDownloadProgressBridge(session: Electron.Session): void {
 
         item.once("done", (_doneEvent, state) => {
             pendingDownloadTasks.delete(request.taskId);
+            const finalSize = item.getReceivedBytes();
+            console.log(`[download-debug] download done: state=${state}, savePath=${item.getSavePath()}, receivedBytes=${finalSize}`);
             if (state === "completed") {
+                try {
+                    const stat = fs.statSync(item.getSavePath());
+                    console.log(`[download-debug] file on disk: size=${stat.size}`);
+                } catch (e) {
+                    console.log(`[download-debug] cannot stat saved file:`, e);
+                }
                 emitProgress("success", "done");
             } else if (state === "cancelled") {
                 emitProgress("cancelled", "done");
@@ -377,7 +393,9 @@ export function initIpcHandlers() {
 
     electron.ipcMain.on("download", (event, payload) => {
         const isDirectory = payload.isDirectory ?? false;
+        console.log(`[download-debug] download event: filePath=${payload.filePath} isDirectory=${isDirectory} taskId=${payload.taskId}`);
         let baseName = encodeURIComponent(path.basename(payload.filePath));
+        console.log(`[download-debug] baseName=${baseName} (from path.basename=${path.basename(payload.filePath)})`);
         if (isDirectory) {
             baseName = baseName + ".zip";
         }
@@ -390,6 +408,7 @@ export function initIpcHandlers() {
             encodeURIComponent(payload.filePath) +
             "&taskid=" +
             encodeURIComponent(payload.taskId ?? "");
+        console.log(`[download-debug] streamingUrl=${streamingUrl}`);
         const sender = event.sender;
         ensureDownloadProgressBridge(sender.session);
         if (payload.taskId) {

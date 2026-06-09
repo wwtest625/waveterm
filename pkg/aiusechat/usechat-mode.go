@@ -91,7 +91,9 @@ func applyProviderDefaults(config *wconfig.AIModeConfigType) {
 				config.Endpoint = OpenAIChatEndpoint
 			}
 		}
-		if config.APITokenSecretName == "" {
+		// Only auto-set API token secret name when using the default OpenAI endpoint.
+		// Custom endpoints (e.g., local vLLM, Ollama) may not require an API key.
+		if config.APITokenSecretName == "" && isDefaultOpenAIEndpoint(config.Endpoint) {
 			config.APITokenSecretName = OpenAIAPITokenSecretName
 		}
 		if len(config.Capabilities) == 0 {
@@ -274,6 +276,10 @@ func isValidAzureResourceName(name string) bool {
 		return false
 	}
 	return AzureResourceNameRegex.MatchString(name)
+}
+
+func isDefaultOpenAIEndpoint(endpoint string) bool {
+	return endpoint == OpenAIResponsesEndpoint || endpoint == OpenAIChatEndpoint
 }
 
 func getAIModeConfig(aiMode string) (*wconfig.AIModeConfigType, error) {

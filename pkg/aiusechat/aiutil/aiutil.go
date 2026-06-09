@@ -207,10 +207,25 @@ func MakeCompatHTTPTransport(proxyURL string) http.RoundTripper {
 	if effectiveProxy != "" {
 		pURL, err := url.Parse(effectiveProxy)
 		if err == nil {
-			transport.Proxy = http.ProxyURL(pURL)
+			proxyFunc := http.ProxyURL(pURL)
+			transport.Proxy = func(req *http.Request) (*url.URL, error) {
+				if shouldBypassProxyForRequest(req) {
+					return nil, nil
+				}
+				return proxyFunc(req)
+			}
 		}
 	}
 	return transport
+}
+
+// shouldBypassProxyForRequest checks if the request target should bypass the proxy
+// based on the system's proxy bypass/override configuration.
+func shouldBypassProxyForRequest(req *http.Request) bool {
+	if req == nil || req.URL == nil {
+		return false
+	}
+	return shouldBypassProxy(req.URL.String())
 }
 
 func MakeHTTPClient(proxyURL string) (*http.Client, error) {

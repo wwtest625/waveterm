@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="WaveTerm Agent Flow">
+    <mxGraphModel>
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        <!-- Frontend Layer Container -->
+        <mxCell id="frontend-container" value="Frontend (React)" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="10" y="20" width="400" height="280" as="geometry" />
+        </mxCell>
+        
+        <!-- Frontend Components -->
+        <mxCell id="user-input" value="User Input&#xa;(AIPanelInput)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="frontend-container">
+          <mxGeometry x="20" y="40" width="120" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="use-chat" value="useChat Hook&#xa;(Vercel AI SDK)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="frontend-container">
+          <mxGeometry x="20" y="130" width="120" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="message-state" value="Jotai State Mgmt&#xa;(waveai-model.tsx)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="frontend-container">
+          <mxGeometry x="160" y="130" width="120" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="ui-render" value="UI Components&#xa;(AIMessage, AIToolUse, etc)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="frontend-container">
+          <mxGeometry x="300" y="130" width="80" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="sse-receiver" value="SSE Receiver&#xa;(EventSource)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="frontend-container">
+          <mxGeometry x="20" y="220" width="120" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="agent-runtime" value="Agent Runtime&#xa;State Machine" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="frontend-container">
+          <mxGeometry x="160" y="220" width="120" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- Frontend edges -->
+        <mxCell id="edge-input-usechat" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="frontend-container" source="user-input" target="use-chat">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-usechat-state" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="frontend-container" source="use-chat" target="message-state">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-state-render" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="frontend-container" source="message-state" target="ui-render">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-sse-state" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="frontend-container" source="sse-receiver" target="agent-runtime">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-runtime-state" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="frontend-container" source="agent-runtime" target="ui-render">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- HTTP Communication -->
+        <mxCell id="http-layer" value="HTTP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="130" y="350" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-usechat-http" value="POST /api/post-chat-message" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;fontSize=11;" edge="1" parent="1" source="use-chat" target="http-layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-http-sse" value="SSE Stream" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;fontSize=11;flowAnimation=1;" edge="1" parent="1" source="http-layer" target="sse-receiver">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- Backend Layer Container -->
+        <mxCell id="backend-container" value="Backend (Go) - Agent Loop" style="swimlane;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="450" y="20" width="600" height="480" as="geometry" />
+        </mxCell>
+        
+        <!-- HTTP Handler -->
+        <mxCell id="http-handler" value="WaveAIPostMessageHandler&#xa;(HTTP Entry)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="backend-container">
+          <mxGeometry x="20" y="40" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- Tab State Refresh -->
+        <mxCell id="tab-state" value="RefreshTabState()&#xa;Get open widgets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="backend-container">
+          <mxGeometry x="200" y="40" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- Tool Assembly -->
+        <mxCell id="tools-assembly" value="GenerateTabStateAndTools()&#xa;Assemble tools list" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="backend-container">
+          <mxGeometry x="380" y="40" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- System Prompt -->
+        <mxCell id="system-prompt" value="AssembleSystemPrompt()&#xa;+ Tab State + Tool Info" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="backend-container">
+          <mxGeometry x="20" y="140" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- Agent Loop Decision -->
+        <mxCell id="agent-loop" value="RunAIChat()&#xa;Agent Loop Start" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="backend-container">
+          <mxGeometry x="200" y="140" width="140" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- Call LLM -->
+        <mxCell id="call-llm" value="Backend.RunChatStep()&#xa;Call AI Provider&#xa;(OpenAI/Claude/Gemini)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="backend-container">
+          <mxGeometry x="380" y="140" width="140" height="60" as="geometry" />
+        </Cell>
+        
+        <!-- Check Stop Reason -->
+        <mxCell id="check-stop" value="Check&#xa;StopReason" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="backend-container">
+          <mxGeometry x="200" y="240" width="140" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- Tool Execution -->
+        <mxCell id="process-tools" value="processAllToolCalls()&#xa;Build execution plan&#xa;(parallel/sequential)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="backend-container">
+          <mxGeometry x="20" y="240" width="140" height="80" as="geometry" />
+        </Cell>
+        
+        <!-- Tool Approval -->
+        <mxCell id="tool-approval" value="RegisterToolApproval()&#xa;Wait for user OK" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="backend-container">
+          <mxGeometry x="380" y="240" width="140" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- Execute Tool -->
+        <mxCell id="execute-tool" value="ResolveToolCall()&#xa;Run callback&#xa;(wave_run_command, etc)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="backend-container">
+          <mxGeometry x="20" y="360" width="140" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- Convert Tool Results -->
+        <mxCell id="convert-results" value="ConvertToolResults()&#xa;Prepare for next step" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="backend-container">
+          <mxGeometry x="200" y="360" width="140" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- Store Results -->
+        <mxCell id="store-results" value="ChatStore.Store()&#xa;Persist to DB" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="backend-container">
+          <mxGeometry x="380" y="360" width="140" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- Backend edges -->
+        <mxCell id="edge-handler-tabstate" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="http-handler" target="tab-state">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-tabstate-tools" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="tab-state" target="tools-assembly">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-tabstate-prompt" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="tab-state" target="system-prompt">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-tools-loop" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="tools-assembly" target="agent-loop">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="450" y="120" />
+              <mxPoint x="270" y="120" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="edge-prompt-loop" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="system-prompt" target="agent-loop">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-loop-llm" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="agent-loop" target="call-llm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-llm-check" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="call-llm" target="check-stop">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="450" y="220" />
+              <mxPoint x="340" y="280" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        
+        <!-- Tool Use Path -->
+        <mxCell id="edge-check-tool" value="ToolUse" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;fontSize=11;" edge="1" parent="backend-container" source="check-stop" target="process-tools">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-process-approval" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="process-tools" target="tool-approval">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-approval-execute" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="tool-approval" target="execute-tool">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="450" y="340" />
+              <mxPoint x="90" y="340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="edge-execute-convert" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="execute-tool" target="convert-results">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-convert-store" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="backend-container" source="convert-results" target="store-results">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- Loop back to agent loop -->
+        <mxCell id="edge-store-loop" value="Continue&#xa;Agent Loop" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;fontSize=11;" edge="1" parent="backend-container" source="store-results" target="call-llm">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="450" y="320" />
+              <mxPoint x="450" y="220" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        
+        <!-- Exit Path -->
+        <mxCell id="exit-node" value="Exit Agent Loop&#xa;(No more tool calls)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="backend-container">
+          <mxGeometry x="380" y="460" width="140" height="80" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-check-exit" value="Other&#xa;Stop Reasons" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=11;" edge="1" parent="backend-container" source="check-stop" target="exit-node">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="270" y="340" />
+              <mxPoint x="450" y="340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        
+        <!-- Backend to Frontend -->
+        <mxCell id="edge-http-response" value="SSE Events (text-delta, tool-use, etc)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;fontSize=11;flowAnimation=1;" edge="1" parent="1" source="http-handler" target="http-layer">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="520" y="390" />
+              <mxPoint x="210" y="390" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        
+        <!-- Database/Storage Layer -->
+        <mxCell id="db-layer" value="Database&#xa;(ChatStore)" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="180" width="120" height="100" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="edge-store-db" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="store-results" target="db-layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- Tool Execution Details Container -->
+        <mxCell id="tools-detail" value="Tool Execution Detail" style="swimlane;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="450" y="540" width="600" height="220" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="tool-types" value="Tool Types:&#xa;• wave_run_command (Terminal)&#xa;• write/edit/delete_text_file&#xa;• read_dir/read_text_file&#xa;• waveai_ask_user&#xa;• waveai_think&#xa;• kb_* (Knowledge Base)&#xa;• waveai_todo_*&#xa;• waveai_use_skill" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;fontSize=10;" vertex="1" parent="tools-detail">
+          <mxGeometry x="20" y="40" width="280" height="160" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="exec-strategy" value="Execution Strategy:&#xa;&#xa;Sequential (串行):&#xa;• Write/Edit operations&#xa;• Must preserve file order&#xa;&#xa;Parallel (并行):&#xa;• Read-only operations&#xa;• Different commands&#xa;&#xa;Deduplication:&#xa;• Same tool + same input&#xa;= Execute only once" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;fontSize=10;" vertex="1" parent="tools-detail">
+          <mxGeometry x="320" y="40" width="260" height="160" as="geometry" />
+        </mxCell>
+        
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -138,7 +138,9 @@ func (impl *ServerImpl) remoteStreamFileRegular(ctx context.Context, path string
 				n = int(byteRange.End - filePos)
 			}
 			filePos += int64(n)
-			dataCallback(nil, buf[:n], byteRange)
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			dataCallback(nil, chunk, byteRange)
 		}
 		if !byteRange.All && filePos >= byteRange.End {
 			break
