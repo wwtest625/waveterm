@@ -242,6 +242,15 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
                     <>
                         {message.role === "assistant" ? (
                             <>
+                                {thinkingData != null && (
+                                    <div className="mt-2">
+                                        <AIThinking
+                                            message={thinkingData.message}
+                                            reasoningText={thinkingData.reasoningText}
+                                            isWaitingApproval={thinkingData.isWaitingApproval}
+                                        />
+                                    </div>
+                                )}
                                 {assistantLayout.textParts.map((part, index) => (
                                     <div key={index} className="mt-2">
                                         <AIMessagePart part={part} role={message.role} isStreaming={isStreaming} />
@@ -257,15 +266,6 @@ export const AIMessage = memo(({ message, isStreaming }: AIMessageProps) => {
                                     <AIMessagePart part={part} role={message.role} isStreaming={isStreaming} />
                                 </div>
                             ))
-                        )}
-                        {thinkingData != null && (
-                            <div className="mt-2">
-                                <AIThinking
-                                    message={thinkingData.message}
-                                    reasoningText={thinkingData.reasoningText}
-                                    isWaitingApproval={thinkingData.isWaitingApproval}
-                                />
-                            </div>
                         )}
                     </>
                 )}
