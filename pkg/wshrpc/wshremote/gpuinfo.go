@@ -3,14 +3,12 @@ package wshremote
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 const (
@@ -29,22 +27,7 @@ type GpuDevice struct {
 var (
 	gpuDevicesCache []GpuDevice
 	gpuCacheMu      sync.RWMutex
-	gpuLogLimiter   sync.Map
 )
-
-const gpuLogInterval = 30 * time.Second
-
-func rateLimitedGpuLog(gpuIdx int, format string, args ...any) {
-	now := time.Now()
-	key := fmt.Sprintf("%d", gpuIdx)
-	if last, ok := gpuLogLimiter.Load(key); ok {
-		if now.Sub(last.(time.Time)) < gpuLogInterval {
-			return
-		}
-	}
-	gpuLogLimiter.Store(key, now)
-	log.Printf(format, args...)
-}
 
 func discoverGpuDevices() []GpuDevice {
 	gpuCacheMu.RLock()
@@ -193,14 +176,14 @@ func GetGpuData(values map[string]float64) {
 			values[prefix+":mem_total"] = memTotal
 		}
 		if memUsed < 0 || memTotal < 0 {
-			rateLimitedGpuLog(dev.Index, "gpuinfo: GPU %d mem read failed used=%.2f total=%.2f (smiDir=%s)\n", dev.Index, memUsed, memTotal, dev.SmiDir)
+			// GPU mem read failed, skip silently
 		}
 
 		util := getGpuUtil(dev.SmiDir, dev.Index)
 		if util >= 0 {
 			values[prefix+":util"] = util
 		} else {
-			rateLimitedGpuLog(dev.Index, "gpuinfo: GPU %d util read failed (smiDir=%s)\n", dev.Index, dev.SmiDir)
+			// GPU util read failed, skip silently
 		}
 	}
 }

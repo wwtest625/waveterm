@@ -5,7 +5,6 @@ package web
 
 import (
 	"context"
-	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -260,8 +259,6 @@ func handleRemoteStreamFile(w http.ResponseWriter, req *http.Request, conn strin
 func handleRemoteStreamFileFromCh(w http.ResponseWriter, req *http.Request, path string, rtnCh <-chan wshrpc.RespOrErrorUnion[wshrpc.FileData], streamCancelFn func(context.Context) error, no404 bool) error {
 	firstPk := true
 	var fileInfo *wshrpc.FileInfo
-	var totalWritten int64
-	hash := md5.New()
 	loopDone := false
 	defer func() {
 		if loopDone {
@@ -283,7 +280,6 @@ func handleRemoteStreamFileFromCh(w http.ResponseWriter, req *http.Request, path
 		case respUnion, ok := <-rtnCh:
 			if !ok {
 				loopDone = true
-				log.Printf("[download-debug] handleRemoteStreamFile done: path=%q totalWritten=%d expectedSize=%d md5=%x\n", path, totalWritten, fileInfo.Size, hash.Sum(nil))
 				return nil
 			}
 			if respUnion.Error != nil {
@@ -306,7 +302,6 @@ func handleRemoteStreamFileFromCh(w http.ResponseWriter, req *http.Request, path
 				if fileInfo.IsDir {
 					return fmt.Errorf("cannot stream directory: %q", path)
 				}
-				log.Printf("[download-debug] handleRemoteStreamFile first packet: path=%q name=%q mimeType=%q size=%d isDir=%v\n", path, fileInfo.Name, fileInfo.MimeType, fileInfo.Size, fileInfo.IsDir)
 				w.Header().Set(ContentTypeHeaderKey, fileInfo.MimeType)
 				w.Header().Set(ContentLengthHeaderKey, fmt.Sprintf("%d", fileInfo.Size))
 				continue
@@ -314,9 +309,7 @@ func handleRemoteStreamFileFromCh(w http.ResponseWriter, req *http.Request, path
 			if len(respUnion.Response.Data) == 0 {
 				continue
 			}
-			n, err := w.Write(respUnion.Response.Data)
-			totalWritten += int64(n)
-			hash.Write(respUnion.Response.Data)
+			_, err := w.Write(respUnion.Response.Data)
 			if err != nil {
 				log.Printf("error streaming file %q: %v\n", path, err)
 				// not sure what to do here, the headers have already been sent.
@@ -343,7 +336,6 @@ func handleStreamFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return
 	}
-	log.Printf("[download-debug] handleStreamFile: path=%q url=%q\n", path, r.URL.String())
 	no404 := r.URL.Query().Get("no404")
 	// path should already be formatted as a wsh:// URI (e.g. wsh://local/path or wsh://connection/path)
 	data := wshrpc.FileData{
@@ -376,7 +368,6 @@ func handleStreamDirectory(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	log.Printf("[download-debug] handleStreamDirectory: path=%q dirName=%q\n", path, dirName)
 
 	rtnCh := wshfs.ZipToStream(r.Context(), path)
 
@@ -391,7 +382,6 @@ func handleStreamDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	firstMeta := respUnion.Response
-	log.Printf("[download-debug] handleStreamDirectory firstMeta: totalFiles=%d totalSize=%d\n", firstMeta.TotalFiles, firstMeta.TotalSize)
 	if firstMeta.TotalFiles > 0 {
 		w.Header().Set("X-Zip-Total-Files", fmt.Sprintf("%d", firstMeta.TotalFiles))
 	}
@@ -401,20 +391,15 @@ func handleStreamDirectory(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set(ContentTypeHeaderKey, "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, dirName))
-	log.Printf("[download-debug] handleStreamDirectory headers set: contentType=application/zip contentDisposition=%s.zip\n", dirName)
 
 	ctx := r.Context()
 	flusher, canFlush := w.(http.Flusher)
-	var totalZipWritten int64
-	zipHash := md5.New()
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[download-debug] handleStreamDirectory context done: totalZipWritten=%d\n", totalZipWritten)
 			return
 		case respUnion, ok := <-rtnCh:
 			if !ok {
-				log.Printf("[download-debug] handleStreamDirectory stream done: totalZipWritten=%d totalFiles=%d md5=%x\n", totalZipWritten, firstMeta.TotalFiles, zipHash.Sum(nil))
 				return
 			}
 			if respUnion.Error != nil {
@@ -423,9 +408,7 @@ func handleStreamDirectory(w http.ResponseWriter, r *http.Request) {
 			}
 			resp := respUnion.Response
 			if len(resp.Data) > 0 {
-				n, err := w.Write(resp.Data)
-				totalZipWritten += int64(n)
-				zipHash.Write(resp.Data)
+				_, err := w.Write(resp.Data)
 				if err != nil {
 					log.Printf("error writing zip data: %v\n", err)
 					return

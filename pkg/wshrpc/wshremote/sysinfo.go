@@ -4,7 +4,6 @@
 package wshremote
 
 import (
-	"log"
 	"strconv"
 	"time"
 
@@ -59,9 +58,6 @@ func generateSingleServerData(client *wshutil.WshRpc, connName string) {
 }
 
 func RunSysInfoLoop(client *wshutil.WshRpc, connName string) {
-	defer func() {
-		log.Printf("sysinfo loop ended conn:%s\n", connName)
-	}()
 	for {
 		generateSingleServerData(client, connName)
 		time.Sleep(1 * time.Second)
