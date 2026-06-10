@@ -73,6 +73,7 @@ export interface TreeViewProps {
     onOpenDirectory?: (id: string, node: TreeNodeData) => void;
     onSelectionChange?: (id: string, node: TreeNodeData) => void;
     onContextMenu?: (id: string, node: TreeNodeData, event: MouseEvent<HTMLDivElement>) => void;
+    onDelete?: (id: string, node: TreeNodeData) => void;
     onExpandedChange?: (expandedIds: Set<string>) => void;
     selectedId?: string;
     defaultExpandedIds?: string[];
@@ -235,6 +236,7 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
         onOpenDirectory,
         onSelectionChange,
         onContextMenu,
+        onDelete,
         onExpandedChange,
         selectedId: controlledSelectedId,
         defaultExpandedIds,
@@ -500,6 +502,10 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
             }
             onOpenFile?.(node.id, node);
         }
+        if (event.key === "Delete") {
+            event.preventDefault();
+            onDelete?.(node.id, node);
+        }
     };
 
     const containerStyle: CSSProperties = {
@@ -533,7 +539,8 @@ export const TreeView = forwardRef<TreeViewRef, TreeViewProps>((props, ref) => {
                                 className={clsx(
                                     "absolute left-0 right-0 flex items-center whitespace-nowrap text-sm",
                                     row.kind === "node" ? "cursor-pointer" : "text-muted",
-                                    selected ? "bg-accent/25 text-foreground" : "text-foreground hover:bg-muted/50"
+                                    selected ? "bg-accent/25 text-foreground" : "text-foreground hover:bg-muted/50",
+                                    virtualRow.index % 2 === 0 ? "tree-row-even" : "tree-row-odd"
                                 )}
                                 style={{
                                     top: 0,

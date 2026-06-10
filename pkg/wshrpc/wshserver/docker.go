@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"strconv"
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -59,6 +58,34 @@ func (ws *WshServer) DockerListImagesCommand(ctx context.Context, data wshrpc.Do
 				Detail:  parseErr.Error(),
 			},
 		}, nil
+	}
+	// Fetch containers to compute image usage counts
+	containerStdout, _, containerErr := runDockerCLI(ctx, data.Connection, dockerListContainersArgs(true))
+	if containerErr == nil {
+		containers, _ := parseDockerContainerSummaries(containerStdout)
+		if len(containers) > 0 {
+			imageIdMap, _ := fetchContainerImageIds(ctx, data.Connection, containers)
+			// Fill ImageId for each container using prefix matching (map key is full ID, container.Id is short ID)
+			for i := range containers {
+				for fullId, shortImageId := range imageIdMap {
+					if strings.HasPrefix(fullId, containers[i].Id) {
+						containers[i].ImageId = shortImageId
+						break
+					}
+				}
+			}
+			imageContainerCount := make(map[string]int)
+			for _, c := range containers {
+				if c.ImageId != "" {
+					imageContainerCount[c.ImageId]++
+				}
+			}
+			for i := range images {
+				count := imageContainerCount[images[i].Id]
+				images[i].Containers = count
+				images[i].InUse = count > 0
+			}
+		}
 	}
 	return wshrpc.DockerListImagesResponse{Images: images}, nil
 }
@@ -138,7 +165,7 @@ func dockerListImagesArgs() []string {
 		"image",
 		"ls",
 		"--format",
-		fmt.Sprintf("{{.ID}}%s{{.Repository}}%s{{.Tag}}%s{{.Size}}%s{{.Containers}}", dockerFieldSep, dockerFieldSep, dockerFieldSep, dockerFieldSep),
+		fmt.Sprintf("{{.ID}}%s{{.Repository}}%s{{.Tag}}%s{{.Size}}", dockerFieldSep, dockerFieldSep, dockerFieldSep),
 	}
 }
 
@@ -167,6 +194,9 @@ func fetchContainerImageIds(ctx context.Context, connName string, containers []w
 		if len(parts) == 2 {
 			containerId := strings.TrimPrefix(strings.TrimSpace(parts[0]), "sha256:")
 			imageId := strings.TrimPrefix(strings.TrimSpace(parts[1]), "sha256:")
+			if len(imageId) > 12 {
+				imageId = imageId[:12]
+			}
 			result[containerId] = imageId
 		}
 	}
@@ -197,18 +227,15 @@ func parseDockerImageSummaries(output string) ([]wshrpc.DockerImageSummary, erro
 	lines := splitNonEmptyLines(output)
 	images := make([]wshrpc.DockerImageSummary, 0, len(lines))
 	for _, line := range lines {
-		parts := strings.SplitN(line, dockerFieldSep, 5)
-		if len(parts) != 5 {
+		parts := strings.SplitN(line, dockerFieldSep, 4)
+		if len(parts) != 4 {
 			return nil, fmt.Errorf("unexpected docker image row: %q", line)
 		}
-		containerCount, inUse := parseDockerImageContainersAndInUse(parts[4])
 		images = append(images, wshrpc.DockerImageSummary{
 			Id:         strings.TrimSpace(parts[0]),
 			Repository: strings.TrimSpace(parts[1]),
 			Tag:        strings.TrimSpace(parts[2]),
 			SizeText:   strings.TrimSpace(parts[3]),
-			InUse:      inUse,
-			Containers: containerCount,
 		})
 	}
 	return images, nil
@@ -228,18 +255,6 @@ func splitNonEmptyLines(output string) []string {
 
 func normalizeDockerContainerState(raw string) string {
 	return strings.ToLower(strings.TrimSpace(raw))
-}
-
-func parseDockerImageContainersAndInUse(raw string) (int, bool) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" || strings.EqualFold(trimmed, "n/a") {
-		return 0, false
-	}
-	count, err := strconv.Atoi(trimmed)
-	if err != nil {
-		return 0, true
-	}
-	return count, count > 0
 }
 
 func makeDockerError(err error, stdout string, stderr string) *wshrpc.DockerError {

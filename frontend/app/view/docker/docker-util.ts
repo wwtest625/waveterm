@@ -17,6 +17,14 @@ export function buildDockerPullCommand(imageRef: string): string {
     return `docker pull ${shellQuote([imageRef])}`;
 }
 
+const dockerIdShortLength = 12;
+
+export function shortenDockerId(id: string): string {
+    if (!id) return id;
+    const trimmed = id.replace(/^sha256:/, "");
+    return trimmed.length > dockerIdShortLength ? trimmed.slice(0, dockerIdShortLength) : trimmed;
+}
+
 export function buildDockerSaveCommand(imageRef: string): string {
     const safeName = imageRef.replace(/[^a-zA-Z0-9._-]/g, "_");
     return `docker save ${shellQuote([imageRef])} -o ${shellQuote([safeName + ".tar"])}`;

@@ -1179,6 +1179,11 @@ function DirectoryTree({
             onContextMenu={(_id, node, event) => {
                 showNodeContextMenu(treeNodeToFileInfo(node), event);
             }}
+            onDelete={(_id, node) => {
+                const finfo = treeNodeToFileInfo(node);
+                if (finfo.path === rootPath) return;
+                handleFileDelete(model, finfo.path, false, setErrorMsg);
+            }}
         />
     );
 }
@@ -1375,6 +1380,12 @@ function DirectoryPreview({ model }: DirectoryPreviewProps) {
                 handleFileActivation(selectedFileInfo, model, connImmediate, setErrorMsg);
                 setSearchText("");
                 globalStore.set(model.directorySearchActive, false);
+                return true;
+            }
+            if (checkKeyPressed(waveEvent, "Delete")) {
+                if (selectedFileInfo != null && selectedFileInfo.path !== rootPath) {
+                    handleFileDelete(model, selectedFileInfo.path, false, setErrorMsg);
+                }
                 return true;
             }
             if (checkKeyPressed(waveEvent, "Backspace")) {

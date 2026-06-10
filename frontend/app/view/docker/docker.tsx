@@ -27,6 +27,7 @@ import {
     isDockerContainerStarred,
     loadDockerStarredContainerIds,
     saveDockerStarredContainerIds,
+    shortenDockerId,
     sortDockerContainersForDisplay,
     toggleDockerStarredContainerId,
 } from "./docker-util";
@@ -613,8 +614,25 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                                             {stateLabel}
                                                         </span>
                                                     </div>
-                                                    <div className="mt-1 truncate text-sm text-zinc-400">
-                                                        {container.image}
+                                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                                                        <button
+                                                            type="button"
+                                                            className="cursor-pointer rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-1 font-mono text-zinc-300 transition-colors hover:border-accent hover:text-accent"
+                                                            onClick={() => {
+                                                                setActiveTab("images");
+                                                                setImagesSearch(shortenDockerId(container.imageId));
+                                                            }}
+                                                            title="点击查看镜像"
+                                                        >
+                                                            镜像: {shortenDockerId(container.imageId)}
+                                                        </button>
+                                                        <CopyButton
+                                                            className="copy-button"
+                                                            onClick={() => {
+                                                                void navigator.clipboard.writeText(shortenDockerId(container.imageId));
+                                                            }}
+                                                            title="复制镜像ID"
+                                                        />
                                                     </div>
                                                     <DockerIdRow label="容器 ID" value={container.id} />
                                                 </div>
@@ -688,7 +706,9 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                     const imageRef =
                                         image.tag && image.tag !== "<none>"
                                             ? `${image.repository}:${image.tag}`
-                                            : image.repository;
+                                            : image.repository !== "<none>"
+                                              ? image.repository
+                                              : image.id;
                                     const isBusy = `remove-image:${image.id}` in pendingActions;
                                     return (
                                         <div
@@ -724,7 +744,6 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                                     <RowActionButton
                                                         label="导出"
                                                         onClick={() => void saveImage(imageRef)}
-                                                        disabled={!image.repository || image.repository === "<none>"}
                                                     />
                                                     <RowActionButton
                                                         label="删除"
