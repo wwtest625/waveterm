@@ -10,8 +10,6 @@ export type ConnectionFormState = {
     hostname: string;
     port: string;
     password: string;
-    passwordSecretName: string;
-    hasStoredPassword: boolean;
     passwordAuth: boolean;
     pubkeyAuth: boolean;
     keyboardInteractiveAuth: boolean;
@@ -78,19 +76,9 @@ export function buildConnectionHost(user: string, hostname: string): string {
     return `${normalizedUser}@${trimmedHostname}`;
 }
 
-export function buildPasswordSecretName(host: string): string {
-    const sanitized = host
-        .trim()
-        .replace(/[^A-Za-z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "")
-        .toUpperCase();
-    return `SSH_PASSWORD_${sanitized || "CONNECTION"}`;
-}
-
 export function makeConnectionFormFromConfig(host: string, meta: ConnKeywords | undefined): ConnectionFormState {
     const metaAny = (meta ?? {}) as Record<string, any>;
     const parsedHost = parseConnectionHost(host ?? "");
-    const passwordSecretName = meta?.["ssh:passwordsecretname"] ?? "";
     return {
         host: host ?? "",
         displayName: meta?.["display:name"] ?? "",
@@ -99,9 +87,7 @@ export function makeConnectionFormFromConfig(host: string, meta: ConnKeywords | 
         user: meta?.["ssh:user"] ?? parsedHost.user,
         hostname: meta?.["ssh:hostname"] ?? parsedHost.hostname,
         port: meta?.["ssh:port"] ?? "22",
-        password: "",
-        passwordSecretName: passwordSecretName,
-        hasStoredPassword: passwordSecretName !== "",
+        password: (metaAny["ssh:password"] as string) ?? "",
         passwordAuth: meta?.["ssh:passwordauthentication"] ?? false,
         pubkeyAuth: meta?.["ssh:pubkeyauthentication"] ?? true,
         keyboardInteractiveAuth: meta?.["ssh:kbdinteractiveauthentication"] ?? false,
@@ -117,7 +103,7 @@ export function buildConnMetaFromForm(form: ConnectionFormState): {[key: string]
     const user = normalizeConnectionUser(form.user);
     const hostname = trim(form.hostname);
     const port = trim(form.port);
-    const passwordSecretName = trim(form.passwordSecretName);
+    const password = form.password;
 
     if (displayName !== "") meta["display:name"] = displayName;
     if (group !== "") meta["display:group"] = group;
@@ -125,7 +111,7 @@ export function buildConnMetaFromForm(form: ConnectionFormState): {[key: string]
     if (user !== "") meta["ssh:user"] = user;
     if (hostname !== "") meta["ssh:hostname"] = hostname;
     if (port !== "") meta["ssh:port"] = port;
-    if (passwordSecretName !== "") meta["ssh:passwordsecretname"] = passwordSecretName;
+    if (password !== "") meta["ssh:password"] = password;
     meta["ssh:passwordauthentication"] = !!form.passwordAuth;
     meta["ssh:pubkeyauthentication"] = !!form.pubkeyAuth;
     meta["ssh:kbdinteractiveauthentication"] = !!form.keyboardInteractiveAuth;

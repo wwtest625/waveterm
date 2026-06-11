@@ -32,7 +32,7 @@ import { QuickCommandEditModal, QuickCommandFormValue } from "./quickcommands-mo
 import type { QuickCommandsViewModel } from "./quickcommands-model";
 import type { TermViewModel } from "../term/term-model";
 
-const rowButtonClass = "rounded border border-border px-2 py-1 text-xs text-secondary hover:text-primary hover:bg-hoverbg";
+import "./quickcommands.scss";
 
 type QuickCommandDropTarget =
     | {
@@ -44,6 +44,11 @@ type QuickCommandDropTarget =
           type: "into-group";
           groupId: string;
       };
+
+type SelectedItem =
+    | { type: "command"; item: QuickCommand }
+    | { type: "group"; item: QuickCommandItem & { type: "group" } }
+    | null;
 
 function getTargetTerminalModel(requireQuickInput: boolean = false): TermViewModel | null {
     const layoutModel = getLayoutModelForStaticTab();
@@ -91,18 +96,46 @@ function countCommands(items: QuickCommandItem[]): number {
     return items.reduce((total, item) => total + (item.type === "command" ? 1 : countCommands(item.items)), 0);
 }
 
-function QuickCommandTree({
+function countGroups(items: QuickCommandItem[]): number {
+    return items.reduce((total, item) => total + (item.type === "group" ? 1 + countGroups(item.items) : 0), 0);
+}
+
+function findItemById(items: QuickCommandItem[], id: string): QuickCommandItem | null {
+    for (const item of items) {
+        if (item.id === id) return item;
+        if (item.type === "group") {
+            const found = findItemById(item.items, id);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+function flattenCommands(items: QuickCommandItem[]): QuickCommand[] {
+    const result: QuickCommand[] = [];
+    for (const item of items) {
+        if (item.type === "command") {
+            result.push(item);
+        } else {
+            result.push(...flattenCommands(item.items));
+        }
+    }
+    return result;
+}
+
+// --- Sidebar Tree ---
+
+function SidebarTree({
     items,
     depth,
     parentGroupId,
     expandedIds,
+    selectedId,
     dragEnabled,
     draggedItemId,
     dropTarget,
     onToggleGroup,
-    onRunCommand,
-    onPasteCommand,
-    onCopyCommand,
+    onSelectItem,
     onOpenMenu,
     onDragStart,
     onDragOverItem,
@@ -113,13 +146,12 @@ function QuickCommandTree({
     depth: number;
     parentGroupId: string | null;
     expandedIds: Set<string>;
+    selectedId: string | null;
     dragEnabled: boolean;
     draggedItemId: string | null;
     dropTarget: QuickCommandDropTarget | null;
     onToggleGroup: (groupId: string) => void;
-    onRunCommand: (item: QuickCommand) => void;
-    onPasteCommand: (item: QuickCommand) => void;
-    onCopyCommand: (item: QuickCommand) => void;
+    onSelectItem: (item: QuickCommandItem) => void;
     onOpenMenu: (item: QuickCommandItem, event: MouseEvent<HTMLElement>) => void;
     onDragStart: (itemId: string, parentGroupId: string | null, event: DragEvent<HTMLElement>) => void;
     onDragOverItem: (item: QuickCommandItem, parentGroupId: string | null, index: number, event: DragEvent<HTMLElement>) => void;
@@ -127,22 +159,25 @@ function QuickCommandTree({
     onDragEnd: () => void;
 }) {
     return items.map((item, index) => {
-        const paddingLeft = 14 + depth * 18;
+        const isLast = index === items.length - 1;
+        const isSelected = selectedId === item.id;
         const showDropBefore = dropTarget?.type === "reorder" && dropTarget.parentGroupId === parentGroupId && dropTarget.index === index;
         const showDropAfter = dropTarget?.type === "reorder" && dropTarget.parentGroupId === parentGroupId && dropTarget.index === index + 1;
         const isDragging = draggedItemId === item.id;
         const isDropIntoGroup = item.type === "group" && dropTarget?.type === "into-group" && dropTarget.groupId === item.id;
+
         if (item.type === "group") {
             const expanded = expandedIds.has(item.id);
             return (
-                <div key={item.id}>
+                <div key={item.id} className="qc-tree-node">
                     <div
                         className={clsx(
-                            "relative flex items-center gap-2 border-b border-white/5 py-2 pr-3 hover:bg-white/5",
+                            "qc-sidebar-item qc-sidebar-item--group group",
+                            isSelected && "qc-sidebar-item--selected",
                             isDragging && "opacity-40",
                             isDropIntoGroup && "bg-accent/10"
                         )}
-                        style={{ paddingLeft }}
+                        onClick={() => onSelectItem(item)}
                         onContextMenu={(e) => onOpenMenu(item, e)}
                         onDragOver={(e) => onDragOverItem(item, parentGroupId, index, e)}
                         onDrop={onDrop}
@@ -152,95 +187,331 @@ function QuickCommandTree({
                         <button
                             type="button"
                             draggable={dragEnabled}
-                            className={clsx("text-secondary hover:text-primary", dragEnabled ? "cursor-grab" : "cursor-default opacity-40")}
+                            className={clsx("qc-sidebar-drag", dragEnabled ? "cursor-grab" : "cursor-default opacity-0")}
                             title={dragEnabled ? "拖拽排序 / 拖入分组" : "搜索时暂不支持拖拽"}
                             onDragStart={(e) => onDragStart(item.id, parentGroupId, e)}
                             onDragEnd={onDragEnd}
                         >
-                            <i className="fa-solid fa-grip-vertical text-xs"></i>
-                        </button>
-                        <button type="button" className="text-secondary hover:text-primary" onClick={() => onToggleGroup(item.id)}>
-                            <i className={clsx("fa-solid text-xs", expanded ? "fa-chevron-down" : "fa-chevron-right")}></i>
+                            <i className="fa-solid fa-grip-vertical text-[10px]"></i>
                         </button>
                         <button
                             type="button"
-                            className="min-w-0 flex-1 text-left text-sm font-medium text-primary"
-                            onClick={() => onToggleGroup(item.id)}
+                            className="qc-sidebar-chevron"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleGroup(item.id);
+                            }}
                         >
-                            <span className="flex min-w-0 items-center gap-2">
-                                <i className="fa-sharp fa-solid fa-folder-open text-xs text-secondary/90"></i>
-                                <span className="truncate">{item.name}</span>
-                                <span className="shrink-0 text-xs text-secondary">{item.items.length}</span>
-                            </span>
+                            <i className={clsx("fa-solid text-[10px]", expanded ? "fa-chevron-down" : "fa-chevron-right")}></i>
                         </button>
-                        <button type="button" className={rowButtonClass} onClick={(e) => onOpenMenu(item, e)}>
-                            更多
-                        </button>
+                        <i className="fa-solid fa-folder text-xs text-accent/70"></i>
+                        <span className="min-w-0 flex-1 truncate text-sm">{item.name}</span>
+                        <span className="qc-sidebar-count">{item.items.length}</span>
                         {showDropAfter ? <div className="pointer-events-none absolute inset-x-0 bottom-0 border-b-2 border-accent/80" /> : null}
                     </div>
                     {expanded ? (
-                        <QuickCommandTree
-                            items={item.items}
-                            depth={depth + 1}
-                            parentGroupId={item.id}
-                            expandedIds={expandedIds}
-                            dragEnabled={dragEnabled}
-                            draggedItemId={draggedItemId}
-                            dropTarget={dropTarget}
-                            onToggleGroup={onToggleGroup}
-                            onRunCommand={onRunCommand}
-                            onPasteCommand={onPasteCommand}
-                            onCopyCommand={onCopyCommand}
-                            onOpenMenu={onOpenMenu}
-                            onDragStart={onDragStart}
-                            onDragOverItem={onDragOverItem}
-                            onDrop={onDrop}
-                            onDragEnd={onDragEnd}
-                        />
+                        <div className="qc-tree-children">
+                            <SidebarTree
+                                items={item.items}
+                                depth={depth + 1}
+                                parentGroupId={item.id}
+                                expandedIds={expandedIds}
+                                selectedId={selectedId}
+                                dragEnabled={dragEnabled}
+                                draggedItemId={draggedItemId}
+                                dropTarget={dropTarget}
+                                onToggleGroup={onToggleGroup}
+                                onSelectItem={onSelectItem}
+                                onOpenMenu={onOpenMenu}
+                                onDragStart={onDragStart}
+                                onDragOverItem={onDragOverItem}
+                                onDrop={onDrop}
+                                onDragEnd={onDragEnd}
+                            />
+                        </div>
                     ) : null}
                 </div>
             );
         }
+
         return (
             <div
                 key={item.id}
-                className={clsx("relative flex items-center gap-2 border-b border-white/5 py-2 pr-3 hover:bg-white/5", isDragging && "opacity-40")}
-                style={{ paddingLeft }}
+                className={clsx(
+                    "qc-sidebar-item qc-sidebar-item--command group",
+                    isSelected && "qc-sidebar-item--selected",
+                    isDragging && "opacity-40"
+                )}
+                onClick={() => onSelectItem(item)}
                 onContextMenu={(e) => onOpenMenu(item, e)}
                 onDragOver={(e) => onDragOverItem(item, parentGroupId, index, e)}
                 onDrop={onDrop}
             >
                 {showDropBefore ? <div className="pointer-events-none absolute inset-x-0 top-0 border-t-2 border-accent/80" /> : null}
-                <div
+                <button
+                    type="button"
                     draggable={dragEnabled}
-                    className={clsx("flex-1 min-w-0", dragEnabled ? "cursor-grab" : "cursor-default")}
+                    className={clsx("qc-sidebar-drag", dragEnabled ? "cursor-grab" : "cursor-default opacity-0")}
                     title={dragEnabled ? "拖拽排序 / 拖入分组" : "搜索时暂不支持拖拽"}
                     onDragStart={(e) => onDragStart(item.id, parentGroupId, e)}
                     onDragEnd={onDragEnd}
                 >
-                    <div className="flex items-center gap-2 truncate text-sm text-primary">
-                        <i className="fa-sharp fa-solid fa-terminal text-xs text-secondary/90"></i>
-                        <span className="truncate">{item.name}</span>
-                    </div>
-                    {item.description ? <div className="truncate text-xs text-secondary/80">{item.description}</div> : null}
-                </div>
-                <button type="button" className={rowButtonClass} onClick={() => onRunCommand(item)}>
-                    执行
+                    <i className="fa-solid fa-grip-vertical text-[10px]"></i>
                 </button>
-                <button type="button" className={rowButtonClass} onClick={() => onPasteCommand(item)}>
-                    粘贴
-                </button>
-                <button type="button" className={rowButtonClass} onClick={() => onCopyCommand(item)}>
-                    复制
-                </button>
-                <button type="button" className={rowButtonClass} onClick={(e) => onOpenMenu(item, e)}>
-                    更多
-                </button>
+                <span className="qc-sidebar-chevron-placeholder"></span>
+                <i className="fa-solid fa-bolt text-[10px] text-accent/70"></i>
+                <span className="min-w-0 flex-1 truncate text-sm">{item.name}</span>
                 {showDropAfter ? <div className="pointer-events-none absolute inset-x-0 bottom-0 border-b-2 border-accent/80" /> : null}
             </div>
         );
     });
 }
+
+// --- Detail Panel: Overview ---
+
+function DetailOverview({
+    config,
+    onOpenEditor,
+}: {
+    config: QuickCommandsConfig;
+    onOpenEditor: (opts: { itemType: "group" | "command"; title: string; parentGroupId?: string | null }) => void;
+}) {
+    const totalCommands = countCommands(config.items);
+    const totalGroups = countGroups(config.items);
+    const allCommands = flattenCommands(config.items);
+    const recentCommands = allCommands.slice(-5).reverse();
+
+    return (
+        <div className="qc-detail-overview">
+            <div className="qc-detail-title">快捷命令概览</div>
+            <div className="qc-detail-subtitle">选择左侧命令查看详情，或创建新命令</div>
+
+            <div className="qc-detail-stats">
+                <div className="qc-detail-stat-card">
+                    <div className="qc-detail-stat-value">{totalCommands}</div>
+                    <div className="qc-detail-stat-label">命令</div>
+                </div>
+                <div className="qc-detail-stat-card">
+                    <div className="qc-detail-stat-value">{totalGroups}</div>
+                    <div className="qc-detail-stat-label">分组</div>
+                </div>
+            </div>
+
+            <div className="qc-detail-actions-row">
+                <Button className="!h-[32px] !px-4 !text-xs" onClick={() => onOpenEditor({ itemType: "command", title: "新建命令", parentGroupId: null })}>
+                    <i className="fa-solid fa-plus mr-1.5"></i>新建命令
+                </Button>
+                <Button className="grey outlined !h-[32px] !px-4 !text-xs" onClick={() => onOpenEditor({ itemType: "group", title: "新建分组", parentGroupId: null })}>
+                    <i className="fa-solid fa-folder-plus mr-1.5"></i>新建分组
+                </Button>
+            </div>
+
+            {recentCommands.length > 0 && (
+                <div className="qc-detail-recent">
+                    <div className="qc-detail-section-title">最近添加</div>
+                    {recentCommands.map((cmd) => (
+                        <div key={cmd.id} className="qc-detail-recent-item">
+                            <i className="fa-solid fa-bolt text-[10px] text-accent/60"></i>
+                            <span className="truncate text-sm">{cmd.name}</span>
+                            {cmd.description && <span className="ml-auto truncate text-xs text-secondary/60">{cmd.description}</span>}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// --- Detail Panel: Command Detail ---
+
+function DetailCommand({
+    item,
+    onRunCommand,
+    onPasteCommand,
+    onPasteQuickInput,
+    onCopyCommand,
+    onEdit,
+    onDelete,
+}: {
+    item: QuickCommand;
+    onRunCommand: (item: QuickCommand) => void;
+    onPasteCommand: (item: QuickCommand) => void;
+    onPasteQuickInput: (item: QuickCommand) => void;
+    onCopyCommand: (item: QuickCommand) => void;
+    onEdit: (item: QuickCommand) => void;
+    onDelete: (item: QuickCommand) => void;
+}) {
+    return (
+        <div className="qc-detail-content">
+            <div className="qc-detail-header">
+                <div className="qc-detail-header-icon">
+                    <i className="fa-solid fa-bolt"></i>
+                </div>
+                <div className="qc-detail-header-info">
+                    <div className="qc-detail-title">{item.name}</div>
+                    {item.description && <div className="qc-detail-subtitle">{item.description}</div>}
+                </div>
+            </div>
+
+            <div className="qc-detail-section">
+                <div className="qc-detail-section-title">命令内容</div>
+                <div className="qc-detail-code-block">
+                    <code>{item.command}</code>
+                    <button
+                        type="button"
+                        className="qc-detail-code-copy"
+                        onClick={() => onCopyCommand(item)}
+                        title="复制命令"
+                    >
+                        <i className="fa-regular fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div className="qc-detail-section">
+                <div className="qc-detail-section-title">操作</div>
+                <div className="qc-detail-action-grid">
+                    <button type="button" className="qc-detail-action-btn qc-detail-action-btn--primary" onClick={() => onRunCommand(item)}>
+                        <i className="fa-solid fa-play"></i>
+                        <span>执行</span>
+                    </button>
+                    <button type="button" className="qc-detail-action-btn" onClick={() => onPasteCommand(item)}>
+                        <i className="fa-solid fa-paste"></i>
+                        <span>粘贴到终端</span>
+                    </button>
+                    <button type="button" className="qc-detail-action-btn" onClick={() => onPasteQuickInput(item)}>
+                        <i className="fa-solid fa-keyboard"></i>
+                        <span>快捷输入框</span>
+                    </button>
+                    <button type="button" className="qc-detail-action-btn" onClick={() => onCopyCommand(item)}>
+                        <i className="fa-regular fa-copy"></i>
+                        <span>复制</span>
+                    </button>
+                    <button type="button" className="qc-detail-action-btn" onClick={() => onEdit(item)}>
+                        <i className="fa-solid fa-pen"></i>
+                        <span>编辑</span>
+                    </button>
+                    <button type="button" className="qc-detail-action-btn qc-detail-action-btn--danger" onClick={() => onDelete(item)}>
+                        <i className="fa-solid fa-trash"></i>
+                        <span>删除</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// --- Detail Panel: Group Detail ---
+
+function DetailGroup({
+    item,
+    expandedIds,
+    onToggleGroup,
+    onSelectItem,
+    onRunCommand,
+    onPasteCommand,
+    onCopyCommand,
+    onOpenMenu,
+    onEdit,
+    onDelete,
+    onAddCommand,
+}: {
+    item: QuickCommandItem & { type: "group" };
+    expandedIds: Set<string>;
+    onToggleGroup: (groupId: string) => void;
+    onSelectItem: (item: QuickCommandItem) => void;
+    onRunCommand: (item: QuickCommand) => void;
+    onPasteCommand: (item: QuickCommand) => void;
+    onCopyCommand: (item: QuickCommand) => void;
+    onOpenMenu: (item: QuickCommandItem, event: MouseEvent<HTMLElement>) => void;
+    onEdit: (item: QuickCommandItem) => void;
+    onDelete: (item: QuickCommandItem) => void;
+    onAddCommand: (groupId: string) => void;
+}) {
+    const commandCount = countCommands(item.items);
+    return (
+        <div className="qc-detail-content">
+            <div className="qc-detail-header">
+                <div className="qc-detail-header-icon qc-detail-header-icon--group">
+                    <i className="fa-solid fa-folder-open"></i>
+                </div>
+                <div className="qc-detail-header-info">
+                    <div className="qc-detail-title">{item.name}</div>
+                    <div className="qc-detail-subtitle">{commandCount} 条命令</div>
+                </div>
+            </div>
+
+            <div className="qc-detail-section">
+                <div className="qc-detail-section-row">
+                    <div className="qc-detail-section-title">子项</div>
+                    <Button className="ghost grey !h-[26px] !px-2 !text-[11px]" onClick={() => onAddCommand(item.id)}>
+                        <i className="fa-solid fa-plus mr-1"></i>添加命令
+                    </Button>
+                </div>
+                {item.items.length === 0 ? (
+                    <div className="qc-detail-empty">此分组暂无命令</div>
+                ) : (
+                    <div className="qc-detail-group-list">
+                        {item.items.map((child) => {
+                            if (child.type === "group") {
+                                return (
+                                    <div
+                                        key={child.id}
+                                        className="qc-detail-group-item"
+                                        onClick={() => onSelectItem(child)}
+                                        onContextMenu={(e) => onOpenMenu(child, e)}
+                                    >
+                                        <i className="fa-solid fa-folder text-xs text-accent/60"></i>
+                                        <span className="flex-1 truncate text-sm">{child.name}</span>
+                                        <span className="text-xs text-secondary/60">{child.items.length}</span>
+                                    </div>
+                                );
+                            }
+                            return (
+                                <div
+                                    key={child.id}
+                                    className="qc-detail-group-item"
+                                    onClick={() => onSelectItem(child)}
+                                    onContextMenu={(e) => onOpenMenu(child, e)}
+                                >
+                                    <i className="fa-solid fa-bolt text-[10px] text-accent/60"></i>
+                                    <span className="flex-1 truncate text-sm">{child.name}</span>
+                                    <div className="qc-detail-group-item-actions">
+                                        <button type="button" className="qc-detail-mini-btn" onClick={(e) => { e.stopPropagation(); onRunCommand(child); }} title="执行">
+                                            <i className="fa-solid fa-play text-[9px]"></i>
+                                        </button>
+                                        <button type="button" className="qc-detail-mini-btn" onClick={(e) => { e.stopPropagation(); onPasteCommand(child); }} title="粘贴">
+                                            <i className="fa-solid fa-paste text-[9px]"></i>
+                                        </button>
+                                        <button type="button" className="qc-detail-mini-btn" onClick={(e) => { e.stopPropagation(); onCopyCommand(child); }} title="复制">
+                                            <i className="fa-regular fa-copy text-[9px]"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            <div className="qc-detail-section">
+                <div className="qc-detail-section-title">分组操作</div>
+                <div className="qc-detail-action-grid">
+                    <button type="button" className="qc-detail-action-btn" onClick={() => onEdit(item)}>
+                        <i className="fa-solid fa-pen"></i>
+                        <span>编辑分组</span>
+                    </button>
+                    <button type="button" className="qc-detail-action-btn qc-detail-action-btn--danger" onClick={() => onDelete(item)}>
+                        <i className="fa-solid fa-trash"></i>
+                        <span>删除分组</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// --- Main View ---
 
 function QuickCommandsView({ model }: ViewComponentProps<QuickCommandsViewModel>) {
     const configPath = useMemo(() => `${getApi().getConfigDir()}/${QUICK_COMMANDS_CONFIG_FILE}`, []);
@@ -254,6 +525,8 @@ function QuickCommandsView({ model }: ViewComponentProps<QuickCommandsViewModel>
     const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
     const [draggedParentGroupId, setDraggedParentGroupId] = useState<string | null>(null);
     const [dropTarget, setDropTarget] = useState<QuickCommandDropTarget | null>(null);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [newMenuOpen, setNewMenuOpen] = useState(false);
 
     useEffect(() => {
         if (statusMessage == null) {
@@ -422,6 +695,7 @@ function QuickCommandsView({ model }: ViewComponentProps<QuickCommandsViewModel>
                     if (options.parentGroupId) {
                         setExpandedIds((prev) => new Set(prev).add(options.parentGroupId));
                     }
+                    setSelectedId(newItem.id);
                     return persistConfig({ version: 1, items: result.items }, "创建成功");
                 },
             });
@@ -431,7 +705,7 @@ function QuickCommandsView({ model }: ViewComponentProps<QuickCommandsViewModel>
 
     const deleteItem = useCallback(
         async (item: QuickCommandItem) => {
-            const ok = window.confirm(item.type === "group" ? `删除分组“${item.name}”及其子项？` : `删除命令“${item.name}”？`);
+            const ok = window.confirm(item.type === "group" ? `删除分组"${item.name}"及其子项？` : `删除命令"${item.name}"？`);
             if (!ok) {
                 return;
             }
@@ -440,9 +714,12 @@ function QuickCommandsView({ model }: ViewComponentProps<QuickCommandsViewModel>
                 setErrorMessage("未找到要删除的快捷命令项。");
                 return;
             }
+            if (selectedId === item.id) {
+                setSelectedId(null);
+            }
             await persistConfig({ version: 1, items: result.items }, "删除成功");
         },
-        [config.items, persistConfig]
+        [config.items, persistConfig, selectedId]
     );
 
     const clearDragState = useCallback(() => {
@@ -545,6 +822,18 @@ function QuickCommandsView({ model }: ViewComponentProps<QuickCommandsViewModel>
     const visibleExpandedIds = searchQuery.trim() === "" ? expandedIds : new Set(collectQuickCommandGroupIds(visibleItems));
     const visibleCommandCount = useMemo(() => countCommands(visibleItems), [visibleItems]);
 
+    const selectedItem: SelectedItem = useMemo(() => {
+        if (!selectedId) return null;
+        const found = findItemById(visibleItems, selectedId);
+        if (!found) return null;
+        if (found.type === "command") return { type: "command", item: found };
+        return { type: "group", item: found };
+    }, [selectedId, visibleItems]);
+
+    const selectItem = useCallback((item: QuickCommandItem) => {
+        setSelectedId(item.id);
+    }, []);
+
     const openItemMenu = useCallback(
         (item: QuickCommandItem, event: MouseEvent<HTMLElement>) => {
             const menu: ContextMenuItem[] = [];
@@ -574,75 +863,139 @@ function QuickCommandsView({ model }: ViewComponentProps<QuickCommandsViewModel>
     );
 
     return (
-        <div className="flex h-full w-full min-w-0 flex-col bg-black/10 text-primary">
-            <div className="flex w-full flex-wrap items-start justify-between gap-3 border-b border-white/8 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold">快捷命令</div>
-                    <div className="text-xs text-secondary">当前版本支持分组、执行、粘贴到终端、粘贴到快捷输入框、复制、CRUD、排序，以及拖拽放入分组。</div>
+        <div className="qc-layout">
+            {/* Sidebar */}
+            <div className="qc-sidebar">
+                <div className="qc-sidebar-header">
+                    <div className="qc-sidebar-title">
+                        <i className="fa-solid fa-bolt text-accent"></i>
+                        <span>快捷命令</span>
+                    </div>
+                    <div className="qc-sidebar-new-btn">
+                        <button
+                            type="button"
+                            className="qc-new-dropdown-trigger"
+                            onClick={() => setNewMenuOpen((v) => !v)}
+                        >
+                            <i className="fa-solid fa-plus"></i>
+                        </button>
+                        {newMenuOpen && (
+                            <div className="qc-new-dropdown">
+                                <button
+                                    type="button"
+                                    className="qc-new-dropdown-item"
+                                    onClick={() => {
+                                        setNewMenuOpen(false);
+                                        openEditor({ itemType: "command", title: "新建命令", parentGroupId: null });
+                                    }}
+                                >
+                                    <i className="fa-solid fa-bolt mr-2 text-xs"></i>新建命令
+                                </button>
+                                <button
+                                    type="button"
+                                    className="qc-new-dropdown-item"
+                                    onClick={() => {
+                                        setNewMenuOpen(false);
+                                        openEditor({ itemType: "group", title: "新建分组", parentGroupId: null });
+                                    }}
+                                >
+                                    <i className="fa-solid fa-folder-plus mr-2 text-xs"></i>新建分组
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
+
+                <div className="qc-sidebar-search">
                     <Input
                         value={searchQuery}
                         onChange={setSearchQuery}
-                        placeholder="搜索名称、描述、命令内容"
-                        className="!h-[30px] w-[220px] max-w-full"
+                        placeholder="搜索命令..."
+                        className="!h-[28px] !text-xs"
                     />
-                    <Button className="!h-[30px] !px-3 !text-xs" onClick={() => openEditor({ itemType: "command", title: "新建命令", parentGroupId: null })}>
-                        新建命令
-                    </Button>
-                    <Button className="secondary !h-[30px] !px-3 !text-xs" onClick={() => openEditor({ itemType: "group", title: "新建分组", parentGroupId: null })}>
-                        新建分组
-                    </Button>
-                    <Button className="grey ghost !h-[30px] !px-3 !text-xs" onClick={() => loadConfig()} disabled={loading || saving}>
-                        刷新
-                    </Button>
+                </div>
+
+                <div className="qc-sidebar-list">
+                    {loading ? (
+                        <div className="qc-sidebar-loading">加载中...</div>
+                    ) : config.items.length === 0 ? (
+                        <div className="qc-sidebar-empty">
+                            <i className="fa-solid fa-inbox text-2xl text-secondary/30"></i>
+                            <div className="text-xs text-secondary/60 mt-2">暂无命令</div>
+                        </div>
+                    ) : visibleItems.length === 0 ? (
+                        <div className="qc-sidebar-empty">
+                            <i className="fa-solid fa-search text-2xl text-secondary/30"></i>
+                            <div className="text-xs text-secondary/60 mt-2">无匹配结果</div>
+                        </div>
+                    ) : (
+                        <SidebarTree
+                            items={visibleItems}
+                            depth={0}
+                            parentGroupId={null}
+                            expandedIds={visibleExpandedIds}
+                            selectedId={selectedId}
+                            dragEnabled={dragEnabled}
+                            draggedItemId={draggedItemId}
+                            dropTarget={dropTarget}
+                            onToggleGroup={toggleGroup}
+                            onSelectItem={selectItem}
+                            onOpenMenu={openItemMenu}
+                            onDragStart={handleDragStart}
+                            onDragOverItem={handleDragOverItem}
+                            onDrop={(event) => void handleDrop(event)}
+                            onDragEnd={clearDragState}
+                        />
+                    )}
+                </div>
+
+                <div className="qc-sidebar-footer">
+                    <button type="button" className="qc-sidebar-footer-btn" onClick={() => loadConfig()} disabled={loading || saving} title="刷新">
+                        <i className="fa-solid fa-arrows-rotate text-xs"></i>
+                    </button>
+                    <span className="text-[10px] text-secondary/50">{visibleCommandCount} 条命令</span>
+                    {saving && <span className="text-[10px] text-accent">保存中...</span>}
                 </div>
             </div>
 
-            {errorMessage ? <div className="mx-4 mt-3 rounded bg-red-500/10 px-3 py-2 text-sm text-red-300">{errorMessage}</div> : null}
-            {statusMessage ? <div className="mx-4 mt-3 rounded bg-green-500/10 px-3 py-2 text-sm text-green-300">{statusMessage}</div> : null}
+            {/* Detail Panel */}
+            <div className="qc-detail">
+                {errorMessage ? <div className="qc-toast qc-toast--error">{errorMessage}</div> : null}
+                {statusMessage ? <div className="qc-toast qc-toast--success">{statusMessage}</div> : null}
 
-            <div className="flex-1 w-full min-w-0 overflow-auto px-0 py-2">
-                {loading ? (
-                    <div className="px-4 py-6 text-sm text-secondary">正在加载快捷命令…</div>
-                ) : config.items.length === 0 ? (
-                    <div className="mx-4 mt-4 rounded border border-dashed border-border bg-panel px-4 py-6">
-                        <div className="text-sm font-medium text-primary">还没有快捷命令</div>
-                        <div className="mt-1 text-sm text-secondary">你可以先创建分组，再往分组里添加命令；也可以直接创建根级命令。</div>
-                    </div>
-                ) : visibleItems.length === 0 ? (
-                    <div className="mx-4 mt-4 rounded border border-dashed border-border bg-panel px-4 py-6">
-                        <div className="text-sm font-medium text-primary">没有匹配结果</div>
-                        <div className="mt-1 text-sm text-secondary">试试搜索命令名称、描述或具体命令内容。</div>
-                    </div>
+                {!selectedItem ? (
+                    <DetailOverview config={config} onOpenEditor={openEditor} />
+                ) : selectedItem.type === "command" ? (
+                    <DetailCommand
+                        item={selectedItem.item}
+                        onRunCommand={(item) => void pushCommandToTerminal(item, true)}
+                        onPasteCommand={(item) => void pushCommandToTerminal(item, false)}
+                        onPasteQuickInput={(item) => void pasteCommandToQuickInput(item)}
+                        onCopyCommand={(item) => void copyCommand(item)}
+                        onEdit={(item) => openEditor({ itemType: "command", title: `编辑命令 · ${item.name}`, item })}
+                        onDelete={(item) => void deleteItem(item)}
+                    />
                 ) : (
-                    <QuickCommandTree
-                        items={visibleItems}
-                        depth={0}
-                        parentGroupId={null}
-                        expandedIds={visibleExpandedIds}
-                        dragEnabled={dragEnabled}
-                        draggedItemId={draggedItemId}
-                        dropTarget={dropTarget}
+                    <DetailGroup
+                        item={selectedItem.item}
+                        expandedIds={expandedIds}
                         onToggleGroup={toggleGroup}
+                        onSelectItem={selectItem}
                         onRunCommand={(item) => void pushCommandToTerminal(item, true)}
                         onPasteCommand={(item) => void pushCommandToTerminal(item, false)}
                         onCopyCommand={(item) => void copyCommand(item)}
                         onOpenMenu={openItemMenu}
-                        onDragStart={handleDragStart}
-                        onDragOverItem={handleDragOverItem}
-                        onDrop={(event) => void handleDrop(event)}
-                        onDragEnd={clearDragState}
+                        onEdit={(item) => openEditor({ itemType: item.type, title: `编辑${item.type === "group" ? "分组" : "命令"} · ${item.name}`, item })}
+                        onDelete={(item) => void deleteItem(item)}
+                        onAddCommand={(groupId) => openEditor({ itemType: "command", title: "新建命令", parentGroupId: groupId })}
                     />
                 )}
-            </div>
 
-            <div className="border-t border-white/8 px-4 py-2 text-xs text-secondary">
-                配置文件：<span className="font-mono text-primary">{QUICK_COMMANDS_CONFIG_FILE}</span>
-                {saving ? <span className="ml-2 text-primary">保存中…</span> : null}
-                {searchQuery.trim() !== "" ? <span className="ml-2">搜索结果：{visibleCommandCount} 条命令</span> : null}
-                {searchQuery.trim() !== "" ? <span className="ml-2">搜索时已暂停拖拽</span> : null}
-                <span className="ml-2">当前块：{model.blockId}</span>
+                <div className="qc-detail-footer">
+                    <span className="font-mono text-[10px] text-secondary/40">{QUICK_COMMANDS_CONFIG_FILE}</span>
+                    {searchQuery.trim() !== "" && <span className="text-[10px] text-secondary/40 ml-2">搜索时暂停拖拽</span>}
+                    <span className="text-[10px] text-secondary/40 ml-auto">{model.blockId}</span>
+                </div>
             </div>
         </div>
     );

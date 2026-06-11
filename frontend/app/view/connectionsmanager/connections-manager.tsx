@@ -9,14 +9,13 @@ import { modalsModel } from "@/app/store/modalmodel";
 import { showConfirmModal } from "@/app/modals/promptmodal";
 import type { TabModel } from "@/app/store/tab-model";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { atoms, getConnStatusAtom } from "@/store/global";
+import { atoms, getConnStatusAtom, loadConnStatus } from "@/store/global";
 import { RpcApi } from "@/store/wshclientapi";
 import { atom, useAtomValue } from "jotai";
 import React, { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     buildConnectionHost,
     buildConnMetaFromForm,
-    buildPasswordSecretName,
     ConnectionFormState,
     connectionMatchesQuery,
     getConnStatusBadgeInfo,
@@ -39,59 +38,66 @@ function makeBlankForm(): ConnectionFormState {
         hostname: "",
         port: "22",
         password: "",
-        passwordSecretName: "",
-        hasStoredPassword: false,
         passwordAuth: false,
         pubkeyAuth: true,
         keyboardInteractiveAuth: false,
     };
 }
 
-const AuthToggle = React.memo(function AuthToggle({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+const CONN_ICON_COLORS = [
+    { bg: "rgba(83,180,234,0.12)", text: "#53b4ea" },
+    { bg: "rgba(170,103,255,0.12)", text: "#aa67ff" },
+    { bg: "rgba(255,162,78,0.12)", text: "#ffa24e" },
+    { bg: "rgba(239,71,111,0.12)", text: "#ef476f" },
+    { bg: "rgba(88,193,66,0.12)", text: "#58c142" },
+    { bg: "rgba(73,123,248,0.12)", text: "#497bf8" },
+    { bg: "rgba(219,222,82,0.12)", text: "#dbde52" },
+    { bg: "rgba(253,167,253,0.12)", text: "#fda7fd" },
+];
+
+function getConnIconColor(host: string): { bg: string; text: string } {
+    let hash = 0;
+    for (let i = 0; i < host.length; i++) {
+        hash = (hash * 31 + host.charCodeAt(i)) | 0;
+    }
+    return CONN_ICON_COLORS[Math.abs(hash) % CONN_ICON_COLORS.length];
+}
+
+function getStatusDotColor(connStatus: ConnStatus | null | undefined): string {
+    if (connStatus?.status === "connected") return "#4ade80";
+    if (connStatus?.status === "connecting") return "#fbbf24";
+    if (connStatus?.status === "error") return "#f87171";
+    return "#555960";
+}
+
+const AuthChip = React.memo(function AuthChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
     return (
         <button
             type="button"
-            className={`rounded px-3 py-1.5 text-sm border transition-colors ${
+            className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-xs border transition-colors ${
                 active
                     ? "bg-zinc-700 text-white border-zinc-600"
-                    : "bg-panel text-secondary border-border hover:text-primary"
+                    : "bg-panel text-secondary border-border hover:text-primary hover:border-border"
             }`}
             onClick={onClick}
             role="switch"
             aria-checked={active}
         >
+            <span
+                className={`inline-block w-1.5 h-1.5 rounded-full ${
+                    active ? "bg-accent-400" : "bg-zinc-500"
+                }`}
+            />
             {label}
         </button>
     );
 });
 
-function ListActionButton({
-    label,
-    onClick,
-    disabled,
-    variant = "default",
-}: {
-    label: string;
-    onClick: (e: MouseEvent<HTMLButtonElement>) => void;
-    disabled?: boolean;
-    variant?: "default" | "danger";
-}) {
-    const className =
-        variant === "danger"
-            ? "!h-[24px] !px-2 !text-xs !bg-red-500/10 !border-red-500/30 !text-red-300 hover:!bg-red-500/20"
-            : "!h-[24px] !px-2 !text-xs";
-    return (
-        <Button className={className} onClick={onClick} disabled={disabled}>
-            {label}
-        </Button>
-    );
-}
-
-const ConnectionListRow = React.memo(function ConnectionListRow({
+const ConnectionListItem = React.memo(function ConnectionListItem({
     host,
     meta,
     isSelected,
-    latencyText,
+    latency,
     onSelect,
     onConnect,
     onMore,
@@ -99,24 +105,28 @@ const ConnectionListRow = React.memo(function ConnectionListRow({
     host: string;
     meta: ConnKeywords | undefined;
     isSelected: boolean;
-    latencyText: string;
+    latency: number | null | undefined;
     onSelect: () => void;
     onConnect: (host: string) => void;
     onMore: (e: MouseEvent<HTMLButtonElement>, host: string) => void;
 }) {
     const connStatus = useAtomValue(getConnStatusAtom(host));
-    const group = (((meta as any)?.["display:group"] as string) ?? "").trim();
+    const iconColor = getConnIconColor(host);
     const parsedHost = parseConnectionHost(host);
     const addressUser = meta?.["ssh:user"] ?? parsedHost.user;
     const addressHost = meta?.["ssh:hostname"] ?? parsedHost.hostname;
     const addressLabel = addressHost ? `${addressUser}@${addressHost}` : host;
     const isConnecting = connStatus?.status === "connecting";
     const displayLabel = meta?.["display:name"] || host;
+    const statusDotColor = getStatusDotColor(connStatus);
+    const isConnected = connStatus?.status === "connected";
 
     return (
         <div
-            className={`flex items-center gap-2 rounded px-2 py-2 cursor-pointer border ${
-                isSelected ? "bg-green-900/30 border-green-700" : "bg-panel border-transparent hover:border-border"
+            className={`flex items-center gap-2.5 rounded-md px-2.5 py-2 cursor-pointer border transition-colors ${
+                isSelected
+                    ? "bg-accent-400/8 border-accent-400/20"
+                    : "border-transparent hover:bg-white/4"
             }`}
             role="button"
             tabIndex={0}
@@ -124,38 +134,52 @@ const ConnectionListRow = React.memo(function ConnectionListRow({
             onClick={onSelect}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } }}
         >
-            <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 min-w-0">
-                    <div className="truncate text-sm">{displayLabel}</div>
-                    <div className="shrink-0 text-[11px] text-secondary">{latencyText}</div>
-                </div>
-                <div className="truncate text-xs text-secondary">{addressLabel}</div>
-                <div className="truncate text-[11px] text-secondary">{group === "" ? "未分组" : group}</div>
-            </div>
-            <div className="w-[96px] shrink-0 flex justify-center">
-                <ConnectionStatusBadge host={host} />
-            </div>
-            <div className="w-[88px] shrink-0 flex justify-center">
-                <WshStatusBadge host={host} />
-            </div>
-            <div className="shrink-0 flex items-center gap-1">
-                <ListActionButton
-                    label={isConnecting ? "连接中" : "连接"}
-                    disabled={isConnecting}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onConnect(host);
+            <div
+                className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 relative"
+                style={{ background: iconColor.bg }}
+            >
+                <i className="fa fa-server text-xs" style={{ color: iconColor.text }} />
+                <span
+                    className="absolute -bottom-px -right-px w-2.5 h-2.5 rounded-full border-2"
+                    style={{
+                        backgroundColor: statusDotColor,
+                        borderColor: isSelected ? "var(--color-background)" : "var(--color-panel)",
                     }}
                 />
-                <button
-                    type="button"
-                    className="h-[24px] w-[24px] shrink-0 rounded border border-border bg-panel text-secondary hover:text-primary hover:border-zinc-500"
-                    onClick={(e) => onMore(e, host)}
-                    aria-label="更多操作"
-                >
-                    <i className="fa fa-ellipsis-h text-[11px]" />
-                </button>
             </div>
+            <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium leading-tight">{displayLabel}</div>
+                <div className="truncate text-[11px] text-secondary font-mono leading-tight mt-0.5">{addressLabel}</div>
+            </div>
+            {/* Latency / Disconnect indicator */}
+            {latency != null && latency > 0 && (
+                <span className={`text-[10px] font-mono shrink-0 ${latency < 100 ? "text-green-400" : latency < 300 ? "text-yellow-400" : "text-red-400"}`}>
+                    {latency}ms
+                </span>
+            )}
+            {latency === null && !isConnected && !isConnecting && (
+                <i className="fa fa-unlink text-[10px] text-red-400/60 shrink-0" title="网络不通" />
+            )}
+            {isConnecting && (
+                <i className="fa fa-spinner fa-spin text-[10px] text-yellow-400 shrink-0" />
+            )}
+            <button
+                type="button"
+                className={`w-6 h-6 rounded flex items-center justify-center shrink-0 border transition-all ${
+                    isSelected
+                        ? "opacity-100 bg-accent-400 border-accent-400 text-black hover:bg-accent-400"
+                        : "opacity-0 bg-transparent border-border text-secondary hover:bg-white/8 hover:text-primary"
+                }`}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    if (isConnecting) return;
+                    onConnect(host);
+                }}
+                aria-label={isConnecting ? "连接中" : "快速连接"}
+                title={isConnecting ? "连接中" : "快速连接"}
+            >
+                <i className={`fa ${isConnecting ? "fa-spinner fa-spin" : "fa-play"} text-[9px]`} />
+            </button>
         </div>
     );
 });
@@ -184,7 +208,7 @@ const ConnectionStatusBadge = React.memo(function ConnectionStatusBadge({ host }
     const connStatus = useAtomValue(getConnStatusAtom(host));
     const badge = getConnStatusBadgeInfo(connStatus);
     return (
-        <span className={`px-2 py-0.5 rounded border text-xs ${badge.className}`} role="status" aria-label={badge.label}>
+        <span className={`px-2 py-0.5 rounded-full border text-[10px] font-medium ${badge.className}`} role="status" aria-label={badge.label}>
             {badge.label}
         </span>
     );
@@ -194,7 +218,7 @@ const WshStatusBadge = React.memo(function WshStatusBadge({ host }: { host: stri
     const connStatus = useAtomValue(getConnStatusAtom(host));
     const badge = getWshBadgeInfo(connStatus);
     return (
-        <span className={`px-2 py-0.5 rounded border text-xs ${badge.className}`} title={badge.title} role="status" aria-label={badge.label}>
+        <span className={`px-2 py-0.5 rounded-full border text-[10px] font-medium ${badge.className}`} title={badge.title} role="status" aria-label={badge.label}>
             {badge.label}
         </span>
     );
@@ -280,13 +304,11 @@ function ConnectionFailureModalContent({
         setUpdatingKey(true);
         try {
             await RpcApi.UpdateKnownHostKeyCommand(TabRpcClient, { host: attemptedHost });
-            // Close the modal and retry connection
             modalsModel.popModal();
             if (onRetry) {
                 onRetry();
             }
         } catch (e) {
-            // Show error but keep modal open
             console.error("Failed to update host key:", e);
         } finally {
             setUpdatingKey(false);
@@ -342,6 +364,21 @@ function ConnectionFailureModalContent({
     );
 }
 
+function SectionHeader({ icon, iconBg, iconColor, title }: { icon: string; iconBg: string; iconColor: string; title: string }) {
+    return (
+        <div className="flex items-center gap-2 mb-3">
+            <div
+                className="w-6 h-6 rounded flex items-center justify-center text-[10px]"
+                style={{ background: iconBg, color: iconColor }}
+            >
+                <i className={`fa ${icon}`} />
+            </div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-secondary">{title}</div>
+            <div className="flex-1 h-px bg-border" />
+        </div>
+    );
+}
+
 function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManagerViewModel>) {
     const fullConfig = useAtomValue(atoms.fullConfigAtom);
     const [query, setQuery] = useState("");
@@ -353,7 +390,20 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     const [ensuringWsh, setEnsuringWsh] = useState(false);
     const [connectionsState, setConnectionsState] = useState<{ [key: string]: ConnKeywords }>({});
     const [latencyMap, setLatencyMap] = useState<Record<string, number | null>>({});
+    const latencyMapRef = useRef<Record<string, number | null>>({});
+    const [successMessage, setSuccessMessage] = useState<string>("");
+    const [batchTesting, setBatchTesting] = useState(false);
+    const [batchTestProgress, setBatchTestProgress] = useState(0);
+    const [batchTestTotal, setBatchTestTotal] = useState(0);
+    const [passwordVisible, setPasswordVisible] = useState(false);
+    const [pinging, setPinging] = useState(false);
+    const [pingResult, setPingResult] = useState<{ latency: number | null; networkOk: boolean | null; error: string | null }>({ latency: null, networkOk: null, error: null });
     const selectedConnStatus = useAtomValue(getConnStatusAtom(selectedHost));
+
+    function showSuccessMessage(msg: string) {
+        setSuccessMessage(msg);
+        setTimeout(() => setSuccessMessage(""), 3000);
+    }
 
     function showConnectionFailureModal(title: string, error: unknown, attemptedHost?: string | null, onRetry?: () => void) {
         modalsModel.pushModal("MessageModal", {
@@ -364,6 +414,71 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
     useEffect(() => {
         setConnectionsState(fullConfig?.connections ?? {});
     }, [fullConfig?.connections]);
+
+    // Auto-refresh connection statuses on mount and periodically
+    useEffect(() => {
+        void loadConnStatus();
+        const interval = setInterval(() => void loadConnStatus(), 30000);
+        return () => clearInterval(interval);
+    }, []);
+
+    // Auto-probe latency for all connections, re-run when connections change
+    useEffect(() => {
+        const hosts = Object.keys(connectionsState).filter((h) => !connectionsState[h]?.["display:hidden"]);
+        if (hosts.length === 0) return;
+        let cancelled = false;
+        async function probeAll() {
+            for (const host of hosts) {
+                if (cancelled) break;
+                // Skip if already probed recently (within 60s)
+                const existing = latencyMapRef.current[host];
+                if (existing != null && existing > 0) continue;
+                const start = performance.now();
+                try {
+                    await RpcApi.ConnEnsureCommand(
+                        TabRpcClient,
+                        { connname: host, logblockid: model.blockId },
+                        { timeout: 15000 }
+                    );
+                    if (!cancelled) {
+                        const latency = Math.max(1, Math.round(performance.now() - start));
+                        setLatencyMap((prev) => ({ ...prev, [host]: latency }));
+                        latencyMapRef.current[host] = latency;
+                    }
+                } catch {
+                    if (!cancelled) {
+                        setLatencyMap((prev) => ({ ...prev, [host]: null }));
+                        latencyMapRef.current[host] = null;
+                    }
+                }
+            }
+        }
+        void probeAll();
+        return () => { cancelled = true; };
+    }, [connectionsState]);
+
+    // Periodically refresh latency (every 60s)
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const hosts = Object.keys(connectionsState).filter((h) => !connectionsState[h]?.["display:hidden"]);
+            for (const host of hosts) {
+                const start = performance.now();
+                RpcApi.ConnEnsureCommand(
+                    TabRpcClient,
+                    { connname: host, logblockid: model.blockId },
+                    { timeout: 15000 }
+                ).then(() => {
+                    const latency = Math.max(1, Math.round(performance.now() - start));
+                    setLatencyMap((prev) => ({ ...prev, [host]: latency }));
+                    latencyMapRef.current[host] = latency;
+                }).catch(() => {
+                    setLatencyMap((prev) => ({ ...prev, [host]: null }));
+                    latencyMapRef.current[host] = null;
+                });
+            }
+        }, 60000);
+        return () => clearInterval(interval);
+    }, [connectionsState]);
 
     const groups = useMemo(() => {
         const set = new Set<string>();
@@ -378,6 +493,32 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         }
         return ["全部", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
     }, [connectionsState]);
+
+    const groupCounts = useMemo(() => {
+        const counts: Record<string, number> = { "全部": 0 };
+        for (const host of Object.keys(connectionsState)) {
+            if (connectionsState[host]?.["display:hidden"]) continue;
+            counts["全部"] = (counts["全部"] ?? 0) + 1;
+            const g = ((connectionsState[host] as any)?.["display:group"] as string ?? "").trim();
+            if (g) {
+                counts[g] = (counts[g] ?? 0) + 1;
+            }
+        }
+        return counts;
+    }, [connectionsState]);
+
+    const statusCounts = useMemo(() => {
+        let connected = 0, connecting = 0, disconnected = 0, errored = 0;
+        for (const host of Object.keys(connectionsState)) {
+            if (connectionsState[host]?.["display:hidden"]) continue;
+            const status = globalStore.get(getConnStatusAtom(host))?.status;
+            if (status === "connected") connected++;
+            else if (status === "connecting") connecting++;
+            else if (status === "error") errored++;
+            else disconnected++;
+        }
+        return { connected, connecting, disconnected, errored };
+    }, [connectionsState, selectedConnStatus]);
 
     const filteredHosts = useMemo(() => {
         const sorted = sortConnectionHosts(connectionsState);
@@ -411,6 +552,8 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
             return;
         }
         prevSelectedHostRef.current = selectedHost;
+        setPasswordVisible(false);
+        setPingResult({ latency: null, networkOk: null, error: null });
         if (selectedHost === "__new__") {
             setForm(makeBlankForm());
             return;
@@ -440,22 +583,10 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
             return null;
         }
 
-        let passwordSecretName = form.passwordSecretName.trim();
-        const password = form.password;
-        if (form.passwordAuth && password.trim() !== "") {
-            passwordSecretName = passwordSecretName || buildPasswordSecretName(host);
-            await RpcApi.SetSecretsCommand(TabRpcClient, {
-                [passwordSecretName]: password,
-            });
-        }
-
         const nextForm: ConnectionFormState = {
             ...form,
             host,
             user: normalizedUser,
-            password: "",
-            passwordSecretName,
-            hasStoredPassword: passwordSecretName !== "",
         };
         const metaMap = buildConnMetaFromForm(nextForm);
         metaMap["display:hidden"] = false;
@@ -474,6 +605,8 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         });
         setSelectedHost(host);
         setForm(nextForm);
+        // Probe latency for the new/updated connection
+        void probeLatency(host);
         return host;
     }
 
@@ -487,6 +620,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 },
                 { timeout: 60000 }
             );
+            showSuccessMessage("连接成功");
         } catch (e) {
             showConnectionFailureModal("连接失败", e, host, () => void handleConnect(host));
         }
@@ -502,8 +636,6 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
             host: "",
             displayName: nextDisplayName,
             password: "",
-            passwordSecretName: "",
-            hasStoredPassword: false,
         });
         modalsModel.pushModal("MessageModal", {
             children: "连接已复制到新草稿。如需要请修改 SSH 主机名，然后点击保存。",
@@ -571,6 +703,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         setSaving(true);
         try {
             await persistForm();
+            showSuccessMessage("保存成功");
         } catch (e) {
             showConnectionFailureModal("保存失败", e);
         } finally {
@@ -595,6 +728,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 },
                 { timeout: 60000 }
             );
+            showSuccessMessage("连接测试成功");
         } catch (e) {
             showConnectionFailureModal("连接测试失败", e, attemptedHost, () => void handleTestConnection());
         } finally {
@@ -631,10 +765,48 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                 },
                 { timeout: 60000 }
             );
+            showSuccessMessage("WSH 设置成功");
         } catch (e) {
             showConnectionFailureModal("WSH 设置失败", e, attemptedHost, () => void handleEnsureWsh());
         } finally {
             setEnsuringWsh(false);
+        }
+    }
+
+    async function handlePing() {
+        if (!selectedHost || selectedHost === "__new__") return;
+        setPinging(true);
+        setPingResult({ latency: null, networkOk: null, error: null });
+        const start = performance.now();
+        try {
+            await RpcApi.ConnEnsureCommand(
+                TabRpcClient,
+                { connname: selectedHost, logblockid: model.blockId },
+                { timeout: 30000 }
+            );
+            const latency = Math.max(1, Math.round(performance.now() - start));
+            setPingResult({ latency, networkOk: true, error: null });
+            setLatencyMap((prev) => ({ ...prev, [selectedHost]: latency }));
+        } catch (e) {
+            const elapsed = Math.round(performance.now() - start);
+            const errMsg = String(e ?? "").toLowerCase();
+            const isNetworkError =
+                errMsg.includes("timed out") ||
+                errMsg.includes("timeout") ||
+                errMsg.includes("no route to host") ||
+                errMsg.includes("network is unreachable") ||
+                errMsg.includes("connection refused") ||
+                errMsg.includes("connection reset") ||
+                (elapsed > 10000 && errMsg.includes("error"));
+            if (isNetworkError) {
+                setPingResult({ latency: null, networkOk: false, error: String(e) });
+            } else {
+                const latency = Math.max(1, elapsed);
+                setPingResult({ latency, networkOk: true, error: String(e) });
+                setLatencyMap((prev) => ({ ...prev, [selectedHost]: latency }));
+            }
+        } finally {
+            setPinging(false);
         }
     }
 
@@ -653,193 +825,460 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         }
     }
 
+    async function handleBatchTest() {
+        const hosts = filteredHosts;
+        if (hosts.length === 0) return;
+        setBatchTesting(true);
+        setBatchTestProgress(0);
+        setBatchTestTotal(hosts.length);
+        let successCount = 0;
+        let failCount = 0;
+        for (let i = 0; i < hosts.length; i++) {
+            const host = hosts[i];
+            try {
+                await RpcApi.ConnEnsureCommand(
+                    TabRpcClient,
+                    { connname: host, logblockid: model.blockId },
+                    { timeout: 30000 }
+                );
+                successCount++;
+            } catch {
+                failCount++;
+            }
+            setBatchTestProgress(i + 1);
+        }
+        setBatchTesting(false);
+        showSuccessMessage(`测试完成：${successCount} 成功，${failCount} 失败`);
+        void loadConnStatus();
+    }
+
+    const selectedIconColor = selectedHost ? getConnIconColor(selectedHost) : CONN_ICON_COLORS[0];
+    const selectedParsedHost = selectedHost ? parseConnectionHost(selectedHost) : { user: "", hostname: "" };
+    const selectedMeta = selectedHost ? connectionsState[selectedHost] : undefined;
+    const selectedAddrUser = selectedMeta?.["ssh:user"] ?? selectedParsedHost.user;
+    const selectedAddrHost = selectedMeta?.["ssh:hostname"] ?? selectedParsedHost.hostname;
+    const selectedAddrLabel = selectedAddrHost ? `${selectedAddrUser}@${selectedAddrHost}` : selectedHost;
+    const selectedLatency = selectedHost ? latencyMap[selectedHost] : null;
+    const isConnecting = selectedConnStatus?.status === "connecting";
+
     return (
         <div className="h-full w-full flex overflow-hidden">
-            <div className="w-[420px] border-r border-border flex flex-col shrink-0">
-                <div className="p-3 border-b border-border flex items-center gap-2">
-                    <input
-                        className="flex-1 rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                        placeholder="搜索主机 / 名称 / 用户 / 地址"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                    />
-                    <select
-                        className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                        value={activeGroup}
-                        onChange={(e) => setActiveGroup(e.target.value)}
-                    >
-                        {groups.map((g) => (
-                            <option key={g} value={g}>
-                                {g}
-                            </option>
-                        ))}
-                    </select>
-                    <Button
-                        className="!h-[30px] !px-2"
-                        onClick={() => {
-                            setSelectedHost("__new__");
-                            setForm(makeBlankForm());
-                        }}
-                    >
-                        <i className="fa fa-plus mr-1" />
-                        新建
-                    </Button>
-                </div>
-                <div className="flex-1 overflow-auto p-2">
-                    {filteredHosts.length === 0 ? (
-                        <div className="text-secondary text-sm px-2 py-3">暂无连接</div>
-                    ) : (
-                        <div className="space-y-1">
-                            <div className="flex items-center gap-2 text-[11px] text-secondary px-2 py-1">
-                                <div className="flex-1 min-w-0">名称 / 地址 / 分组</div>
-                                <div className="w-[96px] shrink-0 text-center">状态</div>
-                                <div className="w-[88px] shrink-0 text-center">WSH</div>
-                                <div className="shrink-0 w-[96px] text-left">操作</div>
+            {/* ====== Left Panel ====== */}
+            <div className="w-[300px] border-r border-border flex flex-col shrink-0 bg-panel/50">
+                {/* Header */}
+                <div className="p-4 pb-3">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                            <div
+                                className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold"
+                                style={{ background: "linear-gradient(135deg, #53b4ea, #58c142)", color: "#000" }}
+                            >
+                                <i className="fa fa-bolt" />
                             </div>
-                            {filteredHosts.map((host) => {
-                                const meta = connectionsState[host];
-                                const isSelected = selectedHost === host;
-                                const latency = latencyMap[host];
-                                const latencyText = latency == null ? "-" : `${latency} ms`;
-                                return (
-                                    <ConnectionListRow
-                                        key={host}
-                                        host={host}
-                                        meta={meta}
-                                        isSelected={isSelected}
-                                        latencyText={latencyText}
-                                        onSelect={() => setSelectedHost(host)}
-                                        onConnect={(nextHost) => void handleConnect(nextHost)}
-                                        onMore={handleMoreActions}
-                                    />
-                                );
-                            })}
+                            <span className="text-[15px] font-bold">连接管理</span>
                         </div>
+                        <button
+                            type="button"
+                            className="w-[30px] h-[30px] rounded-md border border-dashed border-border hover:border-accent-400 text-accent-400 hover:bg-accent-400/8 flex items-center justify-center transition-colors text-base shrink-0"
+                            onClick={() => {
+                                setSelectedHost("__new__");
+                                setForm(makeBlankForm());
+                            }}
+                            title="新建连接"
+                        >
+                            <i className="fa fa-plus text-xs" />
+                        </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                            <i className="fa fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-zinc-500" />
+                            <input
+                                className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-xs outline-none focus:border-accent-400 transition-colors"
+                                placeholder="搜索主机 / 名称 / 用户 / 地址"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            className={`h-[30px] px-2 rounded-md border text-[11px] flex items-center justify-center transition-colors shrink-0 whitespace-nowrap ${
+                                batchTesting
+                                    ? "border-accent-400/30 bg-accent-400/8 text-accent-400"
+                                    : "border-border text-secondary hover:text-primary hover:border-border"
+                            }`}
+                            onClick={handleBatchTest}
+                            disabled={batchTesting}
+                            title="一键测试所有连接"
+                        >
+                            <i className={`fa ${batchTesting ? "fa-spinner fa-spin" : "fa-heartbeat"} mr-1 text-[9px]`} />
+                            {batchTesting ? `${batchTestProgress}/${batchTestTotal}` : "测试"}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Group Tabs */}
+                <div className="flex border-b border-border overflow-x-auto">
+                    {groups.map((g) => (
+                        <button
+                            key={g}
+                            type="button"
+                            className={`flex-1 min-w-[60px] py-2 text-center text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap ${
+                                activeGroup === g
+                                    ? "text-accent-400 border-accent-400"
+                                    : "text-secondary border-transparent hover:text-primary"
+                            }`}
+                            onClick={() => setActiveGroup(g)}
+                        >
+                            {g}
+                            <span className={`ml-1 text-[9px] px-1.5 py-px rounded-full ${
+                                activeGroup === g ? "bg-accent-400/15 text-accent-400" : "bg-white/6"
+                            }`}>
+                                {groupCounts[g] ?? 0}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+
+                {/* Connection List */}
+                <div className="flex-1 overflow-auto px-2 py-1.5">
+                    {filteredHosts.length === 0 ? (
+                        <div className="text-secondary text-xs px-2 py-4 text-center">暂无连接</div>
+                    ) : (
+                        filteredHosts.map((host) => {
+                            const meta = connectionsState[host];
+                            const isSelected = selectedHost === host;
+                            return (
+                                <ConnectionListItem
+                                    key={host}
+                                    host={host}
+                                    meta={meta}
+                                    isSelected={isSelected}
+                                    latency={latencyMap[host]}
+                                    onSelect={() => setSelectedHost(host)}
+                                    onConnect={(nextHost) => void handleConnect(nextHost)}
+                                    onMore={handleMoreActions}
+                                />
+                            );
+                        })
+                    )}
+                </div>
+
+                {/* Footer Stats */}
+                <div className="px-4 py-2.5 border-t border-border flex items-center gap-3 text-[11px] text-secondary">
+                    <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                        {statusCounts.connected} 已连接
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+                        {statusCounts.connecting} 连接中
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                        {statusCounts.disconnected} 离线
+                    </span>
+                    {statusCounts.errored > 0 && (
+                        <span className="flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                            {statusCounts.errored} 错误
+                        </span>
                     )}
                 </div>
             </div>
 
-            <div className="flex-1 overflow-auto">
-                <div className="max-w-[820px] p-4">
-                    <div className="text-lg font-semibold mb-3">连接管理</div>
-                    <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-3 gap-y-3 items-start">
-                        <div className="text-secondary text-sm">显示名称</div>
-                        <input
-                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                            value={form.displayName}
-                            onChange={(e) => setForm((prev) => ({ ...prev, displayName: e.target.value }))}
-                            placeholder="生产环境主机"
-                        />
-
-                        <div className="text-secondary text-sm">分组</div>
-                        <input
-                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                            value={form.group}
-                            onChange={(e) => setForm((prev) => ({ ...prev, group: e.target.value }))}
-                            placeholder="生产 / 测试 / 实验"
-                        />
-
-                        <div className="text-secondary text-sm">SSH 用户</div>
-                        <input
-                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                            value={form.user}
-                            onChange={(e) => setForm((prev) => ({ ...prev, user: e.target.value }))}
-                            placeholder="root"
-                        />
-
-                        <div className="text-secondary text-sm">SSH 主机名 / 端口</div>
-                        <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-3">
-                            <input
-                                className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                                value={form.hostname}
-                                onChange={(e) => setForm((prev) => ({ ...prev, hostname: e.target.value }))}
-                                placeholder="192.168.2.9"
-                            />
-                            <input
-                                className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
-                                value={form.port}
-                                onChange={(e) => setForm((prev) => ({ ...prev, port: e.target.value }))}
-                                placeholder="22"
-                            />
+            {/* ====== Right Panel ====== */}
+            <div className="flex-1 flex flex-col overflow-hidden relative">
+                {/* Success Toast */}
+                {successMessage && (
+                    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-lg border border-accent-400/30 bg-accent-400/10 text-accent-400 text-xs font-medium shadow-md transition-opacity duration-300">
+                        <i className="fa fa-check-circle" />
+                        {successMessage}
+                    </div>
+                )}
+                {/* Right Header */}
+                <div className="px-6 pt-5 pb-4 border-b border-border">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                            <div
+                                className="w-11 h-11 rounded-lg flex items-center justify-center text-lg relative"
+                                style={{ background: selectedIconColor.bg, color: selectedIconColor.text }}
+                            >
+                                <i className="fa fa-server" />
+                                {selectedConnStatus?.status === "connected" && (
+                                    <span className="absolute -inset-0.5 rounded-lg border-2 border-accent-400 shadow-[0_0_8px_rgba(88,193,66,0.3)]" />
+                                )}
+                            </div>
+                            <div>
+                                <div className="text-lg font-bold leading-tight">
+                                    {selectedHost === "__new__" ? "新建连接" : (form.displayName || selectedHost)}
+                                </div>
+                                {selectedHost && selectedHost !== "__new__" && (
+                                    <div className="text-xs text-secondary font-mono mt-0.5">
+                                        {selectedAddrLabel}{form.port !== "22" ? ` :${form.port}` : ""}
+                                    </div>
+                                )}
+                            </div>
                         </div>
-
-                        <div className="text-secondary text-sm">认证方式</div>
-                        <div className="flex flex-wrap gap-2">
-                            <AuthToggle
-                                label="密码"
-                                active={form.passwordAuth}
-                                onClick={() => setForm((prev) => ({ ...prev, passwordAuth: !prev.passwordAuth }))}
-                            />
-                            <AuthToggle
-                                label="公钥"
-                                active={form.pubkeyAuth}
-                                onClick={() => setForm((prev) => ({ ...prev, pubkeyAuth: !prev.pubkeyAuth }))}
-                            />
-                            <AuthToggle
-                                label="键盘交互"
-                                active={form.keyboardInteractiveAuth}
-                                onClick={() =>
-                                    setForm((prev) => ({
-                                        ...prev,
-                                        keyboardInteractiveAuth: !prev.keyboardInteractiveAuth,
-                                    }))
-                                }
-                            />
+                        {selectedHost && selectedHost !== "__new__" && (
+                            <div className="flex items-center gap-1.5">
+                                <Button
+                                    className="green !h-7 !px-3 !text-xs"
+                                    onClick={() => void handleConnect(selectedHost)}
+                                    disabled={isConnecting}
+                                >
+                                    <i className={`fa ${isConnecting ? "fa-spinner fa-spin" : "fa-play"} mr-1 text-[9px]`} />
+                                    {isConnecting ? "连接中" : "连接"}
+                                </Button>
+                                <Button
+                                    className="!h-7 !px-3 !text-xs"
+                                    onClick={handlePing}
+                                    disabled={pinging}
+                                >
+                                    <i className={`fa ${pinging ? "fa-spinner fa-spin" : "fa-signal"} mr-1 text-[9px]`} />
+                                    {pinging ? "Ping..." : "Ping"}
+                                </Button>
+                                <Button
+                                    className="!h-7 !px-3 !text-xs"
+                                    onClick={handleTestConnection}
+                                    disabled={testing}
+                                >
+                                    <i className="fa fa-plug mr-1 text-[9px]" />
+                                    {testing ? "测试中..." : "测试连接"}
+                                </Button>
+                                <Button
+                                    className="!h-7 !px-3 !text-xs"
+                                    onClick={handleEnsureWsh}
+                                    disabled={ensuringWsh}
+                                >
+                                    <i className="fa fa-cog mr-1 text-[9px]" />
+                                    {ensuringWsh ? "设置中..." : getEnsureWshButtonLabel(selectedConnStatus)}
+                                </Button>
+                                <button
+                                    type="button"
+                                    className="w-7 h-7 rounded-md border border-border text-secondary hover:text-primary hover:border-border flex items-center justify-center transition-colors"
+                                    onClick={(e) => handleMoreActions(e, selectedHost)}
+                                    aria-label="更多操作"
+                                >
+                                    <i className="fa fa-ellipsis-h text-[10px]" />
+                                </button>
+                            </div>
+                        )}
+                        {selectedHost === "__new__" && (
+                            <div className="flex items-center gap-1.5">
+                                <Button
+                                    className="!h-7 !px-3 !text-xs"
+                                    onClick={handleTestConnection}
+                                    disabled={testing}
+                                >
+                                    <i className="fa fa-plug mr-1 text-[9px]" />
+                                    {testing ? "测试中..." : "测试并保存"}
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                    {/* Status Badges Row */}
+                    {selectedHost && selectedHost !== "__new__" && (
+                        <div className="flex items-center gap-2">
+                            <ConnectionStatusBadge host={selectedHost} />
+                            <WshStatusBadge host={selectedHost} />
+                            {pingResult.networkOk === true && pingResult.latency != null && (
+                                <span className="px-2 py-0.5 rounded-full border text-[10px] font-medium text-green-400 border-green-400/20 bg-green-400/5">
+                                    <i className="fa fa-signal mr-1" />{pingResult.latency} ms
+                                </span>
+                            )}
+                            {pingResult.networkOk === true && pingResult.latency != null && pingResult.error && (
+                                <span className="px-2 py-0.5 rounded-full border text-[10px] font-medium text-yellow-400 border-yellow-400/20 bg-yellow-400/5" title={pingResult.error}>
+                                    <i className="fa fa-exclamation-triangle mr-1" />网络通，认证失败
+                                </span>
+                            )}
+                            {pingResult.networkOk === false && (
+                                <span className="px-2 py-0.5 rounded-full border text-[10px] font-medium text-red-400 border-red-400/20 bg-red-400/5" title={pingResult.error ?? undefined}>
+                                    <i className="fa fa-times-circle mr-1" />网络不通
+                                </span>
+                            )}
+                            {pingResult.networkOk === null && selectedLatency != null && (
+                                <span className="px-2 py-0.5 rounded-full border text-[10px] font-medium text-blue-400 border-blue-400/20 bg-blue-400/5">
+                                    {selectedLatency} ms
+                                </span>
+                            )}
                         </div>
+                    )}
+                </div>
 
-                        {form.passwordAuth && (
-                            <>
-                                <div className="text-secondary text-sm pt-2">密码</div>
-                                <div>
+                {/* Right Body */}
+                <div className="flex-1 overflow-auto px-6 py-4">
+                    {/* Section: 基本信息 - compact layout */}
+                    <div className="mb-5">
+                        <SectionHeader
+                            icon="fa-info-circle"
+                            iconBg="rgba(83,180,234,0.12)"
+                            iconColor="#53b4ea"
+                            title="基本信息"
+                        />
+                        <div className="space-y-2">
+                            <div className="grid grid-cols-[80px_1fr_80px_1fr] gap-x-3 items-center">
+                                <label className="text-[11px] text-secondary text-right">显示名称</label>
+                                <input
+                                    className="bg-background border border-border rounded px-2 py-1 text-sm outline-none focus:border-accent-400 transition-colors"
+                                    value={form.displayName}
+                                    onChange={(e) => setForm((prev) => ({ ...prev, displayName: e.target.value }))}
+                                    placeholder="生产环境主机"
+                                />
+                                <label className="text-[11px] text-secondary text-right">分组</label>
+                                <div className="relative">
                                     <input
-                                        type="password"
-                                        className="w-full rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none"
+                                        className="w-full bg-background border border-border rounded px-2 py-1 text-sm outline-none focus:border-accent-400 transition-colors"
+                                        value={form.group}
+                                        onChange={(e) => setForm((prev) => ({ ...prev, group: e.target.value }))}
+                                        placeholder="生产 / 测试 / 实验"
+                                        list="group-options"
+                                    />
+                                    <datalist id="group-options">
+                                        {groups.filter((g) => g !== "全部").map((g) => (
+                                            <option key={g} value={g} />
+                                        ))}
+                                    </datalist>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-[80px_1fr_80px_1fr] gap-x-3 items-center">
+                                <label className="text-[11px] text-secondary text-right">SSH 主机</label>
+                                <input
+                                    className="bg-background border border-border rounded px-2 py-1 text-sm outline-none focus:border-accent-400 transition-colors font-mono"
+                                    value={form.hostname}
+                                    onChange={(e) => setForm((prev) => ({ ...prev, hostname: e.target.value }))}
+                                    placeholder="192.168.2.9"
+                                />
+                                <label className="text-[11px] text-secondary text-right">端口</label>
+                                <input
+                                    className="bg-background border border-border rounded px-2 py-1 text-sm outline-none focus:border-accent-400 transition-colors font-mono"
+                                    value={form.port}
+                                    onChange={(e) => setForm((prev) => ({ ...prev, port: e.target.value }))}
+                                    placeholder="22"
+                                />
+                            </div>
+                            <div className="grid grid-cols-[80px_1fr] gap-x-3 items-center">
+                                <label className="text-[11px] text-secondary text-right">SSH 用户</label>
+                                <input
+                                    className="bg-background border border-border rounded px-2 py-1 text-sm outline-none focus:border-accent-400 transition-colors font-mono"
+                                    value={form.user}
+                                    onChange={(e) => setForm((prev) => ({ ...prev, user: e.target.value }))}
+                                    placeholder="root"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Section: 认证方式 - radio style (mutually exclusive) */}
+                    <div className="mb-5">
+                        <SectionHeader
+                            icon="fa-lock"
+                            iconBg="rgba(170,103,255,0.12)"
+                            iconColor="#aa67ff"
+                            title="认证方式"
+                        />
+                        <div className="flex flex-wrap gap-2">
+                            <AuthChip
+                                label="公钥"
+                                active={form.pubkeyAuth && !form.passwordAuth && !form.keyboardInteractiveAuth}
+                                onClick={() => setForm((prev) => ({ ...prev, pubkeyAuth: true, passwordAuth: false, keyboardInteractiveAuth: false }))}
+                            />
+                            <AuthChip
+                                label="密码"
+                                active={form.passwordAuth && !form.pubkeyAuth && !form.keyboardInteractiveAuth}
+                                onClick={() => setForm((prev) => ({ ...prev, passwordAuth: true, pubkeyAuth: false, keyboardInteractiveAuth: false }))}
+                            />
+                            <AuthChip
+                                label="键盘交互"
+                                active={form.keyboardInteractiveAuth && !form.pubkeyAuth && !form.passwordAuth}
+                                onClick={() => setForm((prev) => ({ ...prev, keyboardInteractiveAuth: true, pubkeyAuth: false, passwordAuth: false }))}
+                            />
+                        </div>
+                        {form.passwordAuth && (
+                            <div className="mt-3 bg-white/3 border border-border rounded-md p-3">
+                                <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5">密码</div>
+                                <div className="relative">
+                                    <input
+                                        type={passwordVisible ? "text" : "password"}
+                                        className="w-full bg-background border border-border rounded px-2 py-1.5 pr-8 text-sm outline-none focus:border-accent-400 transition-colors font-mono"
                                         value={form.password}
                                         onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
-                                        placeholder={
-                                            form.hasStoredPassword
-                                                ? "留空以保留已保存的密码"
-                                                : "安全存储在 Wave 的密钥库中"
-                                        }
+                                        placeholder="输入 SSH 密码"
                                     />
-                                    {form.hasStoredPassword && form.password === "" && (
-                                        <div className="mt-1 text-[11px] text-secondary">
-                                            已为此连接存储了密码。
-                                        </div>
-                                    )}
+                                    <button
+                                        type="button"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-secondary hover:text-primary transition-colors"
+                                        onClick={() => setPasswordVisible((prev) => !prev)}
+                                        tabIndex={-1}
+                                        aria-label={passwordVisible ? "隐藏密码" : "显示密码"}
+                                    >
+                                        <i className={`fa ${passwordVisible ? "fa-eye-slash" : "fa-eye"} text-xs`} />
+                                    </button>
                                 </div>
-                            </>
+                            </div>
                         )}
+                    </div>
 
-                        <div className="text-secondary text-sm pt-2">备注</div>
+                    {/* Section: 备注 */}
+                    <div className="mb-4">
+                        <SectionHeader
+                            icon="fa-sticky-note"
+                            iconBg="rgba(255,162,78,0.12)"
+                            iconColor="#ffa24e"
+                            title="备注"
+                        />
                         <textarea
-                            className="rounded border border-border bg-panel px-2 py-1.5 text-sm outline-none min-h-[88px]"
+                            className="w-full bg-background border border-border rounded px-3 py-2 text-sm outline-none focus:border-accent-400 transition-colors min-h-[56px] resize-y"
                             value={form.remark}
                             onChange={(e) => setForm((prev) => ({ ...prev, remark: e.target.value }))}
                             placeholder="主机用途、所有者、备注..."
                         />
                     </div>
+                </div>
 
-                    <div className="mt-5 flex gap-2">
-                        <Button className="!px-3" onClick={handleTestConnection} disabled={testing}>
-                            {testing ? "测试中..." : "测试连接"}
-                        </Button>
-                        <Button className="green !px-4" onClick={handleSave} disabled={saving}>
-                            {saving ? "保存中..." : "保存"}
-                        </Button>
-                        <Button className="!px-3" onClick={handleEnsureWsh} disabled={ensuringWsh}>
-                            {ensuringWsh ? "设置 WSH 中..." : getEnsureWshButtonLabel(selectedConnStatus)}
-                        </Button>
+                {/* Right Footer */}
+                <div className="px-6 py-3 border-t border-border flex items-center justify-between bg-black/15">
+                    <div className="flex items-center gap-4 text-[11px] text-zinc-500">
+                        {selectedHost && selectedHost !== "__new__" && (
+                            <>
+                                <span className="flex items-center gap-1">
+                                    <i className="fa fa-clock text-[9px]" />
+                                    上次连接
+                                </span>
+                                {form.passwordAuth && form.password && (
+                                    <span className="flex items-center gap-1">
+                                        <i className="fa fa-key text-[9px] text-accent-400" />
+                                        密码已设置
+                                    </span>
+                                )}
+                            </>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        {selectedHost && selectedHost !== "__new__" && (
+                            <Button
+                                className="red !h-7 !px-3 !text-xs"
+                                onClick={() => void handleSoftDelete(selectedHost)}
+                            >
+                                <i className="fa fa-trash mr-1 text-[9px]" />
+                                移除
+                            </Button>
+                        )}
+                        {selectedHost && selectedHost !== "__new__" && (
+                            <Button
+                                className="!h-7 !px-3 !text-xs"
+                                onClick={() => handleCopy(selectedHost)}
+                            >
+                                <i className="fa fa-copy mr-1 text-[9px]" />
+                                复制
+                            </Button>
+                        )}
                         <Button
-                            className="!px-3"
-                            onClick={() =>
-                                modalsModel.pushModal("MessageModal", {
-                                    children:
-                                        "提示：密码已保存到 Wave 的密钥库中。您仍可以使用「编辑连接」进行原始 JSON 编辑。",
-                                })
-                            }
+                            className="green !h-7 !px-4 !text-xs"
+                            onClick={handleSave}
+                            disabled={saving}
                         >
-                            帮助
+                            <i className="fa fa-check mr-1 text-[9px]" />
+                            {saving ? "保存中..." : "保存"}
                         </Button>
                     </div>
                 </div>
