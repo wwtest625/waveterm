@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Docker 容器管理 - 三版布局方案</title>
+<style>
+  :root {
+    --accent: #10b981;
+    --accent-hover: #059669;
+    --zinc-950: #09090b;
+    --zinc-900: #18181b;
+    --zinc-800: #27272a;
+    --zinc-700: #3f3f46;
+    --zinc-600: #52525b;
+    --zinc-500: #71717a;
+    --zinc-400: #a1a1aa;
+    --zinc-300: #d4d4d8;
+    --zinc-100: #f4f4f5;
+    --red-500: #ef4444;
+    --red-400: #f87171;
+    --red-300: #fca5a5;
+    --amber-400: #fbbf24;
+    --emerald-400: #34d399;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--zinc-900);
+    color: var(--zinc-100);
+    line-height: 1.5;
+    padding: 24px;
+  }
+
+  /* ---- Icon helper (inline SVG via background) ---- */
+  .ico {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.125em;
+  }
+  .ico svg { width: 100%; height: 100%; fill: currentColor; }
+
+  .page-header {
+    max-width: 1100px;
+    margin: 0 auto 24px;
+    text-align: center;
+  }
+  .page-header h1 {
+    font-size: 24px;
+    margin: 0 0 8px;
+    color: var(--zinc-100);
+  }
+  .page-header p {
+    margin: 0;
+    color: var(--zinc-400);
+    font-size: 14px;
+  }
+
+  .scheme {
+    max-width: 1100px;
+    margin: 0 auto 40px;
+    border: 1px solid var(--zinc-800);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--zinc-950);
+  }
+
+  .scheme-header {
+    padding: 12px 20px;
+    background: linear-gradient(180deg, var(--zinc-900), var(--zinc-950));
+    border-bottom: 1px solid var(--zinc-800);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .scheme-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #000;
+    font-weight: 700;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .scheme-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--zinc-100);
+  }
+  .scheme-desc {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--zinc-400);
+  }
+
+  .scheme-body {
+    padding: 20px;
+    background: var(--zinc-900);
+  }
+
+  /* ============ 通用面板 ============ */
+  .panel {
+    border-radius: 12px;
+    border: 1px solid var(--zinc-800);
+    background: rgba(9, 9, 11, 0.7);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .panel-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .panel-title .title-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--zinc-100);
+  }
+  .top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .top-bar .title {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .top-bar .actions {
+    display: flex;
+    gap: 8px;
+  }
+  .tab-btn {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--zinc-700);
+    background: var(--zinc-900);
+    color: var(--zinc-300);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .tab-btn.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #000;
+  }
+  .refresh-btn {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--zinc-700);
+    background: var(--zinc-900);
+    color: var(--zinc-300);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .search-bar {
+    display: flex;
+    gap: 8px;
+    max-width: 560px;
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+  .search-input {
+    flex: 1;
+    min-width: 180px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--zinc-700);
+    background: var(--zinc-900);
+    color: var(--zinc-100);
+    font-size: 13px;
+    outline: none;
+  }
+  .search-input::placeholder { color: var(--zinc-500); }
+  .search-input:focus { border-color: var(--accent); }
+
+  .card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ============ 状态标签 ============ */
+  .state-running {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: var(--emerald-400);
+  }
+  .state-running::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--emerald-400);
+    box-shadow: 0 0 6px var(--emerald-400);
+  }
+  .state-exited {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    background: rgba(113, 113, 122, 0.1);
+    border: 1px solid rgba(113, 113, 122, 0.3);
+    color: var(--zinc-400);
+  }
+  .state-exited::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--zinc-500);
+  }
+
+  /* ============ 星标按钮 ============ */
+  .star-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--zinc-700);
+    background: var(--zinc-900);
+    color: var(--zinc-500);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .star-btn.starred {
+    border-color: rgba(251, 191, 36, 0.4);
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--amber-400);
+  }
+
+  /* ============================================================
+     方案 A - 紧凑卡片式布局 (推荐)
+     ============================================================ */
+  .a-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--zinc-800);
+    background: rgba(9, 9, 11, 0.7);
+    transition: border-color 0.15s;
+  }
+  .a-card:hover { border-color: var(--zinc-700); }
+  .a-card.is-starred {
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(6, 78, 59, 0.2);
+  }
+  .a-card-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .a-card-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .a-card-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--zinc-100);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .a-card.is-starred .a-card-name {
+    color: var(--emerald-400);
+    font-weight: 700;
+  }
+  .a-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--zinc-500);
+    flex-wrap: wrap;
+  }
+  .meta-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--zinc-800);
+    background: rgba(24, 24, 27, 0.8);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    color: var(--zinc-300);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .meta-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .meta-chip .k {
+    color: var(--zinc-500);
+    font-family: inherit;
+  }
+  .meta-copy {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    color: var(--zinc-500);
+    cursor: pointer;
+    font-size: 10px;
+  }
+  .meta-copy:hover {
+    color: var(--accent);
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  .a-card-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .icon-btn {
+    position: relative;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    border: 1px solid var(--zinc-700);
+    background: var(--zinc-900);
+    color: var(--zinc-400);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .icon-btn:hover {
+    color: var(--zinc-100);
+    border-color: var(--zinc-500);
+  }
+  .icon-btn.danger:hover {
+    color: var(--red-300);
+    border-color: var(--red-500);
+    background: rgba(239, 68, 68, 0.1);
+  }
+  .icon-btn.primary:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .icon-btn[disabled] {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .icon-btn[data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--zinc-800);
+    color: var(--zinc-100);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  /* ============================================================
+     方案 B - 表格布局 (类似 Portainer)
+     ============================================================ */
+  .b-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+    background: rgba(9, 9, 11, 0.7);
+    border: 1px solid var(--zinc-800);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .b-table thead {
+    background: var(--zinc-900);
+  }
+  .b-table th {
+    text-align: left;
+    padding: 10px 14px;
+    font-weight: 500;
+    color: var(--zinc-400);
+    font-size: 12px;
+    letter-spacing: 0.3px;
+    border-bottom: 1px solid var(--zinc-800);
+    white-space: nowrap;
+  }
+  .b-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--zinc-800);
+    color: var(--zinc-100);
+    vertical-align: middle;
+  }
+  .b-table tbody tr:last-child td { border-bottom: none; }
+  .b-table tbody tr {
+    transition: background 0.12s;
+  }
+  .b-table tbody tr:hover {
+    background: rgba(39, 39, 42, 0.3);
+  }
+  .b-table tbody tr.is-starred {
+    background: rgba(6, 78, 59, 0.12);
+  }
+  .b-table tbody tr.is-starred:hover {
+    background: rgba(6, 78, 59, 0.2);
+  }
+  .b-cell-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .b-cell-name .name {
+    font-weight: 600;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .b-table tr.is-starred .b-cell-name .name {
+    color: var(--emerald-400);
+    font-weight: 700;
+  }
+  .b-cell-id {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--zinc-400);
+  }
+  .b-cell-actions {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+  }
+  .b-col-state { width: 100px; }
+  .b-col-actions { width: 180px; text-align: right; }
+
+  /* ============================================================
+     方案 C - 小幅优化
+     ============================================================ */
+  .c-card {
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--zinc-800);
+    background: rgba(9, 9, 11, 0.7);
+  }
+  .c-card.is-starred {
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(6, 78, 59, 0.2);
+  }
+  .c-card-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .c-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+  }
+  .c-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .c-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--zinc-100);
+  }
+  .c-card.is-starred .c-name {
+    color: var(--emerald-400);
+    font-weight: 700;
+  }
+  .c-meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 11px;
+  }
+  .c-meta .meta-chip {
+    padding: 2px 6px;
+  }
+  .c-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .text-btn {
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--zinc-700);
+    background: var(--zinc-900);
+    color: var(--zinc-300);
+    font-size: 12px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .text-btn:hover {
+    color: var(--zinc-100);
+    border-color: var(--zinc-500);
+  }
+  .text-btn.danger {
+    color: var(--red-400);
+    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.08);
+  }
+  .text-btn.danger:hover {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: var(--red-500);
+    color: var(--red-300);
+  }
+  .text-btn.primary {
+    color: var(--accent);
+    border-color: rgba(16, 185, 129, 0.4);
+    background: rgba(16, 185, 129, 0.1);
+  }
+  .text-btn.primary:hover {
+    background: rgba(16, 185, 129, 0.18);
+    border-color: var(--accent);
+  }
+
+  /* 说明文字 */
+  .scheme-footer {
+    padding: 12px 20px;
+    background: var(--zinc-950);
+    border-top: 1px solid var(--zinc-800);
+    font-size: 12px;
+    color: var(--zinc-400);
+  }
+  .scheme-footer ul {
+    margin: 4px 0 0;
+    padding-left: 20px;
+  }
+  .scheme-footer li {
+    margin-bottom: 2px;
+  }
+  .scheme-footer .pros { color: var(--emerald-400); }
+  .scheme-footer .cons { color: var(--amber-400); }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Docker 容器管理 - 三版布局方案</h1>
+  <p>以下为三种不同风格的布局演示，用于对比和选择</p>
+</div>
+
+<!-- ============================================================
+     方案 A - 紧凑卡片式布局
+     ============================================================ -->
+<div class="scheme">
+  <div class="scheme-header">
+    <span class="scheme-badge">A</span>
+    <span class="scheme-title">紧凑卡片式布局（推荐）</span>
+    <span class="scheme-desc">图标按钮 · 信息层级清晰 · 节省横向空间</span>
+  </div>
+  <div class="scheme-body">
+
+    <div class="panel">
+      <div class="top-bar">
+        <div class="title">容器管理：root@192.2.29.9</div>
+        <div class="actions">
+          <button class="tab-btn active">容器</button>
+          <button class="tab-btn">镜像</button>
+          <button class="refresh-btn">&#x21bb; 刷新</button>
+        </div>
+      </div>
+      <div style="height: 12px"></div>
+      <div class="panel-title">
+        <div class="title-text">列表</div>
+        <div class="search-bar">
+          <input class="search-input" placeholder="搜索容器名" />
+          <input class="search-input" placeholder="搜索镜像ID" />
+        </div>
+      </div>
+
+      <div class="card-list">
+
+        <!-- 星标容器 -->
+        <div class="a-card is-starred">
+          <button class="star-btn starred" title="取消星标">&#x2605;</button>
+          <div class="a-card-main">
+            <div class="a-card-title-row">
+              <div class="a-card-name">aafc_build</div>
+              <span class="state-running">运行中</span>
+            </div>
+            <div class="a-card-meta">
+              <span class="meta-chip" title="点击查看镜像"><span class="k">镜像</span> 027017a6a8e7</span>
+              <span class="meta-chip"><span class="k">容器</span> 4e8c171270b7</span>
+              <span class="meta-copy" title="复制镜像ID">&#x2398;</span>
+            </div>
+          </div>
+          <div class="a-card-actions">
+            <button class="icon-btn danger" data-tip="停止">&#x25A0;</button>
+            <button class="icon-btn primary" data-tip="重启">&#x21BB;</button>
+            <button class="icon-btn primary" data-tip="进入终端">&gt;_</button>
+            <button class="icon-btn" data-tip="更多">&#x22EF;</button>
+          </div>
+        </div>
+
+        <!-- 普通容器 -->
+        <div class="a-card">
+          <button class="star-btn" title="添加星标">&#x2606;</button>
+          <div class="a-card-main">
+            <div class="a-card-title-row">
+              <div class="a-card-name">khc-web</div>
+              <span class="state-running">运行中</span>
+            </div>
+            <div class="a-card-meta">
+              <span class="meta-chip"><span class="k">镜像</span> 6fe29833e877</span>
+              <span class="meta-chip"><span class="k">容器</span> 0a0cc0a666d3</span>
+            </div>
+          </div>
+          <div class="a-card-actions">
+            <button class="icon-btn danger" data-tip="停止">&#x25A0;</button>
+            <button class="icon-btn primary" data-tip="重启">&#x21BB;</button>
+            <button class="icon-btn primary" data-tip="进入终端">&gt;_</button>
+            <button class="icon-btn" data-tip="更多">&#x22EF;</button>
+          </div>
+        </div>
+
+        <div class="a-card">
+          <button class="star-btn" title="添加星标">&#x2606;</button>
+          <div class="a-card-main">
+            <div class="a-card-title-row">
+              <div class="a-card-name">mobile-ssh-gateway-gateway-1</div>
+              <span class="state-running">运行中</span>
+            </div>
+            <div class="a-card-meta">
+              <span class="meta-chip"><span class="k">镜像</span> 1ceb409d13d4</span>
+              <span class="meta-chip"><span class="k">容器</span> cc1d013b3e50</span>
+            </div>
+          </div>
+          <div class="a-card-actions">
+            <button class="icon-btn danger" data-tip="停止">&#x25A0;</button>
+            <button class="icon-btn primary" data-tip="重启">&#x21BB;</button>
+            <button class="icon-btn primary" data-tip="进入终端">&gt;_</button>
+            <button class="icon-btn" data-tip="更多">&#x22EF;</button>
+          </div>
+        </div>
+
+        <!-- 已停止容器 -->
+        <div class="a-card">
+          <button class="star-btn" title="添加星标">&#x2606;</button>
+          <div class="a-card-main">
+            <div class="a-card-title-row">
+              <div class="a-card-name">old-service</div>
+              <span class="state-exited">已停止</span>
+            </div>
+            <div class="a-card-meta">
+              <span class="meta-chip"><span class="k">镜像</span> 8a9f21cd4e3b</span>
+              <span class="meta-chip"><span class="k">容器</span> 1b2c3d4e5f6a</span>
+            </div>
+          </div>
+          <div class="a-card-actions">
+            <button class="icon-btn primary" data-tip="启动">&#x25B6;</button>
+            <button class="icon-btn" data-tip="进入终端" disabled>&gt;_</button>
+            <button class="icon-btn" data-tip="更多">&#x22EF;</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+  <div class="scheme-footer">
+    <strong>特点：</strong>
+    <ul>
+      <li><span class="pros">&#x2713; 图标按钮大幅节省横向空间</span>，小屏幕也不换行</li>
+      <li><span class="pros">&#x2713; 元信息（镜像ID/容器ID）单行紧凑排列</span>，视觉噪音少</li>
+      <li><span class="pros">&#x2713; 操作按钮有 hover tooltip</span>，不占空间也不影响理解</li>
+      <li><span class="pros">&#x2713; 星标容器用绿色调+绿色名称高亮</span>，视觉区分清晰</li>
+      <li><span class="cons">&#x25B3; 纯图标需要学习成本</span>（但 tooltip 缓解）</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================================
+     方案 B - 表格布局
+     ============================================================ -->
+<div class="scheme">
+  <div class="scheme-header">
+    <span class="scheme-badge">B</span>
+    <span class="scheme-title">表格布局（类似 Portainer）</span>
+    <span class="scheme-desc">列对齐 · 信息密度高 · 适合大量容器</span>
+  </div>
+  <div class="scheme-body">
+
+    <div class="panel">
+      <div class="top-bar">
+        <div class="title">容器管理：root@192.2.29.9</div>
+        <div class="actions">
+          <button class="tab-btn active">容器</button>
+          <button class="tab-btn">镜像</button>
+          <button class="refresh-btn">&#x21bb; 刷新</button>
+        </div>
+      </div>
+      <div style="height: 12px"></div>
+      <div class="panel-title">
+        <div class="title-text">列表</div>
+        <div class="search-bar">
+          <input class="search-input" placeholder="搜索容器名" />
+          <input class="search-input" placeholder="搜索镜像ID" />
+        </div>
+      </div>
+
+      <table class="b-table">
+        <thead>
+          <tr>
+            <th style="width: 40px"></th>
+            <th>容器名称</th>
+            <th class="b-col-state">状态</th>
+            <th>镜像 ID</th>
+            <th>容器 ID</th>
+            <th class="b-col-actions">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="is-starred">
+            <td><button class="star-btn starred">&#x2605;</button></td>
+            <td>
+              <div class="b-cell-name">
+                <span class="name">aafc_build</span>
+              </div>
+            </td>
+            <td><span class="state-running">运行中</span></td>
+            <td class="b-cell-id">027017a6a8e7</td>
+            <td class="b-cell-id">4e8c171270b7</td>
+            <td>
+              <div class="b-cell-actions">
+                <button class="icon-btn danger" data-tip="停止">&#x25A0;</button>
+                <button class="icon-btn primary" data-tip="重启">&#x21BB;</button>
+                <button class="icon-btn primary" data-tip="进入">&gt;_</button>
+                <button class="icon-btn" data-tip="更多">&#x22EF;</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><button class="star-btn">&#x2606;</button></td>
+            <td><span class="name">khc-web</span></td>
+            <td><span class="state-running">运行中</span></td>
+            <td class="b-cell-id">6fe29833e877</td>
+            <td class="b-cell-id">0a0cc0a666d3</td>
+            <td>
+              <div class="b-cell-actions">
+                <button class="icon-btn danger" data-tip="停止">&#x25A0;</button>
+                <button class="icon-btn primary" data-tip="重启">&#x21BB;</button>
+                <button class="icon-btn primary" data-tip="进入">&gt;_</button>
+                <button class="icon-btn" data-tip="更多">&#x22EF;</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><button class="star-btn">&#x2606;</button></td>
+            <td><span class="name">mobile-ssh-gateway-gateway-1</span></td>
+            <td><span class="state-running">运行中</span></td>
+            <td class="b-cell-id">1ceb409d13d4</td>
+            <td class="b-cell-id">cc1d013b3e50</td>
+            <td>
+              <div class="b-cell-actions">
+                <button class="icon-btn danger" data-tip="停止">&#x25A0;</button>
+                <button class="icon-btn primary" data-tip="重启">&#x21BB;</button>
+                <button class="icon-btn primary" data-tip="进入">&gt;_</button>
+                <button class="icon-btn" data-tip="更多">&#x22EF;</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><button class="star-btn">&#x2606;</button></td>
+            <td><span class="name">old-service</span></td>
+            <td><span class="state-exited">已停止</span></td>
+            <td class="b-cell-id">8a9f21cd4e3b</td>
+            <td class="b-cell-id">1b2c3d4e5f6a</td>
+            <td>
+              <div class="b-cell-actions">
+                <button class="icon-btn primary" data-tip="启动">&#x25B6;</button>
+                <button class="icon-btn" data-tip="进入" disabled>&gt;_</button>
+                <button class="icon-btn" data-tip="更多">&#x22EF;</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+  <div class="scheme-footer">
+    <strong>特点：</strong>
+    <ul>
+      <li><span class="pros">&#x2713; 信息密度最高</span>，一屏能看更多容器</li>
+      <li><span class="pros">&#x2713; 列对齐，扫描式阅读效率高</span>，适合运维人员</li>
+      <li><span class="cons">&#x25B3; 容器名称过长时需要截断</span>，小屏幕会横向滚动</li>
+      <li><span class="cons">&#x25B3; 视觉上偏"工具化"</span>，不如卡片友好</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================================
+     方案 C - 小幅优化
+     ============================================================ -->
+<div class="scheme">
+  <div class="scheme-header">
+    <span class="scheme-badge">C</span>
+    <span class="scheme-title">小幅优化（保留现有结构）</span>
+    <span class="scheme-desc">文字按钮 · 优化间距对齐 · 最小改动</span>
+  </div>
+  <div class="scheme-body">
+
+    <div class="panel">
+      <div class="top-bar">
+        <div class="title">容器管理：root@192.2.29.9</div>
+        <div class="actions">
+          <button class="tab-btn active">容器</button>
+          <button class="tab-btn">镜像</button>
+          <button class="refresh-btn">&#x21bb; 刷新</button>
+        </div>
+      </div>
+      <div style="height: 12px"></div>
+      <div class="panel-title">
+        <div class="title-text">列表</div>
+        <div class="search-bar">
+          <input class="search-input" placeholder="搜索容器名" />
+          <input class="search-input" placeholder="搜索镜像ID" />
+        </div>
+      </div>
+
+      <div class="card-list">
+
+        <div class="c-card is-starred">
+          <div class="c-card-row">
+            <div class="c-left">
+              <div class="c-title-row">
+                <button class="star-btn starred">&#x2605;</button>
+                <span class="c-name">aafc_build</span>
+                <span class="state-running">运行中</span>
+              </div>
+              <div class="c-meta">
+                <span class="meta-chip"><span class="k">镜像</span> 027017a6a8e7</span>
+                <span class="meta-chip"><span class="k">容器</span> 4e8c171270b7</span>
+              </div>
+            </div>
+            <div class="c-actions">
+              <button class="text-btn danger">&#x25A0; 停止</button>
+              <button class="text-btn primary">&#x21BB; 重启</button>
+              <button class="text-btn primary">&gt;_ 进入</button>
+              <button class="text-btn">&#x22EF;</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="c-card">
+          <div class="c-card-row">
+            <div class="c-left">
+              <div class="c-title-row">
+                <button class="star-btn">&#x2606;</button>
+                <span class="c-name">khc-web</span>
+                <span class="state-running">运行中</span>
+              </div>
+              <div class="c-meta">
+                <span class="meta-chip"><span class="k">镜像</span> 6fe29833e877</span>
+                <span class="meta-chip"><span class="k">容器</span> 0a0cc0a666d3</span>
+              </div>
+            </div>
+            <div class="c-actions">
+              <button class="text-btn danger">&#x25A0; 停止</button>
+              <button class="text-btn primary">&#x21BB; 重启</button>
+              <button class="text-btn primary">&gt;_ 进入</button>
+              <button class="text-btn">&#x22EF;</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="c-card">
+          <div class="c-card-row">
+            <div class="c-left">
+              <div class="c-title-row">
+                <button class="star-btn">&#x2606;</button>
+                <span class="c-name">mobile-ssh-gateway-gateway-1</span>
+                <span class="state-running">运行中</span>
+              </div>
+              <div class="c-meta">
+                <span class="meta-chip"><span class="k">镜像</span> 1ceb409d13d4</span>
+                <span class="meta-chip"><span class="k">容器</span> cc1d013b3e50</span>
+              </div>
+            </div>
+            <div class="c-actions">
+              <button class="text-btn danger">&#x25A0; 停止</button>
+              <button class="text-btn primary">&#x21BB; 重启</button>
+              <button class="text-btn primary">&gt;_ 进入</button>
+              <button class="text-btn">&#x22EF;</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="c-card">
+          <div class="c-card-row">
+            <div class="c-left">
+              <div class="c-title-row">
+                <button class="star-btn">&#x2606;</button>
+                <span class="c-name">old-service</span>
+                <span class="state-exited">已停止</span>
+              </div>
+              <div class="c-meta">
+                <span class="meta-chip"><span class="k">镜像</span> 8a9f21cd4e3b</span>
+                <span class="meta-chip"><span class="k">容器</span> 1b2c3d4e5f6a</span>
+              </div>
+            </div>
+            <div class="c-actions">
+              <button class="text-btn primary">&#x25B6; 启动</button>
+              <button class="text-btn" disabled>&gt;_ 进入</button>
+              <button class="text-btn">&#x22EF;</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+  <div class="scheme-footer">
+    <strong>特点：</strong>
+    <ul>
+      <li><span class="pros">&#x2713; 改动最小</span>，基本保留现有结构</li>
+      <li><span class="pros">&#x2713; 文字按钮直观易懂</span>，无需学习</li>
+      <li><span class="pros">&#x2713; 统一按钮视觉语言</span>（危险/主操作/中性三档）</li>
+      <li><span class="cons">&#x25B3; 还是会换行</span>，在窄屏下操作按钮堆到下一行</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

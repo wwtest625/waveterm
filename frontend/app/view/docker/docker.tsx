@@ -23,6 +23,7 @@ import {
     dockerContainerMatchesSearch,
     dockerStateBadgeClass,
     dockerStateLabel,
+    dockerStateNameClass,
     getDockerErrorHeadline,
     isDockerContainerStarred,
     loadDockerStarredContainerIds,
@@ -39,31 +40,43 @@ const panelClass = "rounded-xl border border-zinc-800 bg-zinc-950/70 p-4";
 const DockerViewComponent = memo(DockerView);
 type DockerTabKey = "containers" | "images";
 
-function RowActionButton({
+function IconActionButton({
+    icon,
     label,
     onClick,
     disabled,
     pending,
     variant = "default",
 }: {
+    icon: string;
     label: string;
     onClick: () => void;
     disabled?: boolean;
     pending?: boolean;
-    variant?: "default" | "danger";
+    variant?: "default" | "danger" | "primary";
 }) {
-    const className =
+    const variantClass =
         variant === "danger"
-            ? pending
-                ? "!h-[28px] !px-2 !text-xs !bg-red-500/10 !border-red-500/30 !text-red-300 !opacity-50 !cursor-wait"
-                : "!h-[28px] !px-2 !text-xs !bg-red-500/10 !border-red-500/30 !text-red-300 hover:!bg-red-500/20"
-            : pending
-              ? "!h-[28px] !px-2 !text-xs !opacity-50 !cursor-wait"
-              : "!h-[28px] !px-2 !text-xs";
+            ? "text-red-400 border-zinc-700 hover:text-red-300 hover:border-red-500 hover:bg-red-500/10"
+            : variant === "primary"
+              ? "text-accent border-zinc-700 hover:border-accent hover:bg-accent/10"
+              : "text-zinc-400 border-zinc-700 hover:text-zinc-100 hover:border-zinc-500";
     return (
-        <Button className={className} onClick={onClick} disabled={disabled || pending}>
-            {label}
-        </Button>
+        <button
+            type="button"
+            className={[
+                "relative flex h-[30px] w-[30px] items-center justify-center rounded-md border bg-zinc-900 text-xs transition-all duration-200",
+                variantClass,
+                pending ? "opacity-70 cursor-wait docker-pending-spin" : "",
+                disabled ? "opacity-40 cursor-not-allowed" : "",
+            ].join(" ")}
+            onClick={onClick}
+            disabled={disabled || pending}
+            title={label}
+            aria-label={label}
+        >
+            <i className={`fa ${icon}`} />
+        </button>
     );
 }
 
@@ -77,13 +90,13 @@ function RowMoreButton({
     return (
         <button
             type="button"
-            className="flex h-[26px] w-[26px] items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-400 text-xs transition-all hover:border-zinc-500 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onClick}
             disabled={disabled}
             aria-label="更多操作"
             title="更多操作"
         >
-            <i className="fa fa-ellipsis-h text-[11px]" />
+            <i className="fa fa-ellipsis-h" />
         </button>
     );
 }
@@ -127,23 +140,15 @@ function DockerTabButton({ active, label, onClick }: { active: boolean; label: s
     );
 }
 
-function DockerIdRow({
-    label,
-    value,
-}: {
-    label: string;
-    value: string;
-}) {
+function CopyableId({ value, label }: { value: string; label: string }) {
     if (!value) {
-        return null;
+        return <span className="text-zinc-600">-</span>;
     }
     return (
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-            <span className="rounded-md border border-zinc-800 bg-zinc-900/80 px-2 py-1 font-mono text-zinc-300">
-                {label}: {value}
-            </span>
+        <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs text-zinc-400">{shortenDockerId(value)}</span>
             <CopyButton
-                className="copy-button"
+                className="copy-button !h-[18px] !w-[18px] !min-w-[18px] !text-[9px]"
                 onClick={() => {
                     void navigator.clipboard.writeText(value);
                 }}
@@ -276,6 +281,7 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
             const actionKey = `${action}:${containerId}`;
             setPendingActions((prev) => ({ ...prev, [actionKey]: action }));
             setActionError(null);
+            const isAsyncAction = action === "stop" || action === "restart";
             try {
                 const resp = await RpcApi.DockerContainerActionCommand(TabRpcClient, {
                     connection,
@@ -283,13 +289,21 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                     action,
                 });
                 if (resp?.error) {
-                    setActionError(resp.error);
-                    return;
+                    if (isAsyncAction && (resp.error.detail?.includes("deadline") || resp.error.detail?.includes("timeout") || resp.error.detail?.includes("context"))) {
+                        // 超时类错误：静默处理，靠轮询刷新
+                    } else {
+                        setActionError(resp.error);
+                    }
                 }
                 await refreshData(false);
             } catch (err) {
                 const message = err instanceof Error ? err.message : "Docker 操作失败。";
-                setActionError({ code: "unknown", message });
+                if (isAsyncAction && (message.includes("deadline") || message.includes("timeout") || message.includes("context"))) {
+                    // 超时类错误：静默处理，靠轮询刷新
+                    await refreshData(false);
+                } else {
+                    setActionError({ code: "unknown", message });
+                }
             } finally {
                 setPendingActions((prev) => {
                     const next = { ...prev };
@@ -451,11 +465,49 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
 
     return (
         <div className="h-full w-full min-w-0 overflow-y-auto bg-zinc-900 p-4 text-zinc-100">
+            <style>{`
+                @keyframes docker-breathe {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.7; }
+                }
+                @keyframes docker-glow-pulse {
+                    0%, 100% { text-shadow: 0 0 4px currentColor; }
+                    50% { text-shadow: 0 0 10px currentColor, 0 0 20px currentColor; }
+                }
+                @keyframes docker-spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                @keyframes docker-row-in {
+                    from { opacity: 0; transform: translateY(6px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                @keyframes docker-star-pop {
+                    0% { transform: scale(1); }
+                    50% { transform: scale(1.3); }
+                    100% { transform: scale(1); }
+                }
+                .docker-state-running {
+                    animation: docker-breathe 3s ease-in-out infinite, docker-glow-pulse 3s ease-in-out infinite;
+                }
+                .docker-state-restarting {
+                    animation: docker-breathe 1.5s ease-in-out infinite;
+                }
+                .docker-pending-spin i {
+                    animation: docker-spin 1s linear infinite;
+                }
+                .docker-row-enter {
+                    animation: docker-row-in 0.3s ease-out both;
+                }
+                .docker-star-animate {
+                    animation: docker-star-pop 0.3s ease-out;
+                }
+            `}</style>
             <div className="flex w-full min-w-0 flex-col gap-4">
                 {actionError ? (
                     <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                         <div className="font-medium">{getDockerErrorHeadline(actionError)}</div>
-                        {actionError.detail ? <div className="mt-1 text-red-200/80">{actionError.detail}</div> : null}
+                        {actionError.detail ? <div className="mt-1 opacity-80">{actionError.detail}</div> : null}
                     </div>
                 ) : null}
 
@@ -505,85 +557,93 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                         {sortedContainers.length === 0 ? (
                             <EmptyList title={containerEmptyTitle} />
                         ) : (
-                            <div className="space-y-2">
-                                {sortedContainers.map((container) => {
-                                    const containerKey = container.id;
-                                    const stateLabel = dockerStateLabel(container.state);
-                                    const disableRemove = !canRemoveDockerContainer(container.state);
-                                    const isBusy = Object.keys(pendingActions).some((key) => key.endsWith(`:${containerKey}`));
-                                    const isTogglePending =
-                                        `start:${containerKey}` in pendingActions || `stop:${containerKey}` in pendingActions;
-                                    const isRestartPending = `restart:${containerKey}` in pendingActions;
-                                    const isRunningLike =
-                                        container.state === "running" ||
-                                        container.state === "paused" ||
-                                        container.state === "restarting";
-                                    const starred = isDockerContainerStarred(starredContainerIds, container.id);
-                                    const openContainerMenu = (event: MouseEvent<HTMLButtonElement>) => {
-                                        const menu: ContextMenuItem[] = [
-                                            {
-                                                label: "重命名",
-                                                click: () => {
-                                                    openRenameContainer(container);
-                                                },
-                                            },
-                                            {
-                                                type: "separator",
-                                            },
-                                            {
-                                                label: starred ? "取消星标" : "添加星标",
-                                                click: () => {
-                                                    toggleContainerStar(container.id);
-                                                },
-                                            },
-                                            {
-                                                type: "separator",
-                                            },
-                                            {
-                                                label: "强制停止",
-                                                enabled: isRunningLike && !isBusy,
-                                                click: () => {
-                                                    void runContainerAction(container.id, "kill");
-                                                },
-                                            },
-                                            {
-                                                label: "日志",
-                                                click: () => {
-                                                    void openLogs(container.id, container.name);
-                                                },
-                                            },
-                                            {
-                                                type: "separator",
-                                            },
-                                            {
-                                                label: "删除",
-                                                enabled: !disableRemove && !isBusy,
-                                                click: () => {
-                                                    void runContainerAction(container.id, "remove");
-                                                },
-                                            },
-                                        ];
-                                        ContextMenuModel.getInstance().showContextMenu(menu, event);
-                                    };
-                                    return (
-                                        <div
-                                            key={containerKey}
-                                            className={[
-                                                "rounded-lg border px-3 py-2.5 transition-colors",
-                                                starred
-                                                    ? "border-emerald-500/30 bg-emerald-950/25 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]"
-                                                    : "border-zinc-800 bg-zinc-950/70",
-                                            ].join(" ")}
-                                        >
-                                            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="flex flex-wrap items-center gap-2">
+                            <div className="overflow-x-auto">
+                                <table className="w-full border-collapse text-sm">
+                                    <thead>
+                                        <tr className="border-b border-zinc-800 bg-zinc-900/80">
+                                            <th className="w-[40px] px-3 py-2 text-left text-xs font-medium text-zinc-500"></th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-zinc-500">容器名称</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-zinc-500">ID</th>
+                                            <th className="w-[160px] px-3 py-2 text-right text-xs font-medium text-zinc-500">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {sortedContainers.map((container) => {
+                                            const containerKey = container.id;
+                                            const stateLabel = dockerStateLabel(container.state);
+                                            const disableRemove = !canRemoveDockerContainer(container.state);
+                                            const isBusy = Object.keys(pendingActions).some((key) => key.endsWith(`:${containerKey}`));
+                                            const isTogglePending =
+                                                `start:${containerKey}` in pendingActions || `stop:${containerKey}` in pendingActions;
+                                            const isRestartPending = `restart:${containerKey}` in pendingActions;
+                                            const isRunningLike =
+                                                container.state === "running" ||
+                                                container.state === "paused" ||
+                                                container.state === "restarting";
+                                            const starred = isDockerContainerStarred(starredContainerIds, container.id);
+                                            const openContainerMenu = (event: MouseEvent<HTMLButtonElement>) => {
+                                                const menu: ContextMenuItem[] = [
+                                                    {
+                                                        label: "重命名",
+                                                        click: () => {
+                                                            openRenameContainer(container);
+                                                        },
+                                                    },
+                                                    {
+                                                        type: "separator",
+                                                    },
+                                                    {
+                                                        label: starred ? "取消星标" : "添加星标",
+                                                        click: () => {
+                                                            toggleContainerStar(container.id);
+                                                        },
+                                                    },
+                                                    {
+                                                        type: "separator",
+                                                    },
+                                                    {
+                                                        label: "强制停止",
+                                                        enabled: isRunningLike && !isBusy,
+                                                        click: () => {
+                                                            void runContainerAction(container.id, "kill");
+                                                        },
+                                                    },
+                                                    {
+                                                        label: "日志",
+                                                        click: () => {
+                                                            void openLogs(container.id, container.name);
+                                                        },
+                                                    },
+                                                    {
+                                                        type: "separator",
+                                                    },
+                                                    {
+                                                        label: "删除",
+                                                        enabled: !disableRemove && !isBusy,
+                                                        click: () => {
+                                                            void runContainerAction(container.id, "remove");
+                                                        },
+                                                    },
+                                                ];
+                                                ContextMenuModel.getInstance().showContextMenu(menu, event);
+                                            };
+                                            return (
+                                                <tr
+                                                    key={containerKey}
+                                                    className={[
+                                                        "border-b border-zinc-800/60 transition-colors duration-300 last:border-b-0 docker-row-enter",
+                                                        starred
+                                                            ? "bg-emerald-950/15 hover:bg-emerald-950/25"
+                                                            : "hover:bg-zinc-800/30",
+                                                    ].join(" ")}
+                                                >
+                                                    <td className="px-3 py-2.5">
                                                         <button
                                                             type="button"
                                                             className={[
-                                                                "flex h-[28px] w-[28px] items-center justify-center rounded-md border transition-colors",
+                                                                "flex h-[26px] w-[26px] items-center justify-center rounded-md border transition-all duration-200",
                                                                 starred
-                                                                    ? "border-amber-400/40 bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
+                                                                    ? "border-amber-400/40 bg-amber-400/15 text-amber-300 hover:bg-amber-400/25 docker-star-animate"
                                                                     : "border-zinc-700 bg-zinc-900 text-zinc-500 hover:border-amber-400/40 hover:text-amber-300",
                                                             ].join(" ")}
                                                             onClick={() => toggleContainerStar(container.id)}
@@ -593,81 +653,107 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                                                         >
                                                             <i
                                                                 className={[
-                                                                    "fa text-[11px]",
+                                                                    "fa text-[10px]",
                                                                     starred ? "fa-solid fa-star" : "fa-regular fa-star",
                                                                 ].join(" ")}
                                                             />
                                                         </button>
-                                                        <div
-                                                            className={[
-                                                                "truncate text-sm",
-                                                                starred
-                                                                    ? "font-bold text-emerald-300"
-                                                                    : "font-semibold text-zinc-100",
-                                                            ].join(" ")}
-                                                        >
-                                                            {container.name || container.id}
+                                                    </td>
+                                                    <td className="px-3 py-2.5">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span
+                                                                className={[
+                                                                    "truncate text-sm font-semibold transition-colors duration-500",
+                                                                    dockerStateNameClass(container.state),
+                                                                    container.state === "running" ? "docker-state-running" : "",
+                                                                    container.state === "restarting" ? "docker-state-restarting" : "",
+                                                                    starred ? "font-bold" : "",
+                                                                ].join(" ")}
+                                                                title={`${container.name || container.id} · ${stateLabel}`}
+                                                            >
+                                                                {container.name || container.id}
+                                                            </span>
+                                                            <span className="flex-shrink-0 text-[11px] text-zinc-600">
+                                                                {stateLabel}
+                                                            </span>
                                                         </div>
-                                                        <span
-                                                            className={`rounded-full border px-2 py-0.5 text-[11px] tracking-wide ${dockerStateBadgeClass(container.state)}`}
-                                                        >
-                                                            {stateLabel}
-                                                        </span>
-                                                    </div>
-                                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                                                        <button
-                                                            type="button"
-                                                            className="cursor-pointer rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-1 font-mono text-zinc-300 transition-colors hover:border-accent hover:text-accent"
-                                                            onClick={() => {
-                                                                setActiveTab("images");
-                                                                setImagesSearch(shortenDockerId(container.imageId));
-                                                            }}
-                                                            title="点击查看镜像"
-                                                        >
-                                                            镜像: {shortenDockerId(container.imageId)}
-                                                        </button>
-                                                        <CopyButton
-                                                            className="copy-button"
-                                                            onClick={() => {
-                                                                void navigator.clipboard.writeText(shortenDockerId(container.imageId));
-                                                            }}
-                                                            title="复制镜像ID"
-                                                        />
-                                                    </div>
-                                                    <DockerIdRow label="容器 ID" value={container.id} />
-                                                </div>
-                                                <div className="flex flex-wrap gap-2 lg:justify-end">
-                                                    <RowActionButton
-                                                        label={isRunningLike ? "停止" : "启动"}
-                                                        onClick={() =>
-                                                            void runContainerAction(
-                                                                container.id,
-                                                                isRunningLike ? "stop" : "start"
-                                                            )
-                                                        }
-                                                        pending={isTogglePending}
-                                                        variant={isRunningLike ? "danger" : "default"}
-                                                    />
-                                                    {isRunningLike && (
-                                                        <RowActionButton
-                                                            label="重启"
-                                                            onClick={() =>
-                                                                void runContainerAction(container.id, "restart")
-                                                            }
-                                                            pending={isRestartPending}
-                                                        />
-                                                    )}
-                                                    <RowActionButton
-                                                        label="进入"
-                                                        onClick={() => void execIntoContainer(container.id)}
-                                                        disabled={!isRunningLike}
-                                                    />
-                                                    <RowMoreButton onClick={openContainerMenu} disabled={false} />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                                                    </td>
+                                                    <td className="px-3 py-2.5">
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="text-[10px] text-zinc-600">镜像</span>
+                                                                <button
+                                                                    type="button"
+                                                                    className="cursor-pointer rounded border border-zinc-800 bg-zinc-900/80 px-1.5 py-0.5 font-mono text-[11px] text-zinc-400 transition-colors hover:border-accent hover:text-accent"
+                                                                    onClick={() => {
+                                                                        setActiveTab("images");
+                                                                        setImagesSearch(shortenDockerId(container.imageId));
+                                                                    }}
+                                                                    title="点击查看镜像"
+                                                                >
+                                                                    {shortenDockerId(container.imageId)}
+                                                                </button>
+                                                                <CopyButton
+                                                                    className="copy-button !h-[16px] !w-[16px] !min-w-[16px] !text-[8px]"
+                                                                    onClick={() => {
+                                                                        void navigator.clipboard.writeText(shortenDockerId(container.imageId));
+                                                                    }}
+                                                                    title="复制镜像ID"
+                                                                />
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="text-[10px] text-zinc-600">容器</span>
+                                                                <span className="font-mono text-[11px] text-zinc-400">{shortenDockerId(container.id)}</span>
+                                                                <CopyButton
+                                                                    className="copy-button !h-[16px] !w-[16px] !min-w-[16px] !text-[8px]"
+                                                                    onClick={() => {
+                                                                        void navigator.clipboard.writeText(container.id);
+                                                                    }}
+                                                                    title="复制容器ID"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-3 py-2.5">
+                                                        <div className="flex items-center justify-end gap-1">
+                                                            <IconActionButton
+                                                                icon={isRunningLike ? "fa-stop" : "fa-play"}
+                                                                label={isRunningLike ? "停止" : "启动"}
+                                                                onClick={() =>
+                                                                    void runContainerAction(
+                                                                        container.id,
+                                                                        isRunningLike ? "stop" : "start"
+                                                                    )
+                                                                }
+                                                                pending={isTogglePending}
+                                                                variant={isRunningLike ? "danger" : "primary"}
+                                                            />
+                                                            {isRunningLike && (
+                                                                <IconActionButton
+                                                                    icon="fa-rotate-right"
+                                                                    label="重启"
+                                                                    onClick={() =>
+                                                                        void runContainerAction(container.id, "restart")
+                                                                    }
+                                                                    pending={isRestartPending}
+                                                                    variant="default"
+                                                                />
+                                                            )}
+                                                            <IconActionButton
+                                                                icon="fa-terminal"
+                                                                label="进入"
+                                                                onClick={() => void execIntoContainer(container.id)}
+                                                                disabled={!isRunningLike}
+                                                                variant="primary"
+                                                            />
+                                                            <RowMoreButton onClick={openContainerMenu} disabled={false} />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
                             </div>
                         )}
                     </div>
@@ -701,61 +787,82 @@ function DockerView({ blockId }: ViewComponentProps<DockerViewModel>) {
                         {filteredImages.length === 0 ? (
                             <EmptyList title={imageEmptyTitle} />
                         ) : (
-                            <div className="space-y-2">
-                                {filteredImages.map((image) => {
-                                    const imageRef =
-                                        image.tag && image.tag !== "<none>"
-                                            ? `${image.repository}:${image.tag}`
-                                            : image.repository !== "<none>"
-                                              ? image.repository
-                                              : image.id;
-                                    const isBusy = `remove-image:${image.id}` in pendingActions;
-                                    return (
-                                        <div
-                                            key={image.id}
-                                            className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-3"
-                                        >
-                                            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="truncate text-sm font-semibold text-zinc-100">
-                                                        {imageRef}
-                                                    </div>
-                                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                                                        <span>大小：{image.sizeText || "未知"}</span>
+                            <div className="overflow-x-auto">
+                                <table className="w-full border-collapse text-sm">
+                                    <thead>
+                                        <tr className="border-b border-zinc-800 bg-zinc-900/80">
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-zinc-500">镜像</th>
+                                            <th className="w-[100px] px-3 py-2 text-left text-xs font-medium text-zinc-500">大小</th>
+                                            <th className="w-[120px] px-3 py-2 text-left text-xs font-medium text-zinc-500">使用情况</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-zinc-500">镜像 ID</th>
+                                            <th className="w-[100px] px-3 py-2 text-right text-xs font-medium text-zinc-500">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredImages.map((image) => {
+                                            const imageRef =
+                                                image.tag && image.tag !== "<none>"
+                                                    ? `${image.repository}:${image.tag}`
+                                                    : image.repository !== "<none>"
+                                                      ? image.repository
+                                                      : image.id;
+                                            const isBusy = `remove-image:${image.id}` in pendingActions;
+                                            return (
+                                                <tr
+                                                    key={image.id}
+                                                    className="border-b border-zinc-800/60 transition-colors duration-300 last:border-b-0 hover:bg-zinc-800/30 docker-row-enter"
+                                                >
+                                                    <td className="px-3 py-2.5">
+                                                        <span className="truncate text-sm font-semibold text-zinc-100">
+                                                            {imageRef}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-3 py-2.5">
+                                                        <span className="text-xs text-zinc-400">{image.sizeText || "未知"}</span>
+                                                    </td>
+                                                    <td className="px-3 py-2.5">
                                                         {image.containers > 0 ? (
                                                             <button
                                                                 type="button"
-                                                                className="cursor-pointer rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-amber-200 transition-colors hover:bg-amber-500/20"
+                                                                className="cursor-pointer rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-200 transition-colors hover:bg-amber-500/20"
                                                                 onClick={() => {
                                                                     setActiveTab("containers");
                                                                     setContainerImageSearch(image.id);
                                                                     setContainersSearch("");
                                                                 }}
                                                             >
-                                                                {image.containers} 个容器使用中
+                                                                {image.containers} 个容器
                                                             </button>
                                                         ) : (
-                                                            <span>未被使用</span>
+                                                            <span className="text-xs text-zinc-500">未使用</span>
                                                         )}
-                                                    </div>
-                                                    <DockerIdRow label="镜像 ID" value={image.id} />
-                                                </div>
-                                                <div className="flex flex-wrap gap-2 lg:justify-end">
-                                                    <RowActionButton
-                                                        label="导出"
-                                                        onClick={() => void saveImage(imageRef)}
-                                                    />
-                                                    <RowActionButton
-                                                        label="删除"
-                                                        onClick={() => void runImageRemove(image.id)}
-                                                        disabled={isBusy}
-                                                        variant="danger"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                                                    </td>
+                                                    <td className="px-3 py-2.5">
+                                                        <CopyableId value={image.id} label="镜像ID" />
+                                                    </td>
+                                                    <td className="px-3 py-2.5">
+                                                        <div className="flex items-center justify-end gap-1">
+                                                            <IconActionButton
+                                                                icon="fa-download"
+                                                                label="导出"
+                                                                onClick={() => void saveImage(imageRef)}
+                                                                variant="default"
+                                                            />
+                                                            <IconActionButton
+                                                                icon="fa-trash"
+                                                                label="删除"
+                                                                onClick={() => void runImageRemove(image.id)}
+                                                                disabled={isBusy}
+                                                                pending={isBusy}
+                                                                variant="danger"
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
                             </div>
                         )}
                     </div>

@@ -191,6 +191,23 @@ export function dockerStateBadgeClass(state?: string): string {
     return "border-zinc-600 bg-zinc-800/80 text-zinc-300";
 }
 
+export function dockerStateNameClass(state?: string): string {
+    const normalized = normalizeDockerState(state);
+    if (normalized === "running") {
+        return "text-emerald-400";
+    }
+    if (normalized === "paused") {
+        return "text-amber-400";
+    }
+    if (normalized === "exited" || normalized === "dead") {
+        return "text-red-400";
+    }
+    if (normalized === "restarting" || normalized === "removing") {
+        return "text-blue-400";
+    }
+    return "text-zinc-400";
+}
+
 export function getDockerErrorHeadline(error?: DockerError | null): string {
     switch (error?.code) {
         case "missing_cli":
