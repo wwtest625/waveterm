@@ -332,6 +332,21 @@ export async function getOrCreateWebViewForTab(waveWindowId: string, tabId: stri
         // console.log("WIN bie", tabView.waveTabId.substring(0, 8), waveEvent.type, waveEvent.code);
         handleCtrlShiftState(tabView.webContents, waveEvent);
         setWasActive(true);
+
+        // Handle Ctrl+Tab / Ctrl+Shift+Tab for tab switching
+        if (input.type === "keyDown") {
+            if (checkKeyPressed(waveEvent, "Ctrl:Tab")) {
+                e.preventDefault();
+                switchTabInWaveWindow(tabView, 1);
+                return;
+            }
+            if (checkKeyPressed(waveEvent, "Ctrl:Shift:Tab")) {
+                e.preventDefault();
+                switchTabInWaveWindow(tabView, -1);
+                return;
+            }
+        }
+
         if (input.type == "keyDown" && tabView.keyboardChordMode) {
             e.preventDefault();
             tabView.setKeyboardChordMode(false);
@@ -377,6 +392,28 @@ function removeWaveTabView(waveTabId: string): void {
         return;
     }
     wcvCache.delete(waveTabId);
+}
+
+function switchTabInWaveWindow(tabView: WaveTabView, offset: number): void {
+    const ww = getWaveWindowById(tabView.waveWindowId);
+    if (!ww) {
+        return;
+    }
+    const tabIds = Array.from(ww.allLoadedTabViews.keys());
+    if (tabIds.length <= 1) {
+        return;
+    }
+    const activeTabId = ww.activeTabView?.waveTabId;
+    if (!activeTabId) {
+        return;
+    }
+    const curIdx = tabIds.indexOf(activeTabId);
+    if (curIdx === -1) {
+        return;
+    }
+    const newIdx = (curIdx + offset + tabIds.length) % tabIds.length;
+    const newTabId = tabIds[newIdx];
+    ww.setActiveTab(newTabId, true);
 }
 
 let HotSpareTab: WaveTabView = null;
