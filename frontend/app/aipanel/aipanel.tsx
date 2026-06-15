@@ -188,10 +188,10 @@ const AIPanelComponentInner = memo(() => {
             data-waveai-panel="true"
             className={cn(
                 "@container bg-zinc-900/80 flex flex-col relative",
-                "mt-1 h-[calc(100%-4px)]",
-                "rounded-tr-[12px] rounded-br-[12px] rounded-bl-[12px]",
+                "mt-1 h-[calc(100%-4px)] border",
+                "rounded-[12px]",
                 (isDragOver || isReactDndDragOver) && "bg-zinc-800 border-accent",
-                isFocused ? "border border-white/[0.04]" : "border-none"
+                isFocused ? "border-accent/30" : "border-white/[0.08]"
             )}
             onFocusCapture={handleFocusCapture}
             onPointerEnter={handlePointerEnter}

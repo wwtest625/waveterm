@@ -83,6 +83,11 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 	}
 	defer defaultChatManager.activeChats.Delete(chatOpts.ChatId)
 
+	// Get or create the AppendOnlyContextManager for this chat.
+	// This manager caches the stable prefix (system prompt + tools) and
+	// maintains an append-only message log to maximize provider prefix-cache hits.
+	contextMgr := GetOrCreateAppendOnlyContextManager(chatOpts.ChatId)
+
 	stepNum := chatstore.DefaultChatStore.CountUserMessages(chatOpts.ChatId)
 	aiProvider := chatOpts.Config.Provider
 	if aiProvider == "" {
@@ -121,6 +126,8 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 				chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, "The user is currently working on a remote terminal connection. Prioritize the remote environment for file operations and command execution.")
 			}
 			tabStateDirty = false
+			// Tab state changed, invalidate prefix so tools are re-evaluated
+			contextMgr.InvalidatePrefix()
 		}
 		if chatOpts.BuilderAppGenerator != nil {
 			appGoFile, appStaticFiles, platformInfo, appErr := chatOpts.BuilderAppGenerator()
@@ -130,8 +137,9 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 				chatOpts.PlatformInfo = platformInfo
 			}
 		}
+		var allTools []uctypes.ToolDefinition
 		if chatOpts.BuilderId == "" {
-			allTools := make([]uctypes.ToolDefinition, 0, len(chatOpts.Tools)+len(chatOpts.TabTools))
+			allTools = make([]uctypes.ToolDefinition, 0, len(chatOpts.Tools)+len(chatOpts.TabTools))
 			if chatOpts.Config.HasCapability(uctypes.AICapabilityTools) {
 				for _, tool := range chatOpts.Tools {
 					if tool.HasRequiredCapabilities(chatOpts.Config.Capabilities) {
@@ -148,6 +156,49 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 				chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, toolCapabilityPrompt)
 			}
 		}
+
+		// Build the stable prefix (system prompt + tools).
+		// This freezes the prefix if unchanged, maximizing provider cache hits.
+		prefixChanged := contextMgr.Build(chatOpts.SystemPrompt, allTools)
+		if prefixChanged {
+			logutil.DevPrintf("append-only: prefix rebuilt (version=%d fingerprint=%s)\n", contextMgr.Stats().PrefixVersion, contextMgr.Stats().PrefixFingerprint)
+		}
+
+		// Override chatOpts with the frozen prefix data.
+		// This ensures system prompt and tools are byte-identical across turns,
+		// so the provider can use prefix caching (DeepSeek, Anthropic, OpenAI).
+		if contextMgr.Prefix.Built() {
+			cachedPrompt := contextMgr.GetSystemPrompt()
+			if len(cachedPrompt) > 0 {
+				chatOpts.SystemPrompt = cachedPrompt
+			}
+			cachedTools := contextMgr.GetTools()
+			if len(cachedTools) > 0 {
+				// Replace both Tools and TabTools with the cached combined set
+				chatOpts.Tools = nil
+				chatOpts.TabTools = cachedTools
+			}
+
+			// SnapCompact: check if context compression is needed before the LLM call.
+			// This prevents context window overflow by compressing old messages into
+			// a summary when token usage exceeds the threshold.
+			compactResult, compactErr := contextMgr.CompactContext(chatOpts.Config.Model, chatOpts.Config.MaxTokens)
+			if compactErr != nil {
+				logutil.DevPrintf("snapcompact: compaction check failed: %v\n", compactErr)
+			} else if compactResult.Compacted {
+				log.Printf("snapcompact: compacted %d turns (%d→%d messages, ~%d tokens saved)\n",
+					compactResult.CompactedTurns, compactResult.OriginalMessageCount, compactResult.CompactedMessageCount, compactResult.TokensSaved)
+				// Notify the frontend that compaction occurred so the user is aware
+				// that older conversation history has been summarized.
+				_ = sseHandler.AiMsgData("data-compaction", chatOpts.ChatId, map[string]any{
+					"compactedTurns":    compactResult.CompactedTurns,
+					"originalMessages":  compactResult.OriginalMessageCount,
+					"compactedMessages": compactResult.CompactedMessageCount,
+					"tokensSaved":       compactResult.TokensSaved,
+				})
+			}
+		}
+
 		stopReason, rtnMessages, err := runAIChatStep(ctx, sseHandler, backend, chatOpts, cont)
 		metrics.RequestCount++
 		if chatOpts.Config.IsWaveProxy() {
@@ -168,10 +219,27 @@ func RunAIChat(ctx context.Context, sseHandler *sse.SSEHandlerCh, backend UseCha
 			if usage.Model != "" && metrics.Usage.Model != usage.Model {
 				metrics.Usage.Model = "mixed"
 			}
-			usageInfo := NewContextUsageInfo(metrics.Usage.InputTokens, metrics.Usage.OutputTokens, chatOpts.Config.MaxTokens)
-			contextLevel := UpdateContextTrackerFromUsage(chatOpts.ChatId, usageInfo)
-			if warningPrompt := BuildContextWarningPrompt(contextLevel, usageInfo); warningPrompt != "" {
-				chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, warningPrompt)
+
+			// Use local token counting for accurate context tracking.
+			// This is more reliable than the LLM's usage report because:
+			// 1. It counts the actual tokens we send (including system prompt + tools)
+			// 2. It works even when the provider doesn't return usage data
+			// 3. It's available before the LLM call, enabling proactive warnings
+			localTokenResult, localErr := CountTokensForChat(chatOpts)
+			if localErr == nil && localTokenResult.TotalTokens > 0 {
+				usageInfo := NewContextUsageInfo(localTokenResult.TotalTokens, 0, chatOpts.Config.MaxTokens)
+				contextLevel := UpdateContextTrackerFromUsage(chatOpts.ChatId, usageInfo)
+				if warningPrompt := BuildContextWarningPrompt(contextLevel, usageInfo); warningPrompt != "" {
+					chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, warningPrompt)
+				}
+				logutil.DevPrintf("append-only: local token count=%d (encoding=%s byRole=%v)\n", localTokenResult.TotalTokens, localTokenResult.Encoding, localTokenResult.ByRole)
+			} else {
+				// Fallback to LLM-reported usage
+				usageInfo := NewContextUsageInfo(metrics.Usage.InputTokens, metrics.Usage.OutputTokens, chatOpts.Config.MaxTokens)
+				contextLevel := UpdateContextTrackerFromUsage(chatOpts.ChatId, usageInfo)
+				if warningPrompt := BuildContextWarningPrompt(contextLevel, usageInfo); warningPrompt != "" {
+					chatOpts.SystemPrompt = append(chatOpts.SystemPrompt, warningPrompt)
+				}
 			}
 		}
 		if firstStep && err != nil {

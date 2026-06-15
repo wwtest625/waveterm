@@ -121,12 +121,12 @@ export const AskUserCard = memo(() => {
                             className={cn(
                                 "relative rounded-lg border px-2.5 py-1.5 text-sm",
                                 opt.recommended
-                                    ? "border-emerald-400/20 bg-emerald-400/[0.06] text-emerald-100 hover:bg-emerald-400/12"
+                                    ? "border-accent/20 bg-accent/[0.06] text-accent-100 hover:bg-accent/12"
                                     : "border-blue-300/12 bg-blue-300/[0.05] text-blue-100 hover:bg-blue-300/10"
                             )}
                         >
                             {opt.recommended && (
-                                <span className="mr-1.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+                                <span className="mr-1.5 text-[10px] font-medium uppercase tracking-wide text-accent-300">
                                     {t.askUser.recommended}
                                 </span>
                             )}
@@ -153,16 +153,16 @@ export const AskUserCard = memo(() => {
                                     "rounded-lg border px-3 py-1.5 text-sm",
                                     selectedIds.has(opt.id)
                                         ? opt.recommended
-                                            ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
+                                            ? "border-accent/20 bg-accent/10 text-accent-100"
                                             : "border-blue-400/20 bg-blue-400/10 text-blue-100"
                                         : opt.recommended
-                                          ? "border-emerald-400/12 bg-emerald-400/[0.04] text-emerald-200"
+                                          ? "border-accent/12 bg-accent/[0.04] text-accent-200"
                                           : "border-white/[0.06] bg-white/[0.03] text-zinc-400"
                                 )}
                             >
                                 {selectedIds.has(opt.id) ? "✓ " : "○ "}
                                 {opt.recommended && (
-                                    <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+                                    <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-accent-300">
                                         {t.askUser.recommended}
                                     </span>
                                 )}

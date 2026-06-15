@@ -16,7 +16,7 @@ function getTaskTone(status: string, isCurrent: boolean, isFocused: boolean): st
     }
     switch (status) {
         case "completed":
-            return "text-emerald-400";
+            return "text-accent";
         case "blocked":
             return "text-amber-400";
         case "in_progress":

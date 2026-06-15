@@ -556,7 +556,7 @@ function getTaskChainToneClass(state?: AgentRuntimeSnapshot["state"] | TaskChain
         case "retrying":
             return "border-amber-400/20 bg-amber-400/[0.04] text-amber-100";
         default:
-            return "border-white/[0.06] text-emerald-100";
+            return "border-white/[0.06] text-accent-100";
     }
 }
 
@@ -679,8 +679,8 @@ const CommandNarrativeBlock = memo(({ title, text }: { title: string; text: stri
     const model = WaveAIModel.getInstance();
 
     return (
-        <div className="mb-1 rounded border-l-2 border-emerald-300/12 bg-emerald-300/[0.02] px-1.5 py-1">
-            <div className="mb-0.5 flex items-center gap-1 text-[9px] font-medium tracking-[0.1em] text-emerald-200/65 uppercase">
+        <div className="mb-1 rounded border-l-2 border-accent-300/12 bg-accent-300/[0.02] px-1.5 py-1">
+            <div className="mb-0.5 flex items-center gap-1 text-[9px] font-medium tracking-[0.1em] text-accent-200/65 uppercase">
                 <i className="fa-solid fa-sparkles text-[8px]" />
                 <span>{title}</span>
             </div>
@@ -712,27 +712,27 @@ const ThinkingInlineBlock = memo(({ text, isStreaming }: { text: string; isStrea
     }
 
     return (
-        <div className="mb-1 rounded border-l-2 border-emerald-300/15 bg-emerald-300/[0.02] px-2 py-1">
+        <div className="mb-1 rounded border-l-2 border-accent-300/15 bg-accent-300/[0.02] px-2 py-1">
             <div className="mb-0.5 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1 text-[9px] font-medium tracking-[0.1em] text-emerald-200/65 uppercase">
+                <div className="flex items-center gap-1 text-[9px] font-medium tracking-[0.1em] text-accent-200/65 uppercase">
                     <i className="fa-solid fa-brain text-[8px]" />
                     <span>{t.message.deepThinking}</span>
                     {isStreaming && (
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                     )}
                 </div>
                 {shouldCollapse && (
                     <button
                         type="button"
                         onClick={() => setExpanded((v) => !v)}
-                        className="text-[9px] uppercase tracking-[0.1em] text-emerald-200/40 transition hover:text-emerald-100"
+                        className="text-[9px] uppercase tracking-[0.1em] text-accent-200/40 transition hover:text-accent-100"
                     >
                         {expanded ? t.message.collapse : t.message.expand(lines.length)}
                     </button>
                 )}
             </div>
             <pre
-                className="whitespace-pre-wrap break-words text-[11px] leading-5 text-emerald-50/70"
+                className="whitespace-pre-wrap break-words text-[11px] leading-5 text-accent-50/70"
                 style={{ fontFamily: AI_CODE_FONT_FAMILY }}
             >
                 {displayedText}
@@ -747,8 +747,8 @@ const NarrativeBlock = memo(({ text }: { text: string }) => {
     const model = WaveAIModel.getInstance();
 
     return (
-        <div className="rounded border-l-2 border-emerald-300/12 bg-emerald-300/[0.02] px-2 py-1">
-            <div className="mb-0.5 text-[9px] uppercase tracking-[0.12em] text-emerald-200/60">{t.message.aiDescription}</div>
+        <div className="rounded border-l-2 border-accent-300/12 bg-accent-300/[0.02] px-2 py-1">
+            <div className="mb-0.5 text-[9px] uppercase tracking-[0.12em] text-accent-200/60">{t.message.aiDescription}</div>
             <WaveStreamdown
                 text={text}
                 parseIncompleteMarkdown={true}
@@ -765,11 +765,11 @@ NarrativeBlock.displayName = "NarrativeBlock";
 
 function getStepDotColor(status: TaskChainStepStatus, isActive: boolean): string {
     if (isActive && (status === "running" || status === "pending")) {
-        return "bg-emerald-400/70";
+        return "bg-accent/70";
     }
     switch (status) {
         case "completed":
-            return "bg-emerald-400/50";
+            return "bg-accent/50";
         case "running":
             return "bg-yellow-400/70";
         case "failed":
@@ -845,16 +845,11 @@ const TimelineStep = memo(
                 data-toolcallid={step.id}
                 ref={(el) => WaveAIModel.getInstance()?.registerScrollTarget(step.id, el)}
             >
-                {entry.narrativeBefore && (
-                    <div className="ml-5 mb-1">
-                        <CommandNarrativeBlock title={t.message.executionIntent} text={entry.narrativeBefore} />
-                    </div>
-                )}
                 <div className="flex items-start gap-2.5">
                     <div className="flex shrink-0 flex-col items-center pt-1">
                         <div className={cn(
                             "flex h-4 w-4 items-center justify-center rounded-full",
-                            isActive ? "bg-white/[0.06]" : "bg-white/[0.03]"
+                            isActive ? "bg-white/[0.06]" : "bg-white/[0.05]"
                         )}>
                             <div className={cn("flex h-2 w-2 items-center justify-center rounded-full", dotColor)}>
                                 {stepIcon && <span className="text-white/90">{stepIcon}</span>}
@@ -875,7 +870,7 @@ const TimelineStep = memo(
                                 onClick={hasExpandableOutput ? handleToggle : undefined}
                             >
                                 <div className="flex items-center gap-1.5">
-                                    <span className="shrink-0 text-[13px] text-emerald-400/60" style={{ fontFamily: AI_CODE_FONT_FAMILY }}>$</span>
+                                    <span className="shrink-0 text-[13px] text-accent/60" style={{ fontFamily: AI_CODE_FONT_FAMILY }}>$</span>
                                     <code className="text-[13px] text-zinc-200 truncate flex-1 min-w-0" style={{ fontFamily: AI_CODE_FONT_FAMILY }}>{commandText}</code>
                                     {step.status === "running" && (
                                         <span className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
@@ -884,7 +879,7 @@ const TimelineStep = memo(
                                         <span className="shrink-0 text-[10px] text-red-400">✖</span>
                                     )}
                                     {step.status === "completed" && (
-                                        <span className="shrink-0 text-[10px] text-emerald-400/60">✓</span>
+                                        <span className="shrink-0 text-[10px] text-accent/60">✓</span>
                                     )}
                                     {(step.duplicateCount ?? 1) > 1 && (
                                         <span className="shrink-0 text-[9px] text-zinc-500">×{step.duplicateCount}</span>
@@ -910,7 +905,7 @@ const TimelineStep = memo(
                             <div
                                 className={cn(
                                     "flex items-center gap-1.5 rounded-sm px-1 py-px",
-                                    hasExpandableOutput && "cursor-pointer hover:bg-white/[0.03]",
+                                    hasExpandableOutput && "cursor-pointer hover:bg-white/[0.05]",
                                     isActive && "bg-white/[0.02]",
                                     animateStep && "animate-pulse"
                                 )}
@@ -958,11 +953,6 @@ const TimelineStep = memo(
                         )}
                     </div>
                 </div>
-                {entry.narrativeAfter && (
-                    <div className="ml-5 mt-0.5">
-                        <CommandNarrativeBlock title={t.message.resultJudgment} text={entry.narrativeAfter} />
-                    </div>
-                )}
             </div>
         );
     }
@@ -970,14 +960,47 @@ const TimelineStep = memo(
 
 TimelineStep.displayName = "TimelineStep";
 
+function getTaskChainSummaryLabel(
+    steps: TaskChainStep[],
+    isStreaming: boolean,
+    hasPendingApproval: boolean
+): string {
+    const total = steps.length;
+    const failedCount = steps.filter((s) => s.status === "failed").length;
+    const cancelledCount = steps.filter((s) => s.status === "cancelled").length;
+    const isRunning = isStreaming || steps.some((s) => s.status === "running" || s.status === "pending");
+
+    if (hasPendingApproval) {
+        return t.message.waitingApproval;
+    }
+    if (isRunning) {
+        return t.message.toolCalling;
+    }
+    if (failedCount > 0) {
+        return t.message.toolCalledWithFailed(total, failedCount);
+    }
+    if (cancelledCount > 0) {
+        return t.message.toolCalledWithCancelled(total);
+    }
+    return t.message.toolCalled(total);
+}
+
+function shouldAutoExpand(steps: TaskChainStep[], hasPendingApproval: boolean): boolean {
+    if (hasPendingApproval) return true;
+    if (steps.some((s) => s.status === "failed")) return true;
+    return false;
+}
+
 export const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: AgentRuntimeSnapshot | null }) => {
     const [expandedOutputSteps, setExpandedOutputSteps] = useState<Record<string, boolean>>({});
+    const [collapsed, setCollapsed] = useState(true);
     const toolParts = useMemo(() => getVisibleToolParts(turn.assistantMessages), [turn.assistantMessages]);
     const toolUseCount = toolParts.filter((part) => part.type === "data-tooluse").length;
     const steps = useMemo(() => buildTaskChainSteps(toolParts, turn.isStreaming), [toolParts, turn.isStreaming]);
     const displayGroups = useMemo(() => getTaskChainDisplayGroups(steps), [steps]);
     const flowEntries = useMemo(() => buildTaskChainFlowEntries(turn, displayGroups), [turn, displayGroups]);
     const displayState = useMemo(() => getTaskChainDisplayState(steps, runtime), [steps, runtime]);
+    const hasPendingApproval = getPendingApprovalToolUses(turn.assistantMessages, turn.isStreaming).length > 0;
     const toggleExpandedOutputStep = useCallback((stepId: string) => {
         setExpandedOutputSteps((prev) => ({
             ...prev,
@@ -985,62 +1008,92 @@ export const TaskChain = memo(({ turn, runtime }: { turn: TaskTurn; runtime: Age
         }));
     }, []);
 
+    // Auto-expand when there are pending approvals or failures
+    useEffect(() => {
+        if (shouldAutoExpand(steps, hasPendingApproval)) {
+            setCollapsed(false);
+        }
+    }, [steps, hasPendingApproval]);
+
     if (steps.length === 0 && !runtime?.visible) {
         return null;
     }
+
+    const summaryLabel = getTaskChainSummaryLabel(steps, turn.isStreaming, hasPendingApproval);
+    const isRunning = turn.isStreaming || steps.some((s) => s.status === "running" || s.status === "pending");
 
     return (
         <div
             className={cn(
                 "group relative mt-1.5 overflow-hidden rounded-lg px-2 py-1.5 transition-colors duration-200",
-                "bg-white/[0.015]",
+                "bg-white/[0.04]",
                 displayState.toneClassName
             )}
         >
-            <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium tracking-[0.06em]">
-                        <span className="text-zinc-300">{t.message.executionSteps}</span>
-                        {displayState.statusLabel && (
-                            <span className="rounded-full bg-white/[0.04] px-1.5 py-px text-[9px] font-normal tracking-[0.1em] text-zinc-400 uppercase">
-                                {displayState.statusLabel}
-                            </span>
-                        )}
-                        {toolUseCount > 0 && (
-                            <span className="rounded-full bg-lime-300/[0.06] px-1.5 py-px text-[10px] font-normal tracking-normal text-lime-200/70">
-                                {t.message.callCount(toolUseCount)}
-                            </span>
-                        )}
-                        {isThinkingPhaseLabel(displayState.statusLabel) && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.03] px-1.5 py-px text-[10px] font-normal tracking-normal text-zinc-400/70">
-                                <i className="fa-solid fa-spinner fa-spin text-[8px]" />
-                                Thinking
-                            </span>
-                        )}
-                    </div>
+            <button
+                type="button"
+                onClick={() => setCollapsed((v) => !v)}
+                className="flex w-full items-center gap-2 text-left"
+            >
+                <i className={cn(
+                    "fa-solid fa-chevron-right text-[9px] text-zinc-500 transition-transform duration-150",
+                    !collapsed && "rotate-90"
+                )} />
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium tracking-[0.06em]">
+                    {isRunning && (
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                    )}
+                    {!isRunning && steps.some((s) => s.status === "failed") && (
+                        <i className="fa-solid fa-circle-xmark text-[9px] text-red-400" />
+                    )}
+                    {!isRunning && !steps.some((s) => s.status === "failed") && steps.some((s) => s.status === "cancelled") && (
+                        <i className="fa-solid fa-circle-minus text-[9px] text-zinc-500" />
+                    )}
+                    {!isRunning && !steps.some((s) => s.status === "failed") && !steps.some((s) => s.status === "cancelled") && (
+                        <i className="fa-solid fa-circle-check text-[9px] text-accent/60" />
+                    )}
+                    <span className="text-zinc-300">{summaryLabel}</span>
                 </div>
-            </div>
-            {shouldRenderTaskChainBlockedReason(displayState.blockedReason) && (
+            </button>
+            {!collapsed && shouldRenderTaskChainBlockedReason(displayState.blockedReason) && (
                 <div className="mt-0.5 text-[11px] text-zinc-400/70">{displayState.blockedReason}</div>
             )}
-            <div className="mt-1">
-                {flowEntries.map((entry, entryIndex) =>
-                    entry.type === "narrative" ? (
-                        <NarrativeBlock key={entry.id} text={entry.text} />
-                    ) : entry.type === "thinking" ? (
-                        <ThinkingInlineBlock key={entry.id} text={entry.text} isStreaming={turn.isStreaming} />
-                    ) : (
-                        <TimelineStep
-                            key={entry.id}
-                            entry={entry}
-                            displayState={displayState}
-                            runtimeState={runtime?.state}
-                            expandedOutputSteps={expandedOutputSteps}
-                            onToggleExpanded={toggleExpandedOutputStep}
-                            isLast={entryIndex === flowEntries.length - 1 || (entryIndex < flowEntries.length - 1 && flowEntries[entryIndex + 1].type === "narrative")}
-                        />
-                    )
-                )}
+            {/* Narrative/thinking blocks and step narratives are always visible */}
+            <div className="mt-2">
+                {flowEntries.map((entry) => {
+                    if (entry.type === "narrative") {
+                        return <NarrativeBlock key={entry.id} text={entry.text} />;
+                    }
+                    if (entry.type === "thinking") {
+                        return <ThinkingInlineBlock key={entry.id} text={entry.text} isStreaming={turn.isStreaming} />;
+                    }
+                    // step type: render narrativeBefore/narrativeAfter always, step detail only when expanded
+                    return (
+                        <div key={entry.id} className="space-y-1.5">
+                            {entry.narrativeBefore && (
+                                <CommandNarrativeBlock title={t.message.executionIntent} text={entry.narrativeBefore} />
+                            )}
+                            <div
+                                className="grid transition-[grid-template-rows] duration-200 ease-in-out"
+                                style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
+                            >
+                                <div className="overflow-hidden">
+                                    <TimelineStep
+                                        entry={entry}
+                                        displayState={displayState}
+                                        runtimeState={runtime?.state}
+                                        expandedOutputSteps={expandedOutputSteps}
+                                        onToggleExpanded={toggleExpandedOutputStep}
+                                        isLast={false}
+                                    />
+                                </div>
+                            </div>
+                            {entry.narrativeAfter && (
+                                <CommandNarrativeBlock title={t.message.resultJudgment} text={entry.narrativeAfter} />
+                            )}
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );
@@ -1094,7 +1147,7 @@ export const TaskChainApprovalActions = memo(({ turn }: { turn: TaskTurn }) => {
                     ref={approveButtonRef}
                     type="button"
                     onClick={handleApproveAll}
-                    className="cursor-pointer rounded-lg bg-emerald-300/[0.06] px-2.5 py-1 text-[11px] text-emerald-100 transition hover:bg-emerald-300/10"
+                    className="cursor-pointer rounded-lg bg-accent/[0.06] px-2.5 py-1 text-[11px] text-accent-100 transition hover:bg-accent/10"
                 >
                     Approve
                 </button>

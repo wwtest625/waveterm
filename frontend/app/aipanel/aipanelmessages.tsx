@@ -109,18 +109,18 @@ const PanelHero = memo(() => {
     const stateLabel = runtime.phaseLabel || "Ready";
 
     return (
-        <div className="mb-4 border-b border-white/[0.04] bg-white/[0.015] px-4 py-3">
+        <div className="mb-4 border-b border-white/[0.08] bg-white/[0.04] px-4 py-3">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                        <i className="fa fa-sparkles text-lime-300/70" />
+                        <i className="fa fa-sparkles text-accent/70" />
                         <span>{providerLabel}</span>
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-400">
-                        <span className="rounded-full bg-white/[0.03] px-2 py-0.5">
+                        <span className="rounded-full bg-white/[0.05] px-2 py-0.5">
                             {modeLabel}
                         </span>
-                        <span className="rounded-full bg-white/[0.03] px-2 py-0.5">
+                        <span className="rounded-full bg-white/[0.05] px-2 py-0.5">
                             {stateLabel}
                         </span>
                         <CompactRateLimit />

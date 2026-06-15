@@ -292,8 +292,8 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
     return (
         <div
             className={cn(
-                "border-t border-white/[0.03] bg-black/[0.04] px-3 pb-3 pt-2",
-                isFocused && "border-lime-300/12"
+                "border-t border-white/[0.06] bg-black/[0.04] px-3 pb-3 pt-2",
+                isFocused && "border-accent/12"
             )}
         >
             <input
@@ -312,7 +312,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                             className={cn(
                                 "min-w-0 truncate rounded-md px-1.5 py-0.5",
                                 terminalTarget
-                                    ? "bg-lime-300/[0.04] text-zinc-300"
+                                    ? "bg-accent/[0.04] text-zinc-300"
                                     : "bg-red-300/[0.04] text-red-200/70"
                             )}
                             title={
@@ -421,7 +421,7 @@ export const AIPanelInput = memo(({ onSubmit, status, model }: AIPanelInputProps
                                                 "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
                                                 !canSubmit
                                                     ? "bg-white/[0.02] text-zinc-600"
-                                                    : "cursor-pointer bg-lime-300/[0.08] text-lime-200/80 hover:bg-lime-300/12 hover:text-lime-100"
+                                                    : "cursor-pointer bg-accent/[0.08] text-accent-200/80 hover:bg-accent/12 hover:text-accent-100"
                                             )}
                                         >
                                             <i className="fa fa-paper-plane text-xs"></i>

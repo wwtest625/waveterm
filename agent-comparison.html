@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 架构对比：oh-my-pi vs waveterm AI Panel</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text2: #8b949e;
+    --accent-omp: #f0883e;
+    --accent-wav: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #bc8cff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 0;
+  }
+  .hero {
+    background: linear-gradient(135deg, #1a1e2e 0%, #0d1117 50%, #121828 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 48px 32px;
+    text-align: center;
+  }
+  .hero h1 {
+    font-size: 2.2em;
+    font-weight: 700;
+    margin-bottom: 12px;
+    background: linear-gradient(90deg, var(--accent-omp), var(--accent-wav));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero p { color: var(--text2); font-size: 1.05em; max-width: 700px; margin: 0 auto; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 32px 24px; }
+
+  /* Tab navigation */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 32px;
+    overflow-x: auto;
+  }
+  .tab-btn {
+    padding: 10px 20px;
+    background: transparent;
+    color: var(--text2);
+    border: none;
+    cursor: pointer;
+    font-size: 0.95em;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active {
+    color: var(--accent-wav);
+    border-bottom-color: var(--accent-wav);
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .card h2 {
+    font-size: 1.3em;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card h3 {
+    font-size: 1.1em;
+    margin: 16px 0 8px;
+    color: var(--text);
+  }
+
+  /* Comparison table */
+  .cmp-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 16px 0;
+    font-size: 0.92em;
+  }
+  .cmp-table th, .cmp-table td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .cmp-table th {
+    background: var(--surface2);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+  }
+  .cmp-table th:first-child { border-radius: 8px 0 0 0; }
+  .cmp-table th:last-child { border-radius: 0 8px 0 0; }
+  .cmp-table tr:hover td { background: rgba(88,166,255,0.04); }
+  .cmp-table .dim { color: var(--text2); }
+
+  /* Tags */
+  .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: 600;
+  }
+  .tag-omp { background: rgba(240,136,62,0.15); color: var(--accent-omp); }
+  .tag-wav { background: rgba(88,166,255,0.15); color: var(--accent-wav); }
+  .tag-green { background: rgba(63,185,80,0.15); color: var(--green); }
+  .tag-red { background: rgba(248,81,73,0.15); color: var(--red); }
+  .tag-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .tag-purple { background: rgba(188,140,255,0.15); color: var(--purple); }
+
+  /* Two-column layout */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+  .col-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .col-card.omp { border-top: 3px solid var(--accent-omp); }
+  .col-card.wav { border-top: 3px solid var(--accent-wav); }
+  .col-card h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  /* Feature list */
+  .feat-list { list-style: none; padding: 0; }
+  .feat-list li {
+    padding: 6px 0;
+    padding-left: 24px;
+    position: relative;
+  }
+  .feat-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 14px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .feat-list.has::before { background: var(--green); }
+  .feat-list.miss::before { background: var(--red); }
+  .feat-list.partial::before { background: var(--yellow); }
+
+  /* Score bar */
+  .score-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 8px 0;
+  }
+  .score-bar .bar {
+    flex: 1;
+    height: 8px;
+    background: var(--surface2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .score-bar .fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.6s ease;
+  }
+  .score-bar .label { font-size: 0.85em; color: var(--text2); min-width: 120px; }
+  .score-bar .val { font-size: 0.85em; font-weight: 600; min-width: 40px; text-align: right; }
+
+  /* Insight box */
+  .insight {
+    background: rgba(88,166,255,0.06);
+    border-left: 4px solid var(--accent-wav);
+    border-radius: 0 8px 8px 0;
+    padding: 16px 20px;
+    margin: 16px 0;
+  }
+  .insight.omp-insight {
+    background: rgba(240,136,62,0.06);
+    border-left-color: var(--accent-omp);
+  }
+  .insight strong { color: var(--accent-wav); }
+  .insight.omp-insight strong { color: var(--accent-omp); }
+
+  /* Architecture diagram */
+  .arch-diagram {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.82em;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--text2);
+  }
+  .arch-diagram .hl-omp { color: var(--accent-omp); font-weight: 600; }
+  .arch-diagram .hl-wav { color: var(--accent-wav); font-weight: 600; }
+  .arch-diagram .hl-green { color: var(--green); }
+  .arch-diagram .hl-purple { color: var(--purple); }
+  .arch-diagram .hl-red { color: var(--red); }
+
+  /* Takeaway section */
+  .takeaway-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+    margin-top: 16px;
+  }
+  .takeaway-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .takeaway-item h4 {
+    font-size: 1em;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .takeaway-item p { color: var(--text2); font-size: 0.9em; }
+
+  /* Scroll indicator */
+  .section-anchor { scroll-margin-top: 80px; }
+
+  /* Badge */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.78em;
+    font-weight: 600;
+  }
+  .badge-win { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge-lose { background: rgba(248,81,73,0.15); color: var(--red); }
+  .badge-draw { background: rgba(210,153,34,0.15); color: var(--yellow); }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>Agent 架构深度对比</h1>
+  <p>oh-my-pi (Claude Code fork) vs waveterm AI Panel — 从架构设计、工具系统、上下文管理、安全防御到工程实践的全维度剖析</p>
+</div>
+
+<div class="container">
+
+<!-- Tab Navigation -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('overview')">总览对比</button>
+  <button class="tab-btn" onclick="switchTab('architecture')">架构设计</button>
+  <button class="tab-btn" onclick="switchTab('tools')">工具系统</button>
+  <button class="tab-btn" onclick="switchTab('context')">上下文管理</button>
+  <button class="tab-btn" onclick="switchTab('security')">安全与防御</button>
+  <button class="tab-btn" onclick="switchTab('ux')">交互与体验</button>
+  <button class="tab-btn" onclick="switchTab('takeaways')">取经建议</button>
+</div>
+
+<!-- ==================== TAB 1: Overview ==================== -->
+<div class="tab-content active" id="tab-overview">
+
+<div class="card">
+  <h2>📊 项目基本信息</h2>
+  <table class="cmp-table">
+    <tr><th style="width:20%">维度</th><th style="width:40%">oh-my-pi <span class="tag tag-omp">OMP</span></th><th style="width:40%">waveterm AI Panel <span class="tag tag-wav">WAV</span></th></tr>
+    <tr><td>项目定位</td><td>Claude Code 的社区 fork，通用编码 Agent</td><td>终端原生 AI 助手，嵌入 Wave Terminal</td></tr>
+    <tr><td>语言栈</td><td>TypeScript (Agent) + Rust (Native)</td><td>Go (Backend) + React/TSX (Frontend)</td></tr>
+    <tr><td>运行环境</td><td>CLI / TUI (Ink-based)</td><td>桌面终端 (Electron + Go backend)</td></tr>
+    <tr><td>LLM 后端</td><td>多模型 (OpenAI/Anthropic/Google/本地)</td><td>多模型 (OpenAI/Anthropic/Google/Ollama/本地)</td></tr>
+    <tr><td>开源协议</td><td>Apache-2.0 (fork of Claude Code)</td><td>Apache-2.0</td></tr>
+    <tr><td>工具数量</td><td>32+ 编码专用工具</td><td>~15 终端/文件/知识库工具</td></tr>
+    <tr><td>核心创新</td><td>Harmony 防御、Append-Only 上下文、SnapCompact 压缩</td><td>终端感知 Agent、车道化并行执行、Focus Chain</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>🏆 能力雷达图 (主观评分 1-10)</h2>
+  <div class="two-col">
+    <div>
+      <div class="score-bar"><span class="label">上下文管理</span><div class="bar"><div class="fill" style="width:95%;background:var(--accent-omp)"></div></div><span class="val" style="color:var(--accent-omp)">9.5</span></div>
+      <div class="score-bar"><span class="label">工具丰富度</span><div class="bar"><div class="fill" style="width:92%;background:var(--accent-omp)"></div></div><span class="val" style="color:var(--accent-omp)">9.2</span></div>
+      <div class="score-bar"><span class="label">安全防御</span><div class="bar"><div class="fill" style="width:90%;background:var(--accent-omp)"></div></div><span class="val" style="color:var(--accent-omp)">9.0</span></div>
+      <div class="score-bar"><span class="label">会话持久化</span><div class="bar"><div class="fill" style="width:88%;background:var(--accent-omp)"></div></div><span class="val" style="color:var(--accent-omp)">8.8</span></div>
+      <div class="score-bar"><span class="label">压缩/摘要</span><div class="bar"><div class="fill" style="width:94%;background:var(--accent-omp)"></div></div><span class="val" style="color:var(--accent-omp)">9.4</span></div>
+      <div class="score-bar"><span class="label">终端感知</span><div class="bar"><div class="fill" style="width:50%;background:var(--accent-omp)"></div></div><span class="val" style="color:var(--text2)">5.0</span></div>
+    </div>
+    <div>
+      <div class="score-bar"><span class="label">上下文管理</span><div class="bar"><div class="fill" style="width:65%;background:var(--accent-wav)"></div></div><span class="val" style="color:var(--accent-wav)">6.5</span></div>
+      <div class="score-bar"><span class="label">工具丰富度</span><div class="bar"><div class="fill" style="width:60%;background:var(--accent-wav)"></div></div><span class="val" style="color:var(--accent-wav)">6.0</span></div>
+      <div class="score-bar"><span class="label">安全防御</span><div class="bar"><div class="fill" style="width:70%;background:var(--accent-wav)"></div></div><span class="val" style="color:var(--accent-wav)">7.0</span></div>
+      <div class="score-bar"><span class="label">会话持久化</span><div class="bar"><div class="fill" style="width:72%;background:var(--accent-wav)"></div></div><span class="val" style="color:var(--accent-wav)">7.2</span></div>
+      <div class="score-bar"><span class="label">压缩/摘要</span><div class="bar"><div class="fill" style="width:40%;background:var(--accent-wav)"></div></div><span class="val" style="color:var(--text2)">4.0</span></div>
+      <div class="score-bar"><span class="label">终端感知</span><div class="bar"><div class="fill" style="width:92%;background:var(--accent-wav)"></div></div><span class="val" style="color:var(--accent-wav)">9.2</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>⚡ 一句话总结</h2>
+  <div class="two-col">
+    <div class="insight omp-insight">
+      <strong>oh-my-pi：</strong>一个工程化程度极高的编码 Agent 框架，在上下文管理、安全防御、会话压缩方面做到了业界天花板级别，但它是 CLI-first 设计，缺乏终端深度集成。
+    </div>
+    <div class="insight">
+      <strong>waveterm：</strong>一个终端原生 AI 助手，在终端感知、交互检测、远程会话方面独树一帜，但 Agent 框架层的成熟度（上下文管理、压缩、安全）还有明显差距。
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- ==================== TAB 2: Architecture ==================== -->
+<div class="tab-content" id="tab-architecture">
+
+<div class="card">
+  <h2>🏗️ Agent Loop 架构对比</h2>
+  <div class="two-col">
+    <div class="col-card omp">
+      <h3><span class="tag tag-omp">OMP</span> Agent Loop</h3>
+      <div class="arch-diagram"><span class="hl-omp">Agent.run()</span>
+  │
+  ├─ <span class="hl-purple">StablePrefix</span>.build() ← 冻结 systemPrompt + tools
+  │     └─ fingerprint 变化时才重建 (provider cache 友好)
+  │
+  ├─ <span class="hl-purple">AppendOnlyLog</span>.syncMessages()
+  │     └─ 只追加，不重序列化 (prefix cache 最大化命中)
+  │
+  ├─ <span class="hl-omp">agentLoop()</span> ← 核心循环
+  │     ├─ streamAssistantResponse()
+  │     │     ├─ streamSimple() → LLM API
+  │     │     ├─ <span class="hl-red">HarmonyLeak 检测</span> (每条消息)
+  │     │     └─ abort race (用户中断)
+  │     │
+  │     ├─ processToolCalls()
+  │     │     ├─ validateToolArguments() (Zod schema)
+  │     │     ├─ executeTool() → 回调
+  │     │     ├─ <span class="hl-purple">Aside 注入</span> (诊断/通知)
+  │     │     └─ interruptMode: immediate | wait
+  │     │
+  │     └─ <span class="hl-green">compaction 检查</span>
+  │           └─ token 阈值 → SnapCompact 压缩
+  │
+  ├─ <span class="hl-purple">EventStream</span> → 事件驱动
+  │     ├─ onAssistantMessage
+  │     ├─ onToolResult
+  │     └─ onRunEnd
+  │
+  └─ <span class="hl-purple">Telemetry</span> → OpenTelemetry span
+        ├─ chatSpan / executeToolSpan
+        └─ 覆盖率追踪 (AgentRunCoverage)</div>
+    </div>
+    <div class="col-card wav">
+      <h3><span class="tag tag-wav">WAV</span> Agent Loop</h3>
+      <div class="arch-diagram"><span class="hl-wav">RunAIChat()</span>
+  │
+  ├─ <span class="hl-purple">TabStateGenerator</span>() ← 动态生成上下文
+  │     ├─ GenerateCurrentTabStatePrompt()
+  │     │     └─ 终端状态/远程连接/Widget 描述
+  │     └─ GenerateTabStateAndTools()
+  │           └─ 按 Widget 类型动态注册工具
+  │
+  ├─ <span class="hl-wav">runAIChatStep()</span> ← 单步 LLM 调用
+  │     └─ backend.RunChatStep() → SSE 流式
+  │
+  ├─ <span class="hl-wav">processAllToolCalls()</span>
+  │     ├─ <span class="hl-purple">buildToolExecutionPlan()</span>
+  │     │     ├─ Sequential lane (需审批/写操作)
+  │     │     ├─ ReadOnly lane (并行)
+  │     │     └─ Command lane (并行)
+  │     │
+  │     ├─ processToolCallBatch() (并行执行)
+  │     ├─ dedupKeys (工具调用去重)
+  │     │
+  │     ├─ <span class="hl-purple">TaskState</span> 进度追踪
+  │     │     └─ SSE → data-taskstate
+  │     │
+  │     └─ Approval 流程
+  │           ├─ WaitForToolApproval()
+  │           └─ AgentMode 策略
+  │
+  ├─ <span class="hl-purple">ContextTracker</span>
+  │     └─ token 用量 → 上下文警告
+  │
+  └─ <span class="hl-purple">SSE Handler</span> → 实时推送
+        ├─ AiMsgData (tooluse/taskstate)
+        ├─ AiMsgError / AiMsgFinish
+        └─ 前端 React 组件消费</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>📐 架构设计差异详解</h2>
+  <table class="cmp-table">
+    <tr><th style="width:18%">维度</th><th style="width:41%">oh-my-pi</th><th style="width:41%">waveterm</th></tr>
+    <tr>
+      <td><strong>消息模型</strong></td>
+      <td>AgentMessage 联合类型 (user/assistant/toolResult/aside/hook)，支持 Aside 消息注入（诊断、通知等不进入 LLM 上下文）</td>
+      <td>GenAIMessage 接口，消息直接存入 chatstore，无 Aside 概念，所有消息都进入 LLM 上下文</td>
+    </tr>
+    <tr>
+      <td><strong>上下文构建</strong></td>
+      <td>Append-Only + StablePrefix：systemPrompt 和 tools 冻结后不再重序列化，最大化 provider prefix cache 命中率</td>
+      <td>每轮重建：SystemPrompt 数组每轮 append，TabState 每轮重新生成，无缓存优化</td>
+    </tr>
+    <tr>
+      <td><strong>中断机制</strong></td>
+      <td>interruptMode: "immediate" | "wait"，immediate 模式下每个工具调用后检查用户中断</td>
+      <td>无显式中断模式，依赖 SSE 连接断开 (ctx.Err()) 和用户取消审批</td>
+    </tr>
+    <tr>
+      <td><strong>暂停续跑</strong></td>
+      <td>支持 pause_turn (stopDetails.type === "pause_turn")，MAX_PAUSED_TURN_CONTINUATIONS = 8 限制无限续跑</td>
+      <td>无 pause 概念，stopReason 只区分 toolUse / error / done</td>
+    </tr>
+    <tr>
+      <td><strong>事件系统</strong></td>
+      <td>EventStream 事件驱动，支持 onAssistantMessage / onToolResult / onRunEnd 等细粒度事件</td>
+      <td>SSE 推送，前端被动接收 data-* 事件，无事件订阅机制</td>
+    </tr>
+    <tr>
+      <td><strong>遥测</strong></td>
+      <td>OpenTelemetry span 体系，chatSpan / executeToolSpan / invokeAgentSpan，覆盖率追踪</td>
+      <td>AIMetrics 简单计数 (RequestCount / ToolUseCount / ToolDetail map)</td>
+    </tr>
+    <tr>
+      <td><strong>模型切换</strong></td>
+      <td>invalidateForModelChange() 重置 prefix + log，支持运行中切换模型</td>
+      <td>Premium 限速时自动降级 (PremiumOpenAIModel → DefaultOpenAIModel)，其他场景不支持</td>
+    </tr>
+  </table>
+</div>
+
+<div class="insight omp-insight">
+  <strong>关键差距：</strong>oh-my-pi 的 Append-Only 上下文管理是一个精妙的设计——它让 provider 的 prefix cache 最大化命中，每轮只有新增的 delta 是 cache miss。waveterm 每轮重建整个上下文，在长对话场景下 token 浪费严重。
+</div>
+
+</div>
+
+<!-- ==================== TAB 3: Tools ==================== -->
+<div class="tab-content" id="tab-tools">
+
+<div class="card">
+  <h2>🔧 工具系统全景对比</h2>
+  <div class="two-col">
+    <div class="col-card omp">
+      <h3><span class="tag tag-omp">OMP</span> 32+ 工具</h3>
+      <ul class="feat-list">
+        <li class="has"><strong>文件操作</strong>: read_file, write_file, edit_file, multi_edit_file, list_directory, search_files, get_file_info, list_directory_recursive</li>
+        <li class="has"><strong>代码理解</strong>: codebase_search, grep, grep_for_pattern, symbol_definition, list_symbols, get_diagnostics</li>
+        <li class="has"><strong>命令执行</strong>: bash, python, bash_background</li>
+        <li class="has"><strong>浏览器</strong>: web_search, web_fetch</li>
+        <li class="has"><strong>Git</strong>: git_status, git_diff, git_log, git_branch</li>
+        <li class="has"><strong>终端</strong>: terminal_output, terminal_input</li>
+        <li class="has"><strong>Agent 控制</strong>: ask_user, think, todo_read/write, subagent</li>
+        <li class="has"><strong>MCP</strong>: mcp_tool (动态 MCP 工具)</li>
+        <li class="has"><strong>其他</strong>: note, computer_use, create_skill, use_skill</li>
+      </ul>
+    </div>
+    <div class="col-card wav">
+      <h3><span class="tag tag-wav">WAV</span> ~15 工具</h3>
+      <ul class="feat-list">
+        <li class="has"><strong>文件操作</strong>: write_text_file, edit_text_file, delete_text_file</li>
+        <li class="miss"><strong>代码理解</strong>: 无 (无 search/grep/symbol 工具)</li>
+        <li class="has"><strong>命令执行</strong>: wave_run_command (支持远程)</li>
+        <li class="miss"><strong>浏览器</strong>: 无</li>
+        <li class="miss"><strong>Git</strong>: 无专用 Git 工具</li>
+        <li class="has"><strong>终端</strong>: term_inject_command (终端注入)</li>
+        <li class="has"><strong>Agent 控制</strong>: ask_user, think, todo_read/write</li>
+        <li class="miss"><strong>MCP</strong>: 无</li>
+        <li class="has"><strong>知识库</strong>: kb_search, kb_read, kb_write, kb_delete</li>
+        <li class="has"><strong>技能</strong>: use_skill, create_skill</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>⚙️ 工具执行机制对比</h2>
+  <table class="cmp-table">
+    <tr><th style="width:18%">维度</th><th style="width:41%">oh-my-pi</th><th style="width:41%">waveterm</th></tr>
+    <tr>
+      <td><strong>参数验证</strong></td>
+      <td>Zod schema 验证 (validateToolArguments)，strict mode 强制 additionalProperties: false</td>
+      <td>JSON schema 定义，ToolVerifyInput 可选钩子，无强制 strict mode</td>
+    </tr>
+    <tr>
+      <td><strong>并行执行</strong></td>
+      <td>所有工具默认可并行，由 LLM 决定依赖关系</td>
+      <td>车道化执行计划：Sequential / ReadOnly / Command 三车道，同车道内并行，不同车道顺序执行</td>
+    </tr>
+    <tr>
+      <td><strong>去重</strong></td>
+      <td>无显式去重</td>
+      <td>buildToolCallDedupKeys() 基于 name+input 哈希去重，重复调用复用结果</td>
+    </tr>
+    <tr>
+      <td><strong>审批策略</strong></td>
+      <td>基于文件路径和命令的风险分级，用户可配置 auto-approve 规则</td>
+      <td>AgentMode 策略：default(需审批) / planning(只读) / auto-approve(除 term_inject_command 外自动批准)</td>
+    </tr>
+    <tr>
+      <td><strong>超时处理</strong></td>
+      <td>工具执行有 timeout 配置，abort race 机制</td>
+      <td>ApprovalTimeout 超时，命令轮询 (tryStartWaveCommandResultPoller)</td>
+    </tr>
+    <tr>
+      <td><strong>输出截断</strong></td>
+      <td>按 token 计数截断，SnapCompact 压缩</td>
+      <td>maxToolOutputTextLen = 24KB 硬截断</td>
+    </tr>
+    <tr>
+      <td><strong>动态工具</strong></td>
+      <td>MCP 工具动态注册，intentTracing 可注入 _i 字段追踪工具调用意图</td>
+      <td>按 Widget 类型动态注册 (有 term block 才注册 wave_run_command)，Skills 动态加载</td>
+    </tr>
+  </table>
+</div>
+
+<div class="insight">
+  <strong>waveterm 优势：</strong>车道化并行执行是一个务实的设计——它把"哪些工具可以安全并行"的决策从 LLM 手中拿回来，避免了并行写入冲突。去重机制也是亮点，避免了 LLM 重复调用同一工具。
+</div>
+
+</div>
+
+<!-- ==================== TAB 4: Context ==================== -->
+<div class="tab-content" id="tab-context">
+
+<div class="card">
+  <h2>🧠 上下文管理深度对比</h2>
+  <table class="cmp-table">
+    <tr><th style="width:18%">维度</th><th style="width:41%">oh-my-pi</th><th style="width:41%">waveterm</th></tr>
+    <tr>
+      <td><strong>核心策略</strong></td>
+      <td><span class="badge badge-win">OMP 胜</span> Append-Only + StablePrefix，最大化 provider prefix cache 命中</td>
+      <td>每轮重建，SystemPrompt 数组 append，无缓存优化</td>
+    </tr>
+    <tr>
+      <td><strong>压缩机制</strong></td>
+      <td><span class="badge badge-win">OMP 胜</span> SnapCompact 多策略压缩：摘要压缩、文件操作合并、OpenAI Remote Compaction、Handoff Document</td>
+      <td>无压缩机制，仅 ContextTracker 用量警告 (BuildContextWarningPrompt)</td>
+    </tr>
+    <tr>
+      <td><strong>Token 计数</strong></td>
+      <td>原生 Rust token 计数 (pi-natives crate)，精确到 token</td>
+      <td>基于 LLM 返回的 usage 字段估算，无本地 token 计数</td>
+    </tr>
+    <tr>
+      <td><strong>会话持久化</strong></td>
+      <td>JSONL 文件存储 (FileSessionStorage)，支持分支 (parentSession)、快照、重放</td>
+      <td>chatstore (Bolt DB)，消息级存储，无分支/快照</td>
+    </tr>
+    <tr>
+      <td><strong>会话恢复</strong></td>
+      <td>完整会话恢复：从 JSONL 重放，支持跨终端恢复</td>
+      <td>从 chatstore 加载历史消息，无重放机制</td>
+    </tr>
+    <tr>
+      <td><strong>上下文注入</strong></td>
+      <td>Aside 消息系统：诊断/通知不进入 LLM 上下文，但可影响 UI 展示</td>
+      <td>TabState 动态注入：终端状态/远程连接/Widget 描述每轮刷新</td>
+    </tr>
+    <tr>
+      <td><strong>模型切换</strong></td>
+      <td>invalidateForModelChange() 完整重置，支持运行中切换</td>
+      <td>仅限速降级，不支持主动切换</td>
+    </tr>
+    <tr>
+      <td><strong>Handoff</strong></td>
+      <td>auto-handoff-threshold-focus：当上下文接近阈值时自动生成 Handoff Document，新会话可继承</td>
+      <td>无 Handoff 机制</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>📦 SnapCompact 压缩策略详解 (oh-my-pi 独有)</h2>
+  <div class="arch-diagram"><span class="hl-omp">SnapCompact</span> 压缩流程:
+═══════════════════════════
+
+1. <span class="hl-green">Token 阈值检测</span>
+   └─ countTokens(messages) > threshold
+       └─ 触发压缩
+
+2. <span class="hl-green">策略选择</span>
+   ├─ <span class="hl-purple">Short Summary</span>    → 简短对话摘要
+   ├─ <span class="hl-purple">Full Summary</span>     → 详细对话摘要 + 文件操作合并
+   ├─ <span class="hl-purple">Update Summary</span>   → 增量更新已有摘要
+   ├─ <span class="hl-purple">Turn Prefix</span>      → 保留最近 N 轮完整上下文
+   └─ <span class="hl-purple">Handoff Document</span> → 跨会话交接文档
+
+3. <span class="hl-green">文件操作合并</span> (FileOperations)
+   ├─ extractFileOpsFromMessage() → 提取每个消息的文件操作
+   ├─ computeFileLists() → 计算最终文件状态
+   └─ upsertFileOperations() → 合并到摘要中
+
+4. <span class="hl-green">OpenAI Remote Compaction</span>
+   └─ 使用 OpenAI 的 remote compaction API
+       └─ shouldUseOpenAiRemoteCompaction()
+       └─ requestOpenAiRemoteCompaction()
+
+5. <span class="hl-green">压缩后处理</span>
+   └─ replaceTail() → 替换 AppendOnlyLog 尾部
+   └─ resetSyncCursor() → 重置同步游标</div>
+</div>
+
+<div class="insight omp-insight">
+  <strong>最大差距：</strong>上下文压缩是长对话 Agent 的命门。oh-my-pi 的 SnapCompact 做到了多策略、增量更新、文件操作合并、跨会话交接，而 waveterm 目前只有"用量警告"——当 token 接近上限时提示 LLM 注意，但没有实际压缩动作。这是 waveterm 最需要补课的地方。
+</div>
+
+</div>
+
+<!-- ==================== TAB 5: Security ==================== -->
+<div class="tab-content" id="tab-security">
+
+<div class="card">
+  <h2>🛡️ 安全防御体系对比</h2>
+  <table class="cmp-table">
+    <tr><th style="width:18%">维度</th><th style="width:41%">oh-my-pi</th><th style="width:41%">waveterm</th></tr>
+    <tr>
+      <td><strong>LLM 输出安全</strong></td>
+      <td><span class="badge badge-win">OMP 胜</span> Harmony Leak 检测：5 信号融合 (MARKER/CHANNEL/GLITCH/BODY_CASCADE/FAKE_RESULT)，检测 GPT-5 Harmony 协议泄露</td>
+      <td>无 LLM 输出安全检测</td>
+    </tr>
+    <tr>
+      <td><strong>泄露恢复</strong></td>
+      <td>HarmonyLeakInterruption → truncate-and-resume：截断泄露内容，恢复 edit 工具的 hashline DSL 输入</td>
+      <td>N/A</td>
+    </tr>
+    <tr>
+      <td><strong>内容过滤</strong></td>
+      <td>Anthropic output blocked 检测 (isAnthropicOutputBlockedError)，自动重试</td>
+      <td>无内容过滤处理</td>
+    </tr>
+    <tr>
+      <td><strong>工具审批</strong></td>
+      <td>基于文件路径/命令的风险分级 + 用户可配置 auto-approve 规则</td>
+      <td>AgentMode 策略 + ApprovalBlocked/NeedsApproval/AutoApproved 三级 + WaitForToolApproval</td>
+    </tr>
+    <tr>
+      <td><strong>命令安全</strong></td>
+      <td>bash 工具有沙箱选项，命令白名单/黑名单</td>
+      <td>ApprovalBlocked 安全策略阻止危险命令，term_inject_command 在 auto-approve 模式下仍需审批</td>
+    </tr>
+    <tr>
+      <td><strong>输入验证</strong></td>
+      <td>Zod schema 严格验证，strict mode 强制 additionalProperties: false</td>
+      <td>ToolVerifyInput 可选钩子，JSON schema 定义</td>
+    </tr>
+    <tr>
+      <td><strong>Panic 恢复</strong></td>
+      <td>try/catch 包裹工具执行</td>
+      <td>defer recover() 捕获 panic，记录堆栈，返回友好错误信息</td>
+    </tr>
+    <tr>
+      <td><strong>审计</strong></td>
+      <td>HarmonyAuditEvent 审计日志，createHarmonyAuditEvent()</td>
+      <td>AIMetrics 记录工具调用次数和错误，无安全审计</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>🔬 Harmony Leak 检测详解 (oh-my-pi 独有)</h2>
+  <div class="arch-diagram"><span class="hl-red">Harmony Leak Detection</span> — GPT-5 协议泄露防御
+═══════════════════════════════════════════════════
+
+<span class="hl-purple">5 信号融合检测</span>:
+┌─────────────────────────────────────────────────┐
+│ M = MARKER_RE    → to=functions.xxx 模式匹配     │
+│ C = CHANNEL_WORD → channel + marker 邻接检测      │
+│ G = GLITCH_RE    → 故障 token 邻接检测            │
+│ B = BODY_CASCADE → marker → code → marker 级联   │
+│ R = FAKE_RESULT  → marker + Cell N: 伪造结果框架  │
+└─────────────────────────────────────────────────┘
+
+<span class="hl-green">检测流程</span>:
+  detectHarmonyLeakInAssistantMessage(msg)
+    ├─ 扫描 content 文本 → MARKER_RE 匹配
+    ├─ 扫描 toolCalls → 每个 call 的 input
+    ├─ 信号融合 → signals[] 数组
+    └─ 信号数 ≥ 1 → 触发 HarmonyLeakInterruption
+
+<span class="hl-green">恢复策略</span>:
+  recoverHarmonyToolCall()
+    ├─ 截断泄露内容 (removed = extractHarmonyRemoved)
+    ├─ 恢复 edit 工具的 hashline DSL 输入
+    └─ 其他工具 → abort-and-retry
+
+<span class="hl-green">审计</span>:
+  createHarmonyAuditEvent()
+    └─ 记录检测信号、截断内容、恢复结果</div>
+</div>
+
+<div class="insight omp-insight">
+  <strong>值得学习：</strong>Harmony Leak 检测是 oh-my-pi 针对 GPT-5 内部协议泄露的专项防御。虽然 waveterm 暂时不需要这个具体功能，但"LLM 输出安全检测"这个思路非常重要——Agent 不应该无条件信任 LLM 的输出。waveterm 至少应该加入：1) 工具参数异常检测 2) LLM 输出注入检测 3) 敏感信息泄露检测。
+</div>
+
+</div>
+
+<!-- ==================== TAB 6: UX ==================== -->
+<div class="tab-content" id="tab-ux">
+
+<div class="card">
+  <h2>🎨 交互与体验对比</h2>
+  <table class="cmp-table">
+    <tr><th style="width:18%">维度</th><th style="width:41%">oh-my-pi</th><th style="width:41%">waveterm</th></tr>
+    <tr>
+      <td><strong>UI 形态</strong></td>
+      <td>TUI (Ink-based React CLI)，Markdown 渲染，代码高亮，进度条</td>
+      <td>桌面面板 (React + Electron)，Markdown 渲染，代码高亮，工具卡片</td>
+    </tr>
+    <tr>
+      <td><strong>流式输出</strong></td>
+      <td>EventStream 逐 token 推送，Markdown 增量渲染</td>
+      <td>SSE 逐 token 推送，React 状态更新</td>
+    </tr>
+    <tr>
+      <td><strong>工具状态展示</strong></td>
+      <td>工具调用内联展示，spinner + 结果摘要</td>
+      <td>工具卡片 UI：状态徽章 (pending/running/completed/error)，审批按钮，输出预览</td>
+    </tr>
+    <tr>
+      <td><strong>任务进度</strong></td>
+      <td>无显式任务进度 UI</td>
+      <td><span class="badge badge-win">WAV 胜</span> TaskState 进度追踪：PlanId / Steps / Status，SSE 实时推送 data-taskstate</td>
+    </tr>
+    <tr>
+      <td><strong>终端感知</strong></td>
+      <td>terminal_output / terminal_input 工具，但无深度集成</td>
+      <td><span class="badge badge-win">WAV 胜</span> 交互检测 (AwaitingInput/PromptHint/InputOptions)、TUI 检测与抑制、命令轮询</td>
+    </tr>
+    <tr>
+      <td><strong>远程会话</strong></td>
+      <td>SSH 工具，但无原生远程感知</td>
+      <td><span class="badge badge-win">WAV 胜</span> 原生远程连接感知，文件操作和命令执行自动路由到远程</td>
+    </tr>
+    <tr>
+      <td><strong>用户交互</strong></td>
+      <td>ask_user 工具，CLI 输入</td>
+      <td>ask_user 工具，面板内输入框 + 选项按钮</td>
+    </tr>
+    <tr>
+      <td><strong>Agent 模式</strong></td>
+      <td>无显式模式切换 (通过 auto-approve 规则隐式控制)</td>
+      <td>三种模式：default / planning (只读) / auto-approve (自动批准)</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>🖥️ waveterm 独有的终端感知能力</h2>
+  <div class="arch-diagram"><span class="hl-wav">终端感知 Agent</span> — waveterm 的核心竞争力
+══════════════════════════════════════════════════════
+
+<span class="hl-green">1. 交互检测</span> (detectCommandInteraction)
+  ├─ AwaitingInput  → 命令等待用户输入
+  ├─ PromptHint     → 提示文本 (如 "Password:", "y/n")
+  ├─ InputOptions   → 可选输入 (如 ["y", "n"])
+  └─ 应用到 ToolUseData → 前端展示交互提示
+
+<span class="hl-green">2. TUI 检测与抑制</span>
+  ├─ TuiDetected    → 检测到 TUI 程序 (vim/top/htop)
+  ├─ TuiSuppressed  → 抑制自动注入，避免干扰 TUI
+  └─ autoCancelTUICommand() → 用户输入时自动取消
+
+<span class="hl-green">3. 命令轮询</span> (tryStartWaveCommandResultPoller)
+  ├─ 命令运行中 → 定期轮询结果
+  ├─ waveCommandPollMinInterval = 500ms
+  └─ 合并输出 (mergeWaveCommandOutputText)
+
+<span class="hl-green">4. 远程会话感知</span>
+  ├─ Active Remote Connection 检测
+  ├─ 文件操作自动路由到远程
+  ├─ SystemPrompt 注入远程环境提示
+  └─ 命令执行目标解析 (resolveWaveRunCommandTarget)
+
+<span class="hl-green">5. Widget 上下文</span>
+  ├─ term → CLI 终端描述 (Shell 类型/版本/状态/CWD)
+  ├─ preview → 文件预览 Widget
+  ├─ web → 浏览器 Widget
+  └─ cpuplot → CPU 监控 Widget</div>
+</div>
+
+<div class="insight">
+  <strong>waveterm 的护城河：</strong>终端感知是 waveterm 相对于所有 CLI Agent 的核心差异。交互检测、TUI 抑制、远程会话路由——这些能力是 oh-my-pi 这类 CLI Agent 永远无法做到的，因为它们没有终端的运行时状态。waveterm 应该继续深耕这个方向。
+</div>
+
+</div>
+
+<!-- ==================== TAB 7: Takeaways ==================== -->
+<div class="tab-content" id="tab-takeaways">
+
+<div class="card">
+  <h2>💡 向 oh-my-pi 取经：优先级排序</h2>
+
+  <div class="takeaway-grid">
+    <div class="takeaway-item">
+      <h4><span class="badge badge-lose">P0</span> 上下文压缩 (SnapCompact)</h4>
+      <p><strong>现状：</strong>waveterm 只有用量警告，无实际压缩。<br>
+      <strong>建议：</strong>实现多策略压缩——先做 Short Summary（简单摘要），再做 FileOperations 合并（文件操作去重），最后做 Handoff Document（跨会话交接）。这是长对话 Agent 的命门。</p>
+    </div>
+    <div class="takeaway-item">
+      <h4><span class="badge badge-lose">P0</span> Append-Only 上下文</h4>
+      <p><strong>现状：</strong>waveterm 每轮重建整个上下文。<br>
+      <strong>建议：</strong>实现 StablePrefix + AppendOnlyLog——冻结 systemPrompt 和 tools，消息只追加不重序列化。这能大幅减少 token 浪费，提升 provider prefix cache 命中率。</p>
+    </div>
+    <div class="takeaway-item">
+      <h4><span class="badge badge-lose">P1</span> LLM 输出安全检测</h4>
+      <p><strong>现状：</strong>waveterm 无条件信任 LLM 输出。<br>
+      <strong>建议：</strong>不需要照搬 Harmony 检测，但至少加入：1) 工具参数异常检测 2) Prompt Injection 检测 3) 敏感信息泄露检测。建立"不信任 LLM 输出"的安全意识。</p>
+    </div>
+    <div class="takeaway-item">
+      <h4><span class="badge badge-lose">P1</span> 会话分支与快照</h4>
+      <p><strong>现状：</strong>waveterm 会话是线性的，无分支。<br>
+      <strong>建议：</strong>实现 parentSession 分支机制——用户可以从任意点分叉出新会话，保留原会话状态。同时支持快照，方便回滚。</p>
+    </div>
+    <div class="takeaway-item">
+      <h4><span class="badge badge-draw">P2</span> 中断与暂停机制</h4>
+      <p><strong>现状：</strong>waveterm 无显式中断模式。<br>
+      <strong>建议：</strong>实现 interruptMode: "immediate" | "wait"——immediate 模式下每个工具调用后检查用户中断，wait 模式下等当前轮完成。同时支持 pause_turn 限制 (MAX_PAUSED_TURN_CONTINUATIONS)。</p>
+    </div>
+    <div class="takeaway-item">
+      <h4><span class="badge badge-draw">P2</span> OpenTelemetry 遥测</h4>
+      <p><strong>现状：</strong>waveterm 只有简单计数。<br>
+      <strong>建议：</strong>引入 span 体系——chatSpan / executeToolSpan / invokeAgentSpan，支持分布式追踪和性能分析。这对调试复杂 Agent 行为非常有帮助。</p>
+    </div>
+    <div class="takeaway-item">
+      <h4><span class="badge badge-win">保持</span> 终端感知优势</h4>
+      <p><strong>现状：</strong>waveterm 的终端感知是核心差异。<br>
+      <strong>建议：</strong>继续深耕——增强 TUI 检测（支持更多 TUI 程序）、改进交互检测（支持更复杂的提示模式）、优化远程会话路由（支持跳板机）。</p>
+    </div>
+    <div class="takeaway-item">
+      <h4><span class="badge badge-win">保持</span> 车道化并行执行</h4>
+      <p><strong>现状：</strong>waveterm 的三车道执行计划是务实设计。<br>
+      <strong>建议：</strong>oh-my-pi 完全依赖 LLM 决定并行性，容易出问题。waveterm 的车道化方案更安全，值得保持和增强——比如加入依赖声明，让工具可以声明前置依赖。</p>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>📋 实施路线图建议</h2>
+  <table class="cmp-table">
+    <tr><th>阶段</th><th>目标</th><th>关键任务</th><th>预期收益</th></tr>
+    <tr>
+      <td><span class="tag tag-red">Phase 1</span></td>
+      <td>上下文基础设施</td>
+      <td>1. 实现 AppendOnlyLog + StablePrefix<br>2. 实现 Short Summary 压缩<br>3. 本地 token 计数</td>
+      <td>长对话 token 节省 30-50%<br>provider cache 命中率提升</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-yellow">Phase 2</span></td>
+      <td>安全与可观测性</td>
+      <td>1. LLM 输出安全检测框架<br>2. 工具参数异常检测<br>3. OpenTelemetry span 体系</td>
+      <td>Agent 行为可审计<br>调试效率提升</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-green">Phase 3</span></td>
+      <td>高级上下文管理</td>
+      <td>1. FileOperations 合并压缩<br>2. Handoff Document 跨会话交接<br>3. 会话分支与快照</td>
+      <td>超长任务可持续<br>会话可回溯</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-purple">Phase 4</span></td>
+      <td>交互增强</td>
+      <td>1. interruptMode 支持<br>2. pause_turn 限制<br>3. 运行中模型切换</td>
+      <td>用户控制感提升<br>Agent 行为更可预测</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>⚖️ 不建议照搬的部分</h2>
+  <table class="cmp-table">
+    <tr><th>oh-my-pi 特性</th><th>不建议照搬原因</th><th>waveterm 的替代方案</th></tr>
+    <tr>
+      <td>Harmony Leak 检测</td>
+      <td>针对 GPT-5 特定协议泄露，waveterm 暂时不需要</td>
+      <td>通用 LLM 输出安全检测框架</td>
+    </tr>
+    <tr>
+      <td>Ink TUI 渲染</td>
+      <td>waveterm 是桌面应用，不需要 CLI TUI</td>
+      <td>继续用 React + Electron</td>
+    </tr>
+    <tr>
+      <td>全并行工具执行</td>
+      <td>依赖 LLM 正确判断依赖关系，风险高</td>
+      <td>保持车道化并行执行</td>
+    </tr>
+    <tr>
+      <td>JSONL 文件存储</td>
+      <td>waveterm 已有 Bolt DB，迁移成本高</td>
+      <td>在现有 chatstore 上增加压缩和分支支持</td>
+    </tr>
+    <tr>
+      <td>Rust native token 计数</td>
+      <td>引入 Rust 依赖增加构建复杂度</td>
+      <td>使用 Go tokenizer 库 (如 tiktoken-go)</td>
+    </tr>
+  </table>
+</div>
+
+</div>
+
+</div><!-- container -->
+
+<script>
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tabId).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+
+</body>
+</html>

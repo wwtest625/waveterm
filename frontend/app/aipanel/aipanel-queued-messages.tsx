@@ -34,7 +34,7 @@ export const QueuedMessageCard = memo(({ model }: QueuedMessageCardProps) => {
                         className={cn(
                             "flex items-center gap-2 rounded-lg border bg-black/[0.08] px-3 py-2 text-[12px]",
                             submission.status === "sending"
-                                ? "border-lime-300/10"
+                                ? "border-accent/10"
                                 : "border-white/[0.04]"
                         )}
                     >
@@ -51,7 +51,7 @@ export const QueuedMessageCard = memo(({ model }: QueuedMessageCardProps) => {
                         <div className="flex shrink-0 gap-1">
                             <Tooltip content="Send now" placement="top">
                                 <button
-                                    className="flex h-5 w-5 items-center justify-center rounded text-lime-300/60 transition-colors hover:bg-lime-300/10 hover:text-lime-200"
+                                    className="flex h-5 w-5 items-center justify-center rounded text-accent/60 transition-colors hover:bg-accent/10 hover:text-accent-200"
                                     onClick={() => void model.sendQueuedSubmissionNow(submission.id)}
                                 >
                                     <i className="fa fa-play text-[8px]" />

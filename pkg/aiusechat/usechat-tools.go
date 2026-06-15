@@ -546,6 +546,33 @@ func processAllToolCalls(ctx context.Context, backend UseChatBackend, stopReason
 	}
 	// At this point, all ToolCalls are guaranteed to have non-nil ToolUseData
 
+	// Update task state titles with ToolDesc now that ToolUseData is available.
+	// buildTaskStateFromToolCalls is called before ToolDesc is set, so titles
+	// may have fallen back to generic text like "执行命令". Update them now.
+	if taskState != nil {
+		titlesUpdated := false
+		for i := range stopReason.ToolCalls {
+			tc := &stopReason.ToolCalls[i]
+			if tc.ToolUseData != nil && strings.TrimSpace(tc.ToolUseData.ToolDesc) != "" {
+				for j := range taskState.Tasks {
+					if taskState.Tasks[j].ID == tc.ID {
+						if taskState.Tasks[j].Title != strings.TrimSpace(tc.ToolUseData.ToolDesc) {
+							taskState.Tasks[j].Title = strings.TrimSpace(tc.ToolUseData.ToolDesc)
+							titlesUpdated = true
+						}
+						break
+					}
+				}
+			}
+		}
+		if titlesUpdated {
+			chatstore.DefaultChatStore.UpsertSessionMeta(chatOpts.ChatId, &chatOpts.Config, uctypes.UIChatSessionMetaUpdate{
+				TaskState: taskState,
+			})
+			_ = sseHandler.AiMsgData("data-taskstate", taskState.PlanId, *taskState)
+		}
+	}
+
 	for _, toolCall := range stopReason.ToolCalls {
 		var params map[string]any
 		if toolCall.Input != nil {

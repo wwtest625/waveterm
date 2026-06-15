@@ -79,7 +79,7 @@ function getStateTone(state: AgentRuntimeState): string {
         case "retrying":
             return "bg-yellow-950/70 text-yellow-300";
         default:
-            return "bg-emerald-950/70 text-emerald-300";
+            return "bg-accent-950/70 text-accent-300";
     }
 }
 

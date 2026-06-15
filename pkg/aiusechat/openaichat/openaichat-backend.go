@@ -48,7 +48,6 @@ func RunChatStep(
 	// Convert stored messages to chat completions format
 	var messages []ChatRequestMessage
 
-	// Convert native messages
 	for _, genMsg := range chat.NativeMessages {
 		chatMsg, ok := genMsg.(*StoredChatMessage)
 		if !ok {

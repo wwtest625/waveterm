@@ -113,8 +113,8 @@ export const UserPromptCard = memo(({ message }: { message?: WaveUIMessage }) =>
     }
     return (
         <div className="flex justify-end">
-            <div className="max-w-[78%] rounded-2xl border-l-2 border-lime-300/20 bg-lime-300/[0.04] px-4 py-3 text-sm text-zinc-200">
-                <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-lime-200/50">You</div>
+            <div className="max-w-[78%] rounded-2xl border-l-2 border-accent/20 bg-accent/[0.04] px-4 py-3 text-sm text-zinc-200">
+                <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-accent-200/50">You</div>
                 <div className="whitespace-pre-wrap break-words">{text}</div>
             </div>
         </div>
@@ -125,11 +125,11 @@ UserPromptCard.displayName = "UserPromptCard";
 
 const StreamingTextBlock = memo(({ text }: { text: string }) => {
     return (
-        <div className="relative overflow-hidden rounded-lg bg-white/[0.015] px-4 py-3">
-            <div className="absolute inset-y-0 left-0 w-0.5 bg-emerald-400/40" />
+        <div className="relative overflow-hidden rounded-lg bg-white/[0.04] px-4 py-3">
+            <div className="absolute inset-y-0 left-0 w-0.5 bg-accent/40" />
             <div className="whitespace-pre-wrap break-words pl-2 text-[13px] leading-6 text-zinc-100">
                 {text}
-                <span className="inline-block w-[3px] h-[14px] ml-0.5 bg-emerald-400 animate-pulse rounded-sm align-text-bottom" />
+                <span className="inline-block w-[3px] h-[14px] ml-0.5 bg-accent animate-pulse rounded-sm align-text-bottom" />
             </div>
         </div>
     );
@@ -141,7 +141,7 @@ const CompletionHeader = memo(() => {
     return (
         <div className="mb-2 flex items-center gap-2">
             <div className="flex items-center gap-2 text-[11px] font-medium text-zinc-300">
-                <i className="fa-solid fa-circle-check text-emerald-400/70" />
+                <i className="fa-solid fa-circle-check text-accent/70" />
                 <span>{t.message.taskComplete}</span>
             </div>
         </div>
@@ -153,7 +153,7 @@ CompletionHeader.displayName = "CompletionHeader";
 const AssistantRail = memo(({ blockStatus }: { blockStatus: AIBlockOutputStatus }) => {
     const dotClass =
         blockStatus.status === "partially_received" || blockStatus.status === "pending"
-            ? "bg-emerald-400/50"
+            ? "bg-accent/50"
             : blockStatus.status === "failed"
               ? "bg-red-400/50"
               : blockStatus.status === "cancelled"
@@ -162,7 +162,7 @@ const AssistantRail = memo(({ blockStatus }: { blockStatus: AIBlockOutputStatus 
     return (
         <div className="flex shrink-0 flex-col items-center">
             <div className={cn("mt-1.5 h-1.5 w-1.5 rounded-full", dotClass)} />
-            <div className="mt-1.5 h-full min-h-8 w-px bg-white/[0.03]" />
+            <div className="mt-1.5 h-full min-h-8 w-px bg-white/[0.05]" />
         </div>
     );
 });
@@ -199,39 +199,39 @@ const ThinkingTraceCard = memo(({ reasoningText, isStreaming }: { reasoningText:
     }
 
     return (
-        <div className="mb-3 overflow-hidden rounded-lg border-l-2 border-emerald-300/15 bg-emerald-300/[0.02]">
-            <div className="flex items-center justify-between gap-2 border-b border-emerald-300/8 px-3 py-2">
-                <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.12em] text-emerald-200/70">
+        <div className="mb-3 overflow-hidden rounded-lg border-l-2 border-accent-300/15 bg-accent-300/[0.02]">
+            <div className="flex items-center justify-between gap-2 border-b border-accent-300/8 px-3 py-2">
+                <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.12em] text-accent-200/70">
                     <i className="fa-solid fa-brain" />
                     <span>{t.message.deepThinking}</span>
                     {isStreaming && (
                         <span className="flex items-center gap-1">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                            <span className="bg-gradient-to-r from-emerald-200/70 via-emerald-100 to-emerald-200/70 bg-[length:200%_100%] bg-clip-text text-transparent animate-[shimmer-sweep_2s_ease-in-out_infinite]">{t.message.processing}</span>
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                            <span className="bg-gradient-to-r from-accent-200/70 via-accent-100 to-accent-200/70 bg-[length:200%_100%] bg-clip-text text-transparent animate-[shimmer-sweep_2s_ease-in-out_infinite]">{t.message.processing}</span>
                         </span>
                     )}
                     {!isStreaming && durationLabel && (
-                        <span className="text-emerald-200/50">{durationLabel}</span>
+                        <span className="text-accent-200/50">{durationLabel}</span>
                     )}
                 </div>
                 {displayState.shouldCollapse && (
                     <button
                         type="button"
                         onClick={() => setExpanded((value) => !value)}
-                        className="text-[10px] uppercase tracking-[0.12em] text-emerald-200/50 transition hover:text-emerald-100"
+                        className="text-[10px] uppercase tracking-[0.12em] text-accent-200/50 transition hover:text-accent-100"
                     >
                         {expanded ? t.message.collapse : t.message.expand(displayState.lineCount)}
                     </button>
                 )}
             </div>
             <pre
-                className="max-h-[20lh] overflow-auto whitespace-pre-wrap px-3 py-2 text-xs leading-5 text-emerald-50/75"
+                className="max-h-[20lh] overflow-auto whitespace-pre-wrap px-3 py-2 text-xs leading-5 text-accent-50/75"
                 style={{ fontFamily: AI_CODE_FONT_FAMILY }}
             >
                 {displayedText}
             </pre>
             {displayState.shouldCollapse && !expanded && (
-                <div className="border-t border-emerald-300/6 px-3 py-1.5 text-[10px] text-emerald-200/50">
+                <div className="border-t border-accent-300/6 px-3 py-1.5 text-[10px] text-accent-200/50">
                     {t.message.showFirstNLines(THINKING_OUTPUT_COLLAPSE_LINES)}
                 </div>
             )}
@@ -289,7 +289,7 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
             ? "border-l-2 border-red-400/20"
             : blockStatus.status === "cancelled"
               ? "border-l-2 border-zinc-500/20"
-              : "border-l-2 border-white/[0.04]";
+              : "border-l-2 border-white/[0.08]";
 
     const handleCopy = async () => {
         const copyText = assistantText || rawToolOutput || outputText;
@@ -304,7 +304,7 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
     return (
         <div className="flex items-stretch gap-3">
             <AssistantRail blockStatus={blockStatus} />
-            <div className={cn("min-w-0 flex-1 rounded-lg bg-white/[0.015] px-4 py-3.5", blockBorderClass)}>
+            <div className={cn("min-w-0 flex-1 rounded-lg bg-white/[0.04] px-4 py-3.5", blockBorderClass)}>
                 {showCompletionHeader && <CompletionHeader />}
 
                 {blockStatus.status === "cancelled" && (
@@ -338,7 +338,7 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
 
                 {showRawOutputBlock && (
                     <div className="mt-2 overflow-hidden rounded-lg bg-black/25">
-                        <div className="flex items-center justify-between gap-3 border-b border-white/[0.03] px-3 py-1.5">
+                        <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-3 py-1.5">
                             <div className="flex items-center gap-2">
                                 <div className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">{t.message.result}</div>
                                 {exitCodeLabel && (
@@ -364,7 +364,7 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
                             {displayedRawOutput}
                         </pre>
                         {rawOutputDisplay.shouldCollapse && !rawOutputExpanded && (
-                            <div className="border-t border-white/[0.03] px-3 py-1.5 text-[10px] text-zinc-500">
+                            <div className="border-t border-white/[0.06] px-3 py-1.5 text-[10px] text-zinc-500">
                                 {t.message.showFirstNLines(RAW_OUTPUT_COLLAPSE_LINES)}
                             </div>
                         )}
@@ -373,7 +373,7 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
 
                 {isActive && !assistantText && (
                     <div className="mt-3 flex items-center gap-2 text-sm text-zinc-400">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                         <span className="bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-400 bg-[length:200%_100%] bg-clip-text text-transparent animate-[shimmer-sweep_2s_ease-in-out_infinite]">{t.message.processing}</span>
                     </div>
                 )}
@@ -381,11 +381,11 @@ export const AssistantOutputCard = memo(({ turn, fallbackOutput }: { turn: TaskT
                 {showEmptyState && <div className="mt-3 text-sm text-zinc-400">No visible result returned.</div>}
 
                 {isTerminal && (assistantText || rawToolOutput) && (
-                    <div className="mt-3 flex items-center gap-2 border-t border-white/[0.03] pt-2.5">
+                    <div className="mt-3 flex items-center gap-2 border-t border-white/[0.06] pt-2.5">
                         <button
                             type="button"
                             onClick={handleCopy}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.03] px-2.5 py-1 text-[11px] text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.05] px-2.5 py-1 text-[11px] text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
                         >
                             <i className={`fa ${copied ? "fa-check" : "fa-copy"} text-[10px]`} />
                             {copied ? t.message.copied : t.message.copy}
