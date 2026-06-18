@@ -452,6 +452,11 @@ class RpcApiType {
         return client.wshRpcCall("getsecretsnames", null, opts);
     }
 
+    // command "getskilldefinition" [call]
+    GetSkillDefinitionCommand(client: WshClient, data: CommandGetSkillDefinitionData, opts?: RpcOpts): Promise<SkillDefinition> {
+        return client.wshRpcCall("getskilldefinition", data, opts);
+    }
+
     // command "getskills" [call]
     GetSkillsCommand(client: WshClient, opts?: RpcOpts): Promise<SkillInfo[]> {
         return client.wshRpcCall("getskills", null, opts);
@@ -460,11 +465,6 @@ class RpcApiType {
     // command "getskillsuserpath" [call]
     GetSkillsUserPathCommand(client: WshClient, opts?: RpcOpts): Promise<string> {
         return client.wshRpcCall("getskillsuserpath", null, opts);
-    }
-
-    // command "getskilldefinition" [call]
-    GetSkillDefinitionCommand(client: WshClient, data: CommandGetSkillDefinitionData, opts?: RpcOpts): Promise<SkillDefinition> {
-        return client.wshRpcCall("getskilldefinition", data, opts);
     }
 
     // command "gettab" [call]
@@ -602,6 +602,11 @@ class RpcApiType {
         return client.wshRpcCall("listalleditableapps", null, opts);
     }
 
+    // command "listskills" [call]
+    ListSkillsCommand(client: WshClient, opts?: RpcOpts): Promise<SkillListItem[]> {
+        return client.wshRpcCall("listskills", null, opts);
+    }
+
     // command "listwaveaibackgroundjobs" [call]
     ListWaveAIBackgroundJobsCommand(client: WshClient, data: CommandListWaveAIBackgroundJobsData, opts?: RpcOpts): Promise<UIChatBackgroundJobInfo[]> {
         return client.wshRpcCall("listwaveaibackgroundjobs", data, opts);
@@ -610,11 +615,6 @@ class RpcApiType {
     // command "listwaveaisessions" [call]
     ListWaveAISessionsCommand(client: WshClient, data: CommandListWaveAISessionsData, opts?: RpcOpts): Promise<UIChatSessionMeta[]> {
         return client.wshRpcCall("listwaveaisessions", data, opts);
-    }
-
-    // command "listskills" [call]
-    ListSkillsCommand(client: WshClient, opts?: RpcOpts): Promise<SkillListItem[]> {
-        return client.wshRpcCall("listskills", null, opts);
     }
 
     // command "makedraftfromlocal" [call]
@@ -677,14 +677,14 @@ class RpcApiType {
         return client.wshRpcCall("readappfile", data, opts);
     }
 
-    // command "readskillcontent" [call]
-    ReadSkillContentCommand(client: WshClient, data: CommandReadSkillContentData, opts?: RpcOpts): Promise<SkillContent> {
-        return client.wshRpcCall("readskillcontent", data, opts);
-    }
-
     // command "readkbfile" [call]
     ReadKBFileCommand(client: WshClient, data: CommandReadKBFileData, opts?: RpcOpts): Promise<KBFileContent> {
         return client.wshRpcCall("readkbfile", data, opts);
+    }
+
+    // command "readskillcontent" [call]
+    ReadSkillContentCommand(client: WshClient, data: CommandReadSkillContentData, opts?: RpcOpts): Promise<SkillContent> {
+        return client.wshRpcCall("readskillcontent", data, opts);
     }
 
     // command "recordtevent" [call]
@@ -827,14 +827,14 @@ class RpcApiType {
         return client.wshRpcCall("routeunannounce", null, opts);
     }
 
-    // command "sendtelemetry" [call]
-    SendTelemetryCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
-        return client.wshRpcCall("sendtelemetry", null, opts);
-    }
-
     // command "searchkbfiles" [call]
     SearchKBFilesCommand(client: WshClient, data: CommandSearchKBFilesData, opts?: RpcOpts): Promise<KBFileSearchResult[]> {
         return client.wshRpcCall("searchkbfiles", data, opts);
+    }
+
+    // command "sendtelemetry" [call]
+    SendTelemetryCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
+        return client.wshRpcCall("sendtelemetry", null, opts);
     }
 
     // command "setblockfocus" [call]

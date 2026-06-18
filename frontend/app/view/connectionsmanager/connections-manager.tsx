@@ -16,6 +16,7 @@ import React, { type MouseEvent, useCallback, useEffect, useMemo, useRef, useSta
 import {
     buildConnectionHost,
     buildConnMetaFromForm,
+    buildPasswordSecretName,
     ConnectionFormState,
     connectionMatchesQuery,
     getConnStatusBadgeInfo,
@@ -38,6 +39,8 @@ function makeBlankForm(): ConnectionFormState {
         hostname: "",
         port: "22",
         password: "",
+        passwordSecretName: "",
+        hasStoredPassword: false,
         passwordAuth: false,
         pubkeyAuth: true,
         keyboardInteractiveAuth: false,
@@ -590,6 +593,13 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
         };
         const metaMap = buildConnMetaFromForm(nextForm);
         metaMap["display:hidden"] = false;
+
+        // 将密码存入 secretstore（加密存储），配置中只保留 secret name 引用
+        if (nextForm.password !== "") {
+            const secretName = (metaMap["ssh:passwordsecretname"] as string) || buildPasswordSecretName(host);
+            await RpcApi.SetSecretsCommand(TabRpcClient, { [secretName]: nextForm.password });
+        }
+
         await RpcApi.SetConnectionsConfigCommand(TabRpcClient, {
             host: host,
             metamaptype: metaMap,
@@ -636,6 +646,8 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
             host: "",
             displayName: nextDisplayName,
             password: "",
+            passwordSecretName: "",
+            hasStoredPassword: false,
         });
         modalsModel.pushModal("MessageModal", {
             children: "连接已复制到新草稿。如需要请修改 SSH 主机名，然后点击保存。",
@@ -1202,7 +1214,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                                         className="w-full bg-background border border-border rounded px-2 py-1.5 pr-8 text-sm outline-none focus:border-accent-400 transition-colors font-mono"
                                         value={form.password}
                                         onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
-                                        placeholder="输入 SSH 密码"
+                                        placeholder={form.hasStoredPassword ? "已保存，留空则保持原密码" : "输入 SSH 密码"}
                                     />
                                     <button
                                         type="button"
@@ -1244,7 +1256,7 @@ function ConnectionsManagerView({ model }: ViewComponentProps<ConnectionsManager
                                     <i className="fa fa-clock text-[9px]" />
                                     上次连接
                                 </span>
-                                {form.passwordAuth && form.password && (
+                                {form.passwordAuth && (form.password || form.hasStoredPassword) && (
                                     <span className="flex items-center gap-1">
                                         <i className="fa fa-key text-[9px] text-accent-400" />
                                         密码已设置

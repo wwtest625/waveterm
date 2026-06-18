@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { WaveConfigViewModel } from "@/app/view/waveconfig/waveconfig-model";
+import { getSystemMonospaceFonts, type SystemFont } from "@/util/fontutil";
 import { cn } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface SettingItemProps {
     label: string;
@@ -110,6 +111,133 @@ const SelectInput = memo(({ value, onChange, options, disabled }: SelectInputPro
     );
 });
 SelectInput.displayName = "SelectInput";
+
+interface FontSelectInputProps {
+    value: string;
+    onChange: (value: string) => void;
+}
+
+const FontSelectInput = memo(({ value, onChange }: FontSelectInputProps) => {
+    const [fonts, setFonts] = useState<SystemFont[]>([]);
+    const [search, setSearch] = useState("");
+    const [isOpen, setIsOpen] = useState(false);
+    const [highlightIndex, setHighlightIndex] = useState(0);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const listRef = useRef<HTMLUListElement>(null);
+
+    // 懒加载系统等宽字体
+    useEffect(() => {
+        getSystemMonospaceFonts().then(setFonts);
+    }, []);
+
+    // 点击外部关闭
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const filteredFonts = useMemo(() => {
+        const defaultOption = { family: "", postscriptName: "", style: "" };
+        if (!search.trim()) {
+            return [defaultOption, ...fonts];
+        }
+        const lowerSearch = search.toLowerCase();
+        const matched = fonts.filter((f) => f.family.toLowerCase().includes(lowerSearch));
+        return [defaultOption, ...matched];
+    }, [fonts, search]);
+
+    const displayValue = value || "默认";
+
+    const handleSelect = useCallback(
+        (family: string) => {
+            onChange(family || undefined);
+            setIsOpen(false);
+            setSearch("");
+        },
+        [onChange]
+    );
+
+    const handleKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setHighlightIndex((prev) => Math.min(prev + 1, filteredFonts.length - 1));
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHighlightIndex((prev) => Math.max(prev - 1, 0));
+            } else if (e.key === "Enter") {
+                e.preventDefault();
+                if (filteredFonts[highlightIndex]) {
+                    handleSelect(filteredFonts[highlightIndex].family);
+                }
+            } else if (e.key === "Escape") {
+                setIsOpen(false);
+                setSearch("");
+            }
+        },
+        [filteredFonts, highlightIndex, handleSelect]
+    );
+
+    // 高亮项滚动到可视区域
+    useEffect(() => {
+        if (isOpen && listRef.current) {
+            const highlighted = listRef.current.children[highlightIndex] as HTMLElement;
+            highlighted?.scrollIntoView({ block: "nearest" });
+        }
+    }, [highlightIndex, isOpen]);
+
+    return (
+        <div ref={containerRef} className="relative w-40">
+            <input
+                ref={inputRef}
+                type="text"
+                value={isOpen ? search : displayValue}
+                onChange={(e) => {
+                    setSearch(e.target.value);
+                    setHighlightIndex(0);
+                }}
+                onFocus={() => {
+                    setIsOpen(true);
+                    setSearch("");
+                }}
+                onKeyDown={handleKeyDown}
+                className="w-full px-3 py-1.5 bg-zinc-800 border border-zinc-600 rounded text-sm text-zinc-200 focus:outline-none focus:border-accent-500 cursor-pointer"
+                placeholder="搜索字体..."
+            />
+            {isOpen && (
+                <ul
+                    ref={listRef}
+                    className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-zinc-800 border border-zinc-600 rounded shadow-lg"
+                >
+                    {filteredFonts.map((font, index) => (
+                        <li
+                            key={font.family || "__default__"}
+                            className={cn(
+                                "px-3 py-1.5 text-sm cursor-pointer",
+                                index === highlightIndex ? "bg-accent-600 text-white" : "text-zinc-200 hover:bg-zinc-700",
+                                font.family === value && !index && "font-bold"
+                            )}
+                            onClick={() => handleSelect(font.family)}
+                            onMouseEnter={() => setHighlightIndex(index)}
+                        >
+                            {font.family || "默认"}
+                        </li>
+                    ))}
+                    {filteredFonts.length === 0 && (
+                        <li className="px-3 py-1.5 text-sm text-zinc-500">无匹配字体</li>
+                    )}
+                </ul>
+            )}
+        </div>
+    );
+});
+FontSelectInput.displayName = "FontSelectInput";
 
 interface SettingSectionProps {
     title: string;
@@ -261,21 +389,9 @@ export const SettingsVisualContent = memo(({ model }: SettingsContentProps) => {
                         label="字体"
                         description="终端字体系列"
                     >
-                        <SelectInput
+                        <FontSelectInput
                             value={settings["term:fontfamily"] || ""}
                             onChange={(v) => updateSetting("term:fontfamily", v || undefined)}
-                            options={[
-                                { value: "", label: "默认" },
-                                { value: "Monaco", label: "Monaco" },
-                                { value: "Menlo", label: "Menlo" },
-                                { value: "Consolas", label: "Consolas" },
-                                { value: "Courier New", label: "Courier New" },
-                                { value: "Fira Code", label: "Fira Code" },
-                                { value: "JetBrains Mono", label: "JetBrains Mono" },
-                                { value: "Source Code Pro", label: "Source Code Pro" },
-                                { value: "Hack", label: "Hack" },
-                                { value: "Ubuntu Mono", label: "Ubuntu Mono" },
-                            ]}
                         />
                     </SettingItem>
                     <SettingItem

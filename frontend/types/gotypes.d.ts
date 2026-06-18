@@ -610,14 +610,14 @@ declare global {
         modts?: number;
     };
 
-    // wshrpc.CommandReadSkillContentData
-    type CommandReadSkillContentData = {
-        name: string;
-    };
-
     // wshrpc.CommandReadKBFileData
     type CommandReadKBFileData = {
         path: string;
+    };
+
+    // wshrpc.CommandReadSkillContentData
+    type CommandReadSkillContentData = {
+        name: string;
     };
 
     // wshrpc.CommandRemoteDisconnectFromJobManagerData
@@ -1270,6 +1270,31 @@ declare global {
         path: string;
         fileName: string;
         size: number;
+    };
+
+    // knowledgebase.KbEntry
+    type KbEntry = {
+        name: string;
+        relPath: string;
+        type: string;
+        size?: number;
+        mtimeMs?: number;
+    };
+
+    // knowledgebase.KbFileContent
+    type KbFileContent = {
+        content: string;
+        mtimeMs: number;
+        isImage: boolean;
+        mimeType?: string;
+    };
+
+    // knowledgebase.KbSearchResult
+    type KbSearchResult = {
+        name: string;
+        relPath: string;
+        size: number;
+        mtimeMs: number;
     };
 
     // waveobj.LayoutActionData

@@ -97,6 +97,51 @@ class ClientServiceType {
 
 export const ClientService = new ClientServiceType();
 
+// kbservice.KnowledgeBaseService (knowledgebase)
+class KnowledgeBaseServiceType {
+    Copy(arg1: string, arg2: string): Promise<string> {
+        return WOS.callBackendService("knowledgebase", "Copy", Array.from(arguments))
+    }
+    CreateFile(arg1: string, arg2: string, arg3: string): Promise<string> {
+        return WOS.callBackendService("knowledgebase", "CreateFile", Array.from(arguments))
+    }
+    Delete(arg1: string): Promise<void> {
+        return WOS.callBackendService("knowledgebase", "Delete", Array.from(arguments))
+    }
+    EnsureRoot(): Promise<void> {
+        return WOS.callBackendService("knowledgebase", "EnsureRoot", Array.from(arguments))
+    }
+    ImportFile(arg1: string, arg2: string): Promise<string> {
+        return WOS.callBackendService("knowledgebase", "ImportFile", Array.from(arguments))
+    }
+    ImportFolder(arg1: string, arg2: string): Promise<string> {
+        return WOS.callBackendService("knowledgebase", "ImportFolder", Array.from(arguments))
+    }
+    ListDir(arg1: string): Promise<KbEntry[]> {
+        return WOS.callBackendService("knowledgebase", "ListDir", Array.from(arguments))
+    }
+    Mkdir(arg1: string, arg2: string): Promise<string> {
+        return WOS.callBackendService("knowledgebase", "Mkdir", Array.from(arguments))
+    }
+    Move(arg1: string, arg2: string): Promise<string> {
+        return WOS.callBackendService("knowledgebase", "Move", Array.from(arguments))
+    }
+    ReadFile(arg1: string): Promise<KbFileContent> {
+        return WOS.callBackendService("knowledgebase", "ReadFile", Array.from(arguments))
+    }
+    Rename(arg1: string, arg2: string): Promise<string> {
+        return WOS.callBackendService("knowledgebase", "Rename", Array.from(arguments))
+    }
+    Search(arg1: string): Promise<KbSearchResult[]> {
+        return WOS.callBackendService("knowledgebase", "Search", Array.from(arguments))
+    }
+    WriteFile(arg1: string, arg2: string): Promise<void> {
+        return WOS.callBackendService("knowledgebase", "WriteFile", Array.from(arguments))
+    }
+}
+
+export const KnowledgeBaseService = new KnowledgeBaseServiceType();
+
 // objectservice.ObjectService (object)
 class ObjectServiceType {
     // @returns blockId (and object updates)

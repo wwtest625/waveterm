@@ -4,6 +4,7 @@
 import { NullErrorBoundary } from "@/app/element/errorboundary";
 import { Search, useSearch } from "@/app/element/search";
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { modalsModel } from "@/app/store/modalmodel";
 import { useTabModel } from "@/app/store/tab-model";
 import type { TermViewModel } from "@/app/view/term/term-model";
 import { atoms, getOverrideConfigAtom, getSettingsPrefixAtom, globalStore, WOS } from "@/store/global";
@@ -161,6 +162,24 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         const termCursorStyle = normalizeCursorStyle(globalStore.get(getOverrideConfigAtom(blockId, "term:cursor")));
         const termCursorBlink = globalStore.get(getOverrideConfigAtom(blockId, "term:cursorblink")) ?? false;
         const wasFocused = model.termRef.current != null && globalStore.get(model.nodeModel.isFocused);
+        const resolvedFontFamily = termSettings?.["term:fontfamily"] ?? connFontFamily ?? "Hack";
+
+        // 检测配置的字体是否可用（仅检测用户明确配置的字体，不检测默认值）
+        // 使用 data 属性避免同一字体重复弹窗
+        const userFontFamily = termSettings?.["term:fontfamily"] ?? connFontFamily;
+        if (userFontFamily && userFontFamily !== "Hack") {
+            const fontAvailable = document.fonts.check(`12px "${userFontFamily}"`);
+            if (!fontAvailable) {
+                const notifiedKey = `__fontMissingNotified_${userFontFamily}`;
+                if (!connectElemRef.current?.dataset[notifiedKey]) {
+                    connectElemRef.current?.setAttribute(`data-${notifiedKey}`, "1");
+                    modalsModel.pushModal("MessageModal", {
+                        children: `字体 "${userFontFamily}" 在当前系统上不可用，终端将回退使用默认字体。请在设置中选择其他字体。`,
+                    });
+                }
+            }
+        }
+
         const termWrap = new TermWrap(
             tabModel.tabId,
             blockId,
@@ -168,7 +187,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
             {
                 theme: termTheme,
                 fontSize: termFontSize,
-                fontFamily: termSettings?.["term:fontfamily"] ?? connFontFamily ?? "Hack",
+                fontFamily: resolvedFontFamily,
                 drawBoldTextInBrightColors: false,
                 fontWeight: "normal",
                 fontWeightBold: "bold",

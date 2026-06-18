@@ -56,10 +56,23 @@ test("makeConnectionFormFromConfig maps existing config to form state", () => {
     assert.equal(form.user, "root");
     assert.equal(form.hostname, "192.168.1.10");
     assert.equal(form.port, "22");
+    assert.equal(form.password, "");
     assert.equal(form.passwordSecretName, "");
     assert.equal(form.hasStoredPassword, false);
     assert.equal(form.passwordAuth, true);
     assert.equal(form.pubkeyAuth, false);
+});
+
+test("makeConnectionFormFromConfig detects stored password from ssh:passwordsecretname", () => {
+    const form = makeConnectionFormFromConfig("root@192.168.1.10", {
+        "ssh:passwordsecretname": "SSH_PASSWORD_ROOT_192_168_1_10",
+        "ssh:passwordauthentication": true,
+    });
+
+    assert.equal(form.password, "");
+    assert.equal(form.passwordSecretName, "SSH_PASSWORD_ROOT_192_168_1_10");
+    assert.equal(form.hasStoredPassword, true);
+    assert.equal(form.passwordAuth, true);
 });
 
 test("buildConnMetaFromForm trims strings and omits empty string fields", () => {

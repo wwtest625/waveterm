@@ -10,6 +10,8 @@ export type ConnectionFormState = {
     hostname: string;
     port: string;
     password: string;
+    passwordSecretName: string;
+    hasStoredPassword: boolean;
     passwordAuth: boolean;
     pubkeyAuth: boolean;
     keyboardInteractiveAuth: boolean;
@@ -76,9 +78,14 @@ export function buildConnectionHost(user: string, hostname: string): string {
     return `${normalizedUser}@${trimmedHostname}`;
 }
 
+export function buildPasswordSecretName(host: string): string {
+    return "SSH_PASSWORD_" + host.replace(/@/g, "_").replace(/\./g, "_").toUpperCase().trim();
+}
+
 export function makeConnectionFormFromConfig(host: string, meta: ConnKeywords | undefined): ConnectionFormState {
     const metaAny = (meta ?? {}) as Record<string, any>;
     const parsedHost = parseConnectionHost(host ?? "");
+    const passwordSecretName = (metaAny["ssh:passwordsecretname"] as string) ?? "";
     return {
         host: host ?? "",
         displayName: meta?.["display:name"] ?? "",
@@ -87,7 +94,9 @@ export function makeConnectionFormFromConfig(host: string, meta: ConnKeywords | 
         user: meta?.["ssh:user"] ?? parsedHost.user,
         hostname: meta?.["ssh:hostname"] ?? parsedHost.hostname,
         port: meta?.["ssh:port"] ?? "22",
-        password: (metaAny["ssh:password"] as string) ?? "",
+        password: "",
+        passwordSecretName: passwordSecretName,
+        hasStoredPassword: passwordSecretName !== "",
         passwordAuth: meta?.["ssh:passwordauthentication"] ?? false,
         pubkeyAuth: meta?.["ssh:pubkeyauthentication"] ?? true,
         keyboardInteractiveAuth: meta?.["ssh:kbdinteractiveauthentication"] ?? false,
@@ -111,7 +120,10 @@ export function buildConnMetaFromForm(form: ConnectionFormState): {[key: string]
     if (user !== "") meta["ssh:user"] = user;
     if (hostname !== "") meta["ssh:hostname"] = hostname;
     if (port !== "") meta["ssh:port"] = port;
-    if (password !== "") meta["ssh:password"] = password;
+    if (password !== "") {
+        const secretName = trim(form.passwordSecretName) || buildPasswordSecretName(form.host);
+        meta["ssh:passwordsecretname"] = secretName;
+    }
     meta["ssh:passwordauthentication"] = !!form.passwordAuth;
     meta["ssh:pubkeyauthentication"] = !!form.pubkeyAuth;
     meta["ssh:kbdinteractiveauthentication"] = !!form.keyboardInteractiveAuth;

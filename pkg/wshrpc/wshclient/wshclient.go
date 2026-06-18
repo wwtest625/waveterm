@@ -548,6 +548,12 @@ func GetSecretsNamesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]string, 
 	return resp, err
 }
 
+// command "getskilldefinition", wshserver.GetSkillDefinitionCommand
+func GetSkillDefinitionCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSkillDefinitionData, opts *wshrpc.RpcOpts) (*wshrpc.SkillDefinition, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.SkillDefinition](w, "getskilldefinition", data, opts)
+	return resp, err
+}
+
 // command "getskills", wshserver.GetSkillsCommand
 func GetSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.SkillInfo, error) {
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.SkillInfo](w, "getskills", nil, opts)
@@ -557,12 +563,6 @@ func GetSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.SkillIn
 // command "getskillsuserpath", wshserver.GetSkillsUserPathCommand
 func GetSkillsUserPathCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "getskillsuserpath", nil, opts)
-	return resp, err
-}
-
-// command "getskilldefinition", wshserver.GetSkillDefinitionCommand
-func GetSkillDefinitionCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSkillDefinitionData, opts *wshrpc.RpcOpts) (*wshrpc.SkillDefinition, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.SkillDefinition](w, "getskilldefinition", data, opts)
 	return resp, err
 }
 
@@ -728,6 +728,12 @@ func ListAllEditableAppsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshr
 	return resp, err
 }
 
+// command "listskills", wshserver.ListSkillsCommand
+func ListSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.SkillListItem, error) {
+	resp, err := sendRpcRequestCallHelper[[]wshrpc.SkillListItem](w, "listskills", nil, opts)
+	return resp, err
+}
+
 // command "listwaveaibackgroundjobs", wshserver.ListWaveAIBackgroundJobsCommand
 func ListWaveAIBackgroundJobsCommand(w *wshutil.WshRpc, data wshrpc.CommandListWaveAIBackgroundJobsData, opts *wshrpc.RpcOpts) ([]uctypes.UIChatBackgroundJobInfo, error) {
 	resp, err := sendRpcRequestCallHelper[[]uctypes.UIChatBackgroundJobInfo](w, "listwaveaibackgroundjobs", data, opts)
@@ -737,12 +743,6 @@ func ListWaveAIBackgroundJobsCommand(w *wshutil.WshRpc, data wshrpc.CommandListW
 // command "listwaveaisessions", wshserver.ListWaveAISessionsCommand
 func ListWaveAISessionsCommand(w *wshutil.WshRpc, data wshrpc.CommandListWaveAISessionsData, opts *wshrpc.RpcOpts) ([]*uctypes.UIChatSessionMeta, error) {
 	resp, err := sendRpcRequestCallHelper[[]*uctypes.UIChatSessionMeta](w, "listwaveaisessions", data, opts)
-	return resp, err
-}
-
-// command "listskills", wshserver.ListSkillsCommand
-func ListSkillsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.SkillListItem, error) {
-	resp, err := sendRpcRequestCallHelper[[]wshrpc.SkillListItem](w, "listskills", nil, opts)
 	return resp, err
 }
 
@@ -818,15 +818,15 @@ func ReadAppFileCommand(w *wshutil.WshRpc, data wshrpc.CommandReadAppFileData, o
 	return resp, err
 }
 
-// command "readskillcontent", wshserver.ReadSkillContentCommand
-func ReadSkillContentCommand(w *wshutil.WshRpc, data wshrpc.CommandReadSkillContentData, opts *wshrpc.RpcOpts) (*wshrpc.SkillContent, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.SkillContent](w, "readskillcontent", data, opts)
-	return resp, err
-}
-
 // command "readkbfile", wshserver.ReadKBFileCommand
 func ReadKBFileCommand(w *wshutil.WshRpc, data wshrpc.CommandReadKBFileData, opts *wshrpc.RpcOpts) (*wshrpc.KBFileContent, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.KBFileContent](w, "readkbfile", data, opts)
+	return resp, err
+}
+
+// command "readskillcontent", wshserver.ReadSkillContentCommand
+func ReadSkillContentCommand(w *wshutil.WshRpc, data wshrpc.CommandReadSkillContentData, opts *wshrpc.RpcOpts) (*wshrpc.SkillContent, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.SkillContent](w, "readskillcontent", data, opts)
 	return resp, err
 }
 
@@ -994,16 +994,16 @@ func RouteUnannounceCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	return err
 }
 
-// command "sendtelemetry", wshserver.SendTelemetryCommand
-func SendTelemetryCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "sendtelemetry", nil, opts)
-	return err
-}
-
 // command "searchkbfiles", wshserver.SearchKBFilesCommand
 func SearchKBFilesCommand(w *wshutil.WshRpc, data wshrpc.CommandSearchKBFilesData, opts *wshrpc.RpcOpts) ([]wshrpc.KBFileSearchResult, error) {
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.KBFileSearchResult](w, "searchkbfiles", data, opts)
 	return resp, err
+}
+
+// command "sendtelemetry", wshserver.SendTelemetryCommand
+func SendTelemetryCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "sendtelemetry", nil, opts)
+	return err
 }
 
 // command "setblockfocus", wshserver.SetBlockFocusCommand
